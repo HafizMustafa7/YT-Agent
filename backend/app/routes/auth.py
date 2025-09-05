@@ -64,8 +64,27 @@ def login(payload: LoginRequest):
         if not session or not user:
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
-        access_token = session.get("access_token") if isinstance(session, dict) else getattr(session, "access_token", None)
-        refresh_token = session.get("refresh_token") if isinstance(session, dict) else getattr(session, "refresh_token", None)
+        # ✅ Consistent token extraction
+        access_token = (
+            session.get("access_token")
+            if isinstance(session, dict)
+            else getattr(session, "access_token", None)
+        )
+        refresh_token = (
+            session.get("refresh_token")
+            if isinstance(session, dict)
+            else getattr(session, "refresh_token", None)
+        )
+        expires_in = (
+            session.get("expires_in")
+            if isinstance(session, dict)
+            else getattr(session, "expires_in", None)
+        )
+        token_type = (
+            session.get("token_type")
+            if isinstance(session, dict)
+            else getattr(session, "token_type", None)
+        )
 
         if not access_token or not refresh_token:
             logger.warning("[LOGIN] Tokens missing from session: %s", session)
@@ -75,10 +94,12 @@ def login(payload: LoginRequest):
             "message": "Login successful",
             "access_token": access_token,
             "refresh_token": refresh_token,
+            "expires_in": expires_in,
+            "token_type": token_type,
             "user": {
                 "id": user.get("id") if isinstance(user, dict) else getattr(user, "id", None),
                 "email": user.get("email") if isinstance(user, dict) else getattr(user, "email", None),
-            }
+            },
         }
     except Exception as e:
         raise handle_error(e, status_code=401)
@@ -139,10 +160,7 @@ def get_current_user(authorization: str = Header(None)):
 
 @router.get("/me")
 def get_current_user_info(current_user: dict = Depends(get_current_user)):
-    return {
-        "user": current_user,
-        "message": "User authenticated successfully"
-    }
+    return {"user": current_user, "message": "User authenticated successfully"}
 
 
 @router.post("/logout")

@@ -13,6 +13,13 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: true
+    detectSessionInUrl: true,
+    storage: window.localStorage,
+    storageKey: 'supabase.auth.token'
   }
+});
+
+// Add debugging for auth state changes
+supabase.auth.onAuthStateChange((event, session) => {
+  console.log("[DEBUG] Supabase auth state change:", event, session?.user?.email);
 });

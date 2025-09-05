@@ -14,27 +14,66 @@ function App() {
     console.log("[DEBUG] App mounted - checking for existing session");
 
     const getInitialSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      console.log("[DEBUG] Initial session check:", session);
+      try {
+        console.log("[DEBUG] Calling supabase.auth.getSession()");
+        const { data: { session }, error } = await supabase.auth.getSession();
+        console.log("[DEBUG] Initial session check result:", { session: !!session, error });
 
-      if (session?.user) {
-        setUser(session.user);
-
-        // Only sync if OAuth user (email/password signup already handled in backend)
-        const provider = session.user.app_metadata?.provider;
-        if (provider && provider !== "email" && !synced) {
-          try {
-            await syncOAuthUser();
-            setSynced(true);
-          } catch (err) {
-            console.error("[ERROR] Failed to sync OAuth user:", err);
-          }
+        if (error) {
+          console.error("[ERROR] getSession error:", error);
+          setLoading(false);
+          return;
         }
+
+        if (session?.user) {
+          console.log("[DEBUG] Session found, setting user:", session.user.email);
+
+          // Check if session is expired
+          const now = Math.floor(Date.now() / 1000);
+          const expiresAt = session.expires_at;
+          if (expiresAt && now > expiresAt) {
+            console.log("[DEBUG] Session expired, signing out");
+            await supabase.auth.signOut();
+            setUser(null);
+            setLoading(false);
+            return;
+          }
+
+          setUser(session.user);
+
+          // Only sync if OAuth user (email/password signup already handled in backend)
+          const provider = session.user.app_metadata?.provider;
+          if (provider && provider !== "email" && !synced) {
+            try {
+              console.log("[DEBUG] Syncing OAuth user");
+              await syncOAuthUser();
+              setSynced(true);
+              console.log("[DEBUG] OAuth user synced successfully");
+            } catch (err) {
+              console.error("[ERROR] Failed to sync OAuth user:", err);
+              // Don't set loading to false here, continue
+            }
+          }
+        } else {
+          console.log("[DEBUG] No session found");
+        }
+      } catch (err) {
+        console.error("[ERROR] getInitialSession failed:", err);
+      } finally {
+        console.log("[DEBUG] Setting loading to false");
+        setLoading(false);
       }
-      setLoading(false);
     };
 
-    getInitialSession();
+    // Add timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      console.warn("[WARN] getInitialSession timeout - forcing loading to false");
+      setLoading(false);
+    }, 10000); // 10 seconds timeout
+
+    getInitialSession().then(() => {
+      clearTimeout(timeoutId);
+    });
 
     // 🔹 Listen to auth state changes (login, logout, OAuth callback)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(

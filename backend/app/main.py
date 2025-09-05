@@ -1,28 +1,27 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import FRONTEND_URL
-from app.routes import auth
+from app.routes import auth, channels   # ✅ include channels router
 
-# Create FastAPI app
 app = FastAPI(
-    title="Auth Backend",
-    description="Backend with Supabase authentication",
-    version="1.0.0"
+    title="Auth + Channels Backend",
+    description="Backend with Supabase authentication + YouTube channel linking",
+    version="1.2.0"
 )
 
-# Enable CORS for frontend
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL],   # frontend URL from config
+    allow_origins=[FRONTEND_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Register auth routes with prefix
+# Routers
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
+app.include_router(channels.router, prefix="/api/channels", tags=["Channels"])
 
-# Root endpoint (health check)
 @app.get("/")
 def root():
     return {"message": "Backend running successfully 🚀"}

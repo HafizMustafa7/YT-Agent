@@ -13,29 +13,74 @@ import { supabase } from "../supabaseClient";
 
 export default function Dashboard() {
   const [selectedChannel, setSelectedChannel] = useState("Select Channel");
+  const [channels, setChannels] = useState([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const navigate = useNavigate();
 
-  const channels = ["Channel 1", "Channel 2", "Channel 3"];
-
+  // ✅ Fetch channels from backend
   useEffect(() => {
-    const checkSession = async () => {
+    const fetchChannels = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session || !session.user) {
         navigate("/");
+        return;
+      }
+
+      try {
+        const res = await fetch("http://localhost:8000/api/channels/", {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
+        if (!res.ok) throw new Error("Failed to fetch channels");
+        const data = await res.json();
+        setChannels(data || []);
+      } catch (err) {
+        console.error("Error fetching channels:", err);
       }
     };
-    checkSession();
+
+    fetchChannels();
   }, [navigate]);
 
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
+      console.log("[DEBUG] Starting logout process");
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error("[ERROR] Supabase signOut error:", error);
+      } else {
+        console.log("[DEBUG] Supabase signOut successful");
+      }
+      localStorage.clear();
+      console.log("[DEBUG] localStorage cleared");
       navigate("/");
+      console.log("[DEBUG] Navigation to / completed");
     } catch (error) {
-      console.error("Error signing out:", error);
-      // Still navigate to home page even if signout fails
+      console.error("[ERROR] Logout failed:", error);
       navigate("/");
+    }
+  };
+
+  // ✅ Start OAuth flow
+  const handleAddChannel = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      navigate("/");
+      return;
+    }
+
+    try {
+      const res = await fetch("http://localhost:8000/api/channels/oauth", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      if (!res.ok) throw new Error("Failed to start OAuth");
+      const data = await res.json();
+      window.location.href = data.url; // Redirect to Google OAuth
+    } catch (err) {
+      console.error("Error starting OAuth:", err);
     }
   };
 
@@ -55,7 +100,6 @@ export default function Dashboard() {
 
       {/* 🔹 Channel selector bar */}
       <div className="flex justify-between p-6">
-        {/* Channel Selector */}
         <div className="relative">
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
@@ -66,38 +110,46 @@ export default function Dashboard() {
           </button>
 
           {dropdownOpen && (
-            <div className="absolute right-0 z-50 w-48 p-2 mt-2 border shadow-lg bg-black/70 backdrop-blur-xl border-white/20 rounded-xl">
-              {channels.map((ch) => (
-                <div
-                  key={ch}
-                  onClick={() => {
-                    setSelectedChannel(ch);
-                    setDropdownOpen(false);
-                  }}
-                  className="px-4 py-2 text-sm text-white rounded-lg cursor-pointer hover:bg-white/20"
-                >
-                  {ch}
+            <div className="absolute left-0 top-full z-50 w-80 max-h-60 overflow-y-auto p-3 mt-2 border shadow-2xl bg-black/90 backdrop-blur-xl border-white/30 rounded-2xl">
+              {channels.length > 0 ? (
+                channels.map((ch) => (
+                  <div
+                    key={ch.youtube_channel_id}
+                    onClick={() => {
+                      setSelectedChannel(ch.youtube_channel_name);
+                      setDropdownOpen(false);
+                    }}
+                    className="px-4 py-3 text-sm text-white rounded-xl cursor-pointer hover:bg-white/10 transition-colors duration-200 flex items-center gap-3"
+                  >
+                    <div className="w-8 h-8 bg-gradient-to-br from-red-500 to-pink-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
+                      {ch.youtube_channel_name.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="truncate">{ch.youtube_channel_name}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="px-4 py-3 text-sm text-gray-400 text-center">
+                  No channels linked yet
                 </div>
-              ))}
+              )}
 
-              {/* Add new channel */}
-              <div className="pt-2 mt-2 border-t border-white/20">
+              {/* Add new channel (OAuth) */}
+              <div className="pt-3 mt-3 border-t border-white/20">
                 <div
                   onClick={() => {
-                    alert("Add new channel placeholder");
+                    handleAddChannel();
                     setDropdownOpen(false);
                   }}
-                  className="flex items-center gap-2 px-4 py-2 text-sm text-blue-300 rounded-lg cursor-pointer hover:bg-white/20"
+                  className="flex items-center gap-3 px-4 py-3 text-sm text-blue-400 rounded-xl cursor-pointer hover:bg-blue-500/20 transition-colors duration-200"
                 >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>Add new channel</span>
+                  <PlusCircle className="w-5 h-5" />
+                  <span>Link new YouTube channel</span>
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Logout Button */}
         <button
           onClick={handleLogout}
           className="px-4 py-2 ml-4 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600"
