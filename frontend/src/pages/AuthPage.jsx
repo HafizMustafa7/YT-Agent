@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Shield, Zap, Brain, BarChart } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabaseClient";
-import { signup, login } from "../api/auth";
+import { signup, login, getCurrentUser, syncOAuthUser } from "../api/auth";
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
@@ -17,16 +17,48 @@ export default function AuthPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         console.log("[FRONTEND DEBUG] Existing session found:", session.user);
-        navigate("/dashboard");
+
+        // Call backend to get user info including drive_connected
+        try {
+          const userInfo = await getCurrentUser();
+          if (userInfo.user.drive_connected) {
+            navigate("/dashboard");
+          } else {
+            navigate("/connect-drive");
+          }
+        } catch (err) {
+          console.error("[FRONTEND ERROR] Failed to fetch user info:", err);
+          navigate("/dashboard");
+        }
       }
     };
     checkSession();
 
-    // 🔹 Listen for OAuth or email login
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+  // 🔹 Listen for OAuth login (email login navigation handled directly)
+    const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         console.log("[FRONTEND DEBUG] Auth state change:", event, session.user);
-        navigate("/dashboard");
+
+        // Only handle OAuth users here
+        const provider = session.user.app_metadata?.provider;
+        if (provider && provider !== "email") {
+          try {
+            console.log("[FRONTEND DEBUG] Syncing OAuth user on auth change");
+            await syncOAuthUser();
+
+            // Navigate based on drive connection
+            const userInfo = await getCurrentUser();
+            if (userInfo.user.drive_connected) {
+              navigate("/dashboard");
+            } else {
+              navigate("/connect-drive");
+            }
+          } catch (err) {
+            console.error("[FRONTEND ERROR] Failed to sync OAuth user:", err);
+            navigate("/connect-drive");
+          }
+        }
+        // Email login navigation is handled directly in handleSubmit
       }
     });
 
@@ -62,7 +94,20 @@ export default function AuthPage() {
         }
 
         console.log("[FRONTEND DEBUG] Login successful for:", user?.email);
-        navigate("/dashboard");
+
+        // Navigate based on drive connection status
+        try {
+          const userInfo = await getCurrentUser();
+          if (userInfo.user.drive_connected) {
+            navigate("/dashboard");
+          } else {
+            navigate("/connect-drive");
+          }
+        } catch (err) {
+          console.error("[FRONTEND ERROR] Failed to fetch user info after login:", err);
+          // Default to dashboard for email login
+          navigate("/dashboard");
+        }
       } else {
         console.log("[FRONTEND DEBUG] Calling backend signup API");
         const response = await signup(formData);

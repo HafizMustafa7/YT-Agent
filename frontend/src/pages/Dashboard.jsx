@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [selectedChannel, setSelectedChannel] = useState("Select Channel");
   const [channels, setChannels] = useState([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [driveStatus, setDriveStatus] = useState({ drive_connected: false, token_valid: false, drive_email: null });
   const navigate = useNavigate();
 
   // ✅ Fetch channels from backend
@@ -42,6 +43,31 @@ export default function Dashboard() {
 
     fetchChannels();
   }, [navigate]);
+
+  // ✅ Fetch Drive connection status
+  useEffect(() => {
+    const fetchDriveStatus = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session || !session.user) {
+        return;
+      }
+
+      try {
+        const res = await fetch("http://localhost:8000/api/drive/status", {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
+        if (!res.ok) throw new Error("Failed to fetch drive status");
+        const data = await res.json();
+        setDriveStatus(data);
+      } catch (err) {
+        console.error("Error fetching drive status:", err);
+      }
+    };
+
+    fetchDriveStatus();
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -81,6 +107,37 @@ export default function Dashboard() {
       window.location.href = data.url; // Redirect to Google OAuth
     } catch (err) {
       console.error("Error starting OAuth:", err);
+    }
+  };
+
+  // ✅ Disconnect Drive
+  const handleDisconnectDrive = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      navigate("/");
+      return;
+    }
+
+    try {
+      const res = await fetch("http://localhost:8000/api/drive/disconnect", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      if (!res.ok) throw new Error("Failed to disconnect Drive");
+      // Refresh drive status
+      const statusRes = await fetch("http://localhost:8000/api/drive/status", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      if (statusRes.ok) {
+        const data = await statusRes.json();
+        setDriveStatus(data);
+      }
+    } catch (err) {
+      console.error("Error disconnecting Drive:", err);
     }
   };
 
@@ -172,6 +229,37 @@ export default function Dashboard() {
             <BarChart3 className="w-6 h-6" />
             Show Analytics
           </button>
+        </div>
+
+        {/* Drive connection status */}
+        <div className="mt-10 p-4 border rounded-lg bg-white/10 text-white max-w-md w-full">
+          <h2 className="mb-4 text-lg font-semibold">Google Drive Connection</h2>
+          {driveStatus.drive_connected ? (
+            <>
+              <p>Connected as: {driveStatus.drive_email}</p>
+              {driveStatus.token_valid ? (
+                <p className="text-green-400">Access token is valid</p>
+              ) : (
+                <p className="text-yellow-400">Access token expired, refreshing...</p>
+              )}
+              <button
+                onClick={handleDisconnectDrive}
+                className="mt-4 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+              >
+                Disconnect Drive
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-red-400">Not connected to Google Drive</p>
+              <button
+                onClick={() => navigate("/connect-drive")}
+                className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                Connect Drive
+              </button>
+            </>
+          )}
         </div>
       </main>
 

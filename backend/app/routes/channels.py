@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from app.routes.auth import get_current_user
-from app.core.config import supabase, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI, FRONTEND_URL
+from app.core.config import supabase, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI_CHANNELS
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 import datetime
@@ -31,7 +31,7 @@ def _build_flow():
             "web": {
                 "client_id": GOOGLE_CLIENT_ID,
                 "client_secret": GOOGLE_CLIENT_SECRET,
-                "redirect_uris": [GOOGLE_REDIRECT_URI],
+                "redirect_uris": [GOOGLE_REDIRECT_URI_CHANNELS],
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
             }
@@ -60,7 +60,7 @@ def start_youtube_oauth(current_user: dict = Depends(get_current_user)):
         }).execute()
 
         flow = _build_flow()
-        flow.redirect_uri = GOOGLE_REDIRECT_URI
+        flow.redirect_uri = GOOGLE_REDIRECT_URI_CHANNELS
 
         authorization_url, _ = flow.authorization_url(
             access_type="offline",             # request refresh token
@@ -114,7 +114,7 @@ def oauth_callback(request: Request, state: str = None, code: str = None):
 
         # Exchange code for tokens
         flow = _build_flow()
-        flow.redirect_uri = GOOGLE_REDIRECT_URI
+        flow.redirect_uri = GOOGLE_REDIRECT_URI_CHANNELS
         flow.fetch_token(code=code)
         credentials = flow.credentials
 

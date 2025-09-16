@@ -22,4 +22,14 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 // Add debugging for auth state changes
 supabase.auth.onAuthStateChange((event, session) => {
   console.log("[DEBUG] Supabase auth state change:", event, session?.user?.email);
+  if (session) {
+    console.log("[DEBUG] Session access_token present:", !!session.access_token);
+  } else {
+    console.log("[DEBUG] No session available");
+  }
+});
+
+// Debug current session on load
+supabase.auth.getSession().then(({ data: { session } }) => {
+  console.log("[DEBUG] Initial session check:", session ? "Session exists" : "No session");
 });
