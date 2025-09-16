@@ -1,9 +1,11 @@
 import { Routes, Route } from "react-router-dom";
 import { useEffect, useState } from "react";
 import AuthPage from "./pages/AuthPage";
+import ConnectDrivePage from "./pages/ConnectDrivePage";
 import Dashboard from "./pages/Dashboard";
 import { supabase } from "./supabaseClient";
 import { syncOAuthUser } from "./api/auth";
+
 
 function App() {
   const [user, setUser] = useState(null);
@@ -83,16 +85,7 @@ function App() {
         if (session?.user) {
           setUser(session.user);
 
-          // Sync only if OAuth provider
-          const provider = session.user.app_metadata?.provider;
-          if (provider && provider !== "email" && !synced) {
-            try {
-              await syncOAuthUser();
-              setSynced(true);
-            } catch (err) {
-              console.error("[ERROR] Failed to sync OAuth user on state change:", err);
-            }
-          }
+          // Note: OAuth sync is handled in AuthPage.jsx to avoid duplicates
         } else {
           setUser(null);
           setSynced(false); // Reset on logout
@@ -108,13 +101,16 @@ function App() {
   }, [synced]); // ✅ keep synced in deps so it updates properly
 
   if (loading) {
-    return <div className="flex h-screen items-center justify-center">Loading...</div>;
+    return <div className="flex items-center justify-center h-screen">Loading...</div>;
   }
 
   return (
     <Routes>
       {/* Auth Page (Login/Signup/OAuth buttons) */}
       <Route path="/" element={<AuthPage />} />
+
+      {/* Connect Drive Page */}
+      <Route path="/connect-drive" element={<ConnectDrivePage />} />
 
       {/* Dashboard (protected) */}
       <Route

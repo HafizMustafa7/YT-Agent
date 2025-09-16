@@ -160,7 +160,25 @@ def get_current_user(authorization: str = Header(None)):
 
 @router.get("/me")
 def get_current_user_info(current_user: dict = Depends(get_current_user)):
-    return {"user": current_user, "message": "User authenticated successfully"}
+    # Check drive connection status
+    drive_resp = supabase.table("drive_accounts").select("google_email, drive_connected").eq("user_id", current_user["id"]).execute()
+    drive_records = drive_resp.data if hasattr(drive_resp, "data") else drive_resp.get("data", [])
+
+    drive_connected = False
+    drive_email = None
+    if drive_records:
+        record = drive_records[0]
+        drive_connected = record.get("drive_connected", False)
+        drive_email = record.get("google_email")
+
+    return {
+        "user": {
+            **current_user,
+            "drive_connected": drive_connected,
+            "drive_email": drive_email
+        },
+        "message": "User authenticated successfully"
+    }
 
 
 @router.post("/logout")
