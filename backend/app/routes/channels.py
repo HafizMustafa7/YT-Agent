@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from app.routes.auth import get_current_user
-from app.core.config import supabase, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI_CHANNELS
+from app.core.config import supabase, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI_CHANNELS, FRONTEND_URL
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 import datetime
@@ -21,6 +21,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/yt-analytics.readonly",
     "https://www.googleapis.com/auth/yt-analytics-monetary.readonly",
+    "https://www.googleapis.com/auth/drive.file",  # Added to prevent scope mismatch
 ]
 
 # TTL for state (seconds)
@@ -167,6 +168,11 @@ def oauth_callback(request: Request, state: str = None, code: str = None):
     except HTTPException:
         raise
     except Exception as e:
+        # Ensure cleanup happens even if there's an error
+        try:
+            supabase.table("oauth_states").delete().eq("state", state).execute()
+        except Exception:
+            pass  # Don't let cleanup errors mask the original error
         logger.exception("[CHANNELS] oauth_callback failed")
         raise HTTPException(status_code=400, detail=str(e))
 
