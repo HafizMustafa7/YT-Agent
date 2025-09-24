@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Analytics Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .channel-selector {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .channel-select, .load-analytics-btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 25px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .channel-select {
+            background: #f8f9fa;
+            color: #495057;
+            border: 2px solid #e9ecef;
+            min-width: 200px;
+        }
+
+        .channel-select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .load-analytics-btn {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            font-weight: 600;
+            transform: translateY(0);
+        }
+
+        .load-analytics-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+        }
+
+        .load-analytics-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .stats-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            transform: translateY(0);
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
+        }
+
+        .stat-card h3 {
+            color: #6c757d;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+
+        .stat-card .value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 30px;
+            align-items: start;
+        }
+
+        .videos-sidebar {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .videos-sidebar h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+        }
+
+        .video-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 15px;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 10px;
+            border: 2px solid transparent;
+        }
+
+        .video-item:hover {
+            background: rgba(102, 126, 234, 0.1);
+            transform: translateX(5px);
+        }
+
+        .video-item.selected {
+            background: linear-gradient(45deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+            border-color: #667eea;
+        }
+
+        .video-thumbnail {
+            width: 60px;
+            height: 45px;
+            border-radius: 8px;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+
+        .video-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .video-title {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 5px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            font-size: 0.9rem;
+            line-height: 1.3;
+        }
+
+        .video-stats {
+            font-size: 0.8rem;
+            color: #6c757d;
+        }
+
+        .analytics-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            min-height: 500px;
+        }
+
+        .analytics-header {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .selected-video-thumbnail {
+            width: 120px;
+            height: 90px;
+            border-radius: 12px;
+            object-fit: cover;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .selected-video-info h2 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 1.8rem;
+        }
+
+        .selected-video-meta {
+            display: flex;
+            gap: 20px;
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+
+        .analytics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .analytics-card {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .analytics-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .analytics-card .metric-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+
+        .analytics-card .metric-label {
+            color: #6c757d;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .engagement-section {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .engagement-bar {
+            background: #e9ecef;
+            border-radius: 10px;
+            height: 20px;
+            margin: 10px 0;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .engagement-fill {
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            height: 100%;
+            border-radius: 10px;
+            transition: width 1s ease;
+            position: relative;
+        }
+
+        .engagement-percentage {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: white;
+            font-weight: bold;
+            font-size: 0.8rem;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+            font-size: 1.2rem;
+            color: #6c757d;
+        }
+
+        .loading::after {
+            content: '';
+            width: 20px;
+            height: 20px;
+            border: 2px solid #e9ecef;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .no-selection {
+            text-align: center;
+            color: #6c757d;
+            font-size: 1.2rem;
+            margin-top: 100px;
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border-left: 4px solid #dc3545;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .videos-sidebar {
+                max-height: 400px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .channel-selector {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .channel-select {
+                width: 100%;
+                max-width: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>YouTube Analytics Dashboard</h1>
+            <div class="channel-selector">
+                <select id="channelSelect" class="channel-select">
+                    <option value="">Loading channels...</option>
+                </select>
+                <button id="loadAnalytics" class="load-analytics-btn" disabled>Load Analytics</button>
+            </div>
+        </div>
+
+        <div id="statsOverview" class="stats-overview" style="display: none;">
+            <div class="stat-card">
+                <h3>Total Videos</h3>
+                <div class="value" id="totalVideos">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Total Views</h3>
+                <div class="value" id="totalViews">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Subscribers</h3>
+                <div class="value" id="totalSubscribers">0</div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="videos-sidebar">
+                <h2>Channel Videos</h2>
+                <div id="videosList">
+                    <div class="no-selection">Select a channel to load analytics</div>
+                </div>
+            </div>
+
+            <div class="analytics-panel">
+                <div id="analyticsContent">
+                    <div class="no-selection">
+                        <h2>Select a video to view analytics</h2>
+                        <p>Choose a video from the sidebar to see detailed performance metrics</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class YouTubeAnalytics {
+            constructor() {
+                this.selectedChannel = null;
+                this.selectedVideo = null;
+                this.channelsData = [];
+                this.videosData = [];
+                this.init();
+            }
+
+            init() {
+                this.bindEvents();
+                this.loadChannels();
+            }
+
+            bindEvents() {
+                const channelSelect = document.getElementById('channelSelect');
+                const loadAnalyticsBtn = document.getElementById('loadAnalytics');
+
+                channelSelect.addEventListener('change', (e) => {
+                    this.selectedChannel = e.target.value;
+                    loadAnalyticsBtn.disabled = !this.selectedChannel;
+                    
+                    // Clear previous data when channel changes
+                    this.clearAnalyticsData();
+                });
+
+                loadAnalyticsBtn.addEventListener('click', () => {
+                    if (this.selectedChannel) {
+                        this.loadChannelAnalytics();
+                    }
+                });
+            }
+
+            clearAnalyticsData() {
+                document.getElementById('statsOverview').style.display = 'none';
+                document.getElementById('videosList').innerHTML = '<div class="no-selection">Click "Load Analytics" to fetch videos</div>';
+                document.getElementById('analyticsContent').innerHTML = `
+                    <div class="no-selection">
+                        <h2>Select a video to view analytics</h2>
+                        <p>Choose a video from the sidebar to see detailed performance metrics</p>
+                    </div>
+                `;
+                this.videosData = [];
+                this.selectedVideo = null;
+            }
+
+            async loadChannels() {
+                try {
+                    console.log('Fetching channels from API...');
+                    
+                    const response = await fetch('/api/channels');
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    console.log('Channels data received:', data);
+                    
+                    this.channelsData = data.channels || [];
+                    this.populateChannelSelect();
+                    
+                    if (this.channelsData.length === 0) {
+                        this.showError('No channels found in database. Please add some channels first.');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error loading channels:', error);
+                    this.showError('Failed to load channels from database. Please check your connection and try again.');
+                    
+                    // Set select to show error state
+                    const select = document.getElementById('channelSelect');
+                    select.innerHTML = '<option value="">Error loading channels</option>';
+                }
+            }
+
+            populateChannelSelect() {
+                const select = document.getElementById('channelSelect');
+                select.innerHTML = '<option value="">Select a Channel</option>';
+                
+                this.channelsData.forEach(channel => {
+                    const option = document.createElement('option');
+                    option.value = channel.youtube_channel_id;
+                    option.textContent = channel.youtube_channel_name || `Channel ${channel.youtube_channel_id}`;
+                    select.appendChild(option);
+                });
+
+                console.log(`Populated dropdown with ${this.channelsData.length} channels`);
+            }
+
+            async loadChannelAnalytics() {
+                const videosList = document.getElementById('videosList');
+                const statsOverview = document.getElementById('statsOverview');
+                
+                videosList.innerHTML = '<div class="loading">Loading videos...</div>';
+                console.log(`Loading analytics for channel: ${this.selectedChannel}`);
+                
+                try {
+                    const response = await fetch(`/api/analytics/${this.selectedChannel}`);
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`Failed to load analytics: ${response.status} - ${errorText}`);
+                    }
+                    
+                    const data = await response.json();
+                    console.log(`Analytics data loaded:`, data);
+                    
+                    this.videosData = data.videos || [];
+                    
+                    // Update stats overview
+                    document.getElementById('totalVideos').textContent = (data.total_videos || 0).toLocaleString();
+                    document.getElementById('totalViews').textContent = (data.total_views || 0).toLocaleString();
+                    document.getElementById('totalSubscribers').textContent = (data.total_subscribers || 0).toLocaleString();
+                    
+                    statsOverview.style.display = 'grid';
+                    
+                    // Populate videos list
+                    this.populateVideosList();
+                    
+                } catch (error) {
+                    console.error('Error loading analytics:', error);
+                    videosList.innerHTML = `<div class="error-message">Failed to load channel analytics: ${error.message}</div>`;
+                    
+                    // Hide stats on error
+                    statsOverview.style.display = 'none';
+                }
+            }
+
+            populateVideosList() {
+                const videosList = document.getElementById('videosList');
+                
+                if (!this.videosData || this.videosData.length === 0) {
+                    videosList.innerHTML = '<div class="no-selection">No videos found for this channel</div>';
+                    return;
+                }
+
+                videosList.innerHTML = '';
+                
+                this.videosData.forEach(video => {
+                    const videoItem = document.createElement('div');
+                    videoItem.className = 'video-item';
+                    videoItem.onclick = () => this.selectVideo(video);
+                    
+                    // Handle missing thumbnail
+                    const thumbnailUrl = video.thumbnail || 'https://via.placeholder.com/60x45/667eea/ffffff?text=VIDEO';
+                    
+                    videoItem.innerHTML = `
+                        <img src="${thumbnailUrl}" alt="Thumbnail" class="video-thumbnail" onerror="this.src='https://via.placeholder.com/60x45/667eea/ffffff?text=VIDEO'">
+                        <div class="video-info">
+                            <div class="video-title">${video.title || 'Untitled Video'}</div>
+                            <div class="video-stats">
+                                ${(video.views || 0).toLocaleString()} views • 
+                                ${(video.likes || 0).toLocaleString()} likes • 
+                                ${video.duration || '0:00'}
+                            </div>
+                        </div>
+                    `;
+                    
+                    videosList.appendChild(videoItem);
+                });
+
+                console.log(`Populated videos list with ${this.videosData.length} videos`);
+            }
+
+            selectVideo(video) {
+                // Update selection UI
+                document.querySelectorAll('.video-item').forEach(item => {
+                    item.classList.remove('selected');
+                });
+                event.currentTarget.classList.add('selected');
+                
+                this.selectedVideo = video;
+                this.displayVideoAnalytics();
+                console.log(`Selected video: ${video.title}`);
+            }
+
+            displayVideoAnalytics() {
+                const analyticsContent = document.getElementById('analyticsContent');
+                
+                if (!this.selectedVideo) {
+                    analyticsContent.innerHTML = `
+                        <div class="no-selection">
+                            <h2>Select a video to view analytics</h2>
+                            <p>Choose a video from the sidebar to see detailed performance metrics</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                const video = this.selectedVideo;
+                const publishDate = video.published_at ? new Date(video.published_at).toLocaleDateString() : 'Unknown';
+                const thumbnailUrl = video.thumbnail || 'https://via.placeholder.com/120x90/667eea/ffffff?text=VIDEO';
+                
+                // Calculate performance metrics
+                const maxViews = Math.max(...this.videosData.map(v => v.views || 0));
+                const maxLikes = Math.max(...this.videosData.map(v => v.likes || 0));
+                const maxComments = Math.max(...this.videosData.map(v => v.comments || 0));
+                const avgViews = this.videosData.reduce((sum, v) => sum + (v.views || 0), 0) / this.videosData.length;
+                
+                const viewsPercentage = maxViews > 0 ? ((video.views || 0) / maxViews) * 100 : 0;
+                const likesPercentage = maxLikes > 0 ? ((video.likes || 0) / maxLikes) * 100 : 0;
+                const commentsPercentage = maxComments > 0 ? ((video.comments || 0) / maxComments) * 100 : 0;
+                
+                const performanceVsAverage = avgViews > 0 ? (((video.views || 0) - avgViews) / avgViews) * 100 : 0;
+                
+                analyticsContent.innerHTML = `
+                    <div class="analytics-header">
+                        <img src="${thumbnailUrl}" alt="Video Thumbnail" class="selected-video-thumbnail" onerror="this.src='https://via.placeholder.com/120x90/667eea/ffffff?text=VIDEO'">
+                        <div class="selected-video-info">
+                            <h2>${video.title || 'Untitled Video'}</h2>
+                            <div class="selected-video-meta">
+                                <span>Published: ${publishDate}</span>
+                                <span>Duration: ${video.duration || '0:00'}</span>
+                                <span>Engagement: ${video.engagement_rate || 0}%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="analytics-grid">
+                        <div class="analytics-card">
+                            <div class="metric-value">${(video.views || 0).toLocaleString()}</div>
+                            <div class="metric-label">Views</div>
+                        </div>
+                        <div class="analytics-card">
+                            <div class="metric-value">${(video.likes || 0).toLocaleString()}</div>
+                            <div class="metric-label">Likes</div>
+                        </div>
+                        <div class="analytics-card">
+                            <div class="metric-value">${(video.comments || 0).toLocaleString()}</div>
+                            <div class="metric-label">Comments</div>
+                        </div>
+                        <div class="analytics-card">
+                            <div class="metric-value">${video.engagement_rate || 0}%</div>
+                            <div class="metric-label">Engagement Rate</div>
+                        </div>
+                    </div>
+
+                    <div class="engagement-section">
+                        <h3>Performance Breakdown</h3>
+                        
+                        <div style="margin: 20px 0;">
+                            <h4>Views Performance</h4>
+                            <div class="engagement-bar">
+                                <div class="engagement-fill" style="width: ${Math.min(viewsPercentage, 100)}%">
+                                    <div class="engagement-percentage">${viewsPercentage.toFixed(1)}%</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="margin: 20px 0;">
+                            <h4>Likes Performance</h4>
+                            <div class="engagement-bar">
+                                <div class="engagement-fill" style="width: ${Math.min(likesPercentage, 100)}%">
+                                    <div class="engagement-percentage">${likesPercentage.toFixed(1)}%</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="margin: 20px 0;">
+                            <h4>Comments Engagement</h4>
+                            <div class="engagement-bar">
+                                <div class="engagement-fill" style="width: ${Math.min(commentsPercentage, 100)}%">
+                                    <div class="engagement-percentage">${commentsPercentage.toFixed(1)}%</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 30px; padding: 20px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 15px;">
+                            <h4>Video Insights</h4>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
+                                <div>
+                                    <strong>Avg. Views per Video:</strong><br>
+                                    <span style="color: #667eea; font-weight: bold;">${Math.round(avgViews).toLocaleString()}</span>
+                                </div>
+                                <div>
+                                    <strong>Performance vs Average:</strong><br>
+                                    <span style="color: ${performanceVsAverage > 0 ? '#28a745' : '#dc3545'}; font-weight: bold;">
+                                        ${performanceVsAverage > 0 ? '▲' : '▼'} 
+                                        ${Math.abs(performanceVsAverage).toFixed(1)}%
+                                    </span>
+                                </div>
+                                <div>
+                                    <strong>Engagement Quality:</strong><br>
+                                    <span style="color: ${(video.engagement_rate || 0) > 2 ? '#28a745' : (video.engagement_rate || 0) > 1 ? '#ffc107' : '#dc3545'}; font-weight: bold;">
+                                        ${(video.engagement_rate || 0) > 2 ? 'Excellent' : (video.engagement_rate || 0) > 1 ? 'Good' : 'Needs Improvement'}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            showError(message) {
+                const videosList = document.getElementById('videosList');
+                videosList.innerHTML = `<div class="error-message">${message}</div>`;
+            }
+        }
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            new YouTubeAnalytics();
+        });
+    </script>
+</body>
+</html>
