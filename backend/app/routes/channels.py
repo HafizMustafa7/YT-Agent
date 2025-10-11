@@ -5,9 +5,11 @@ from app.routes.auth import get_current_user
 from app.core.config import supabase, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI_CHANNELS, FRONTEND_URL
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
 import datetime
 import uuid
 import logging
+import requests
 
 router = APIRouter(tags=["Channels"])
 logger = logging.getLogger(__name__)
@@ -19,6 +21,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/youtube.readonly",
     "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtubepartner-channel-audit",
     "https://www.googleapis.com/auth/yt-analytics.readonly",
     "https://www.googleapis.com/auth/yt-analytics-monetary.readonly",
     "https://www.googleapis.com/auth/drive.file",  # Added to prevent scope mismatch

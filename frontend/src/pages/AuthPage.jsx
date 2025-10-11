@@ -130,7 +130,7 @@ export default function AuthPage() {
       console.log(`[FRONTEND DEBUG] Starting OAuth with ${provider}`);
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
-        options: { redirectTo: window.location.origin },
+        options: { redirectTo: window.location.origin + "/dashboard" },
       });
 
       if (error) {

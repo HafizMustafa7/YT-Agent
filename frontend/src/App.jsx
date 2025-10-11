@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import AuthPage from "./pages/AuthPage";
 import ConnectDrivePage from "./pages/ConnectDrivePage";
 import Dashboard from "./pages/Dashboard";
+import WelcomePage from "./pages/WelcomePage";
 import { supabase } from "./supabaseClient";
 import { syncOAuthUser } from "./api/auth";
 
@@ -106,8 +107,11 @@ function App() {
 
   return (
     <Routes>
+      {/* Welcome Page */}
+      <Route path="/" element={<WelcomePage />} />
+
       {/* Auth Page (Login/Signup/OAuth buttons) */}
-      <Route path="/" element={<AuthPage />} />
+      <Route path="/auth" element={<AuthPage />} />
 
       {/* Connect Drive Page */}
       <Route path="/connect-drive" element={<ConnectDrivePage />} />
