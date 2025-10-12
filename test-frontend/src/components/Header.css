@@ -1,44 +1,147 @@
 /* frontend/src/components/Header.css */
 .header {
+  background: linear-gradient(135deg, #4361ee 0%, #3f37c9 100%);
+  color: white;
+  padding: 1rem 2rem;
   width: 100%;
-  padding: 20px 40px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);  /* Increased for more depth */
+  position: sticky;  /* Sticks to top on scroll; optional */
+  top: 0;
+  z-index: 100;  /* Above floating shapes but below global error */
+  transition: box-shadow 0.3s ease;  /* Smooth on interactions */
+}
+
+.header:hover {
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.15);  /* Subtle lift on hover */
+}
+
+.header-content {
+  max-width: 1200px;  /* Matches hero-section */
+  margin: 0 auto;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background-color: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.05);
+  gap: 1rem;  /* Flexible spacing */
 }
 
 .logo {
-  font-weight: 700;
-  color: #4361ee;
-}
-
-.nav {
+  margin: 0;
+  font-size: 1.8rem;  /* Slightly larger for impact */
+  font-weight: bold;
   display: flex;
-  gap: 30px;
+  align-items: center;
+  gap: 0.5rem;
+  /* Optional: Add icon/logo */
+  /* ::before { content: '🎥'; } */
 }
 
-.nav-link {
+.logo:hover {
+  opacity: 0.9;
+  transition: opacity 0.3s ease;
+}
+
+nav {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+nav a {
+  color: white;
   text-decoration: none;
-  color: #555;
   font-weight: 500;
-  transition: color 0.3s;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  transition: all 0.3s ease;  /* Smooth hover/background */
+  position: relative;  /* For active underline if needed */
 }
 
-.nav-link:hover {
-  color: #4361ee;
+nav a:hover {
+  opacity: 0.8;
+  background: rgba(255, 255, 255, 0.1);  /* Subtle bg on hover */
 }
 
+nav a.active {
+  background: rgba(255, 255, 255, 0.2);
+  opacity: 1;
+  /* Optional: Underline */
+  /* ::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: white; } */
+}
+
+/* Hamburger Menu for Mobile (hidden on desktop) */
+.hamburger {
+  display: none;
+  flex-direction: column;
+  cursor: pointer;
+  gap: 4px;
+  padding: 5px;
+}
+
+.hamburger span {
+  width: 25px;
+  height: 3px;
+  background: white;
+  border-radius: 2px;
+  transition: all 0.3s ease;
+}
+
+.hamburger.active span:nth-child(1) {
+  transform: rotate(45deg) translate(5px, 5px);
+}
+
+.hamburger.active span:nth-child(2) {
+  opacity: 0;
+}
+
+.hamburger.active span:nth-child(3) {
+  transform: rotate(-45deg) translate(7px, -6px);
+}
+
+/* Mobile Styles */
 @media (max-width: 768px) {
   .header {
-    padding: 15px 20px;
+    padding: 0.8rem 1rem;
+  }
+
+  .header-content {
+    width: 100%;
+  }
+
+  .logo {
+    font-size: 1.5rem;
+  }
+
+  nav {
+    display: none;  /* Hide full nav on mobile */
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #4361ee;
     flex-direction: column;
-    gap: 15px;
+    padding: 1rem;
+    gap: 0;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
   }
-  
-  .nav {
-    gap: 20px;
+
+  nav.active {  /* Show when hamburger toggled */
+    display: flex;
   }
+
+  nav a {
+    width: 100%;
+    text-align: center;
+    padding: 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .hamburger {
+    display: flex;  /* Show on mobile */
+  }
+}
+
+/* Accessibility: Focus styles for keyboard nav */
+nav a:focus {
+  outline: 2px solid rgba(255, 255, 255, 0.5);
+  outline-offset: 2px;
 }

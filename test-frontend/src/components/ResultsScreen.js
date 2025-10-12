@@ -16,7 +16,7 @@ const ResultsScreen = ({ data, onBack, onGenerate, loading }) => {  // Added onG
             Back to Search
           </button>
         </div>
-        <p>Try a different niche or check your connection.</p>  // Improved message
+        <p>Try a different niche or check your connection.</p>   Improved message
       </div>
     );
   }
@@ -148,7 +148,7 @@ const ResultsScreen = ({ data, onBack, onGenerate, loading }) => {  // Added onG
 
       {/* Optional Modal for Full Details - Triggered by View More if needed */}
       {false && selectedVideo && (  // Placeholder; implement if keeping modal
-        <div className="modal-overlay" onClick={() => setSelectedVideoId(null)}>  // Reuse selection state
+        <div className="modal-overlay" onClick={() => setSelectedVideoId(null)}>   Reuse selection state
           {/* Modal content similar to original, with ARIA */}
         </div>
       )}

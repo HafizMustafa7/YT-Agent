@@ -1,103 +1,103 @@
-/* frontend/src/components/ChatBot.css */
 .chat-container {
-  max-width: 700px;
+  max-width: 600px;
   margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  padding: 20px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
 }
 
 .chat-bubble {
-  background-color: #f0f4ff;
-  border-radius: 20px;
-  padding: 20px 25px;
-  margin-bottom: 25px;
-  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
-  animation: fadeIn 0.5s ease-out;
-  max-width: 90%;
+  background: #e3f2fd;
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  border-left: 4px solid #4361ee;
 }
 
 .chat-text {
-  margin: 0;
-  color: #444;
-  font-size: 1.1rem;
   line-height: 1.5;
+  color: #333;
 }
 
 .chat-form {
-  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .input-container {
   display: flex;
-  width: 100%;
-  max-width: 600px;
-  margin-top: 20px;
+  gap: 10px;
 }
 
 .input-field {
   flex: 1;
-  padding: 15px 20px;
-  border: 2px solid #e1e5eb;
-  border-radius: 30px 0 0 30px;
-  font-size: 1rem;
-  outline: none;
-  transition: border-color 0.3s;
+  padding: 12px;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  font-size: 16px;
 }
 
 .input-field:focus {
+  outline: none;
   border-color: #4361ee;
 }
 
 .input-field:disabled {
-  background-color: #f5f5f5;
+  background: #f5f5f5;
   cursor: not-allowed;
 }
 
 .submit-button {
-  padding: 15px 30px;
-  background-color: #4361ee;
+  padding: 12px 24px;
+  background: #4361ee;
   color: white;
   border: none;
-  border-radius: 0 30px 30px 0;
-  font-size: 1rem;
-  font-weight: 600;
+  border-radius: 8px;
   cursor: pointer;
-  transition: background-color 0.3s;
+  font-size: 16px;
+  font-weight: 500;
 }
 
 .submit-button:hover:not(:disabled) {
-  background-color: #3651d4;
+  background: #3f37c9;
 }
 
 .submit-button:disabled {
-  background-color: #a0aec0;
+  background: #ccc;
   cursor: not-allowed;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.loading {
+  text-align: center;
+  margin-top: 10px;
+}
+
+.loading-spinner {
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #4361ee;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 @media (max-width: 768px) {
   .input-container {
     flex-direction: column;
-  }
-  
-  .input-field,
-  .submit-button {
-    border-radius: 30px;
-    width: 100%;
-  }
-  
-  .submit-button {
-    margin-top: 10px;
   }
 }
