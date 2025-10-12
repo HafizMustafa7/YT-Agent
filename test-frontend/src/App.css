@@ -134,3 +134,113 @@ body {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+/* New: Global Error Banner (for cross-view errors) */
+.global-error {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: #dc3545;
+  color: white;
+  padding: 15px 20px;
+  border-radius: 5px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+  z-index: 1000;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 400px;
+}
+
+.global-error p {
+  margin: 0;
+  flex: 1;
+}
+
+.global-error button {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+  margin-left: 10px;
+  padding: 0;
+  line-height: 1;
+}
+
+.global-error button:hover {
+  opacity: 0.8;
+}
+
+/* Ensure full height for views */
+.App {
+  min-height: 100vh;
+  position: relative;
+}
+
+/* Responsive for mobile */
+@media (max-width: 768px) {
+  .global-error {
+    top: 10px;
+    right: 10px;
+    left: 10px;
+    max-width: none;
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .hero-section {
+    padding: 10px;
+  }
+  
+  .title {
+    font-size: 2rem;
+  }
+  
+  .subtitle {
+    font-size: 1rem;
+  }
+}
+.header {
+  background: linear-gradient(135deg, #4361ee, #3f37c9);
+  color: white;
+  padding: 1rem 2rem;
+  width: 100%;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.header-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.logo {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+nav a {
+  color: white;
+  text-decoration: none;
+  margin-left: 2rem;
+  font-weight: 500;
+}
+
+nav a:hover {
+  opacity: 0.8;
+}
+
+@media (max-width: 768px) {
+  .header-content {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  nav a {
+    margin-left: 0;
+  }
+}
