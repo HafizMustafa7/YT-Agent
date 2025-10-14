@@ -1,9 +1,10 @@
-# generatestory.py
 import os
 from dotenv import load_dotenv
 import google.generativeai as genai
 from fastapi import HTTPException
-from typing import List, Tuple, Dict, Any
+from typing import List, Dict, Any
+import json
+import re
 
 # Load environment variables
 load_dotenv()
@@ -14,101 +15,361 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-async def generate_story_and_frames(selected_video: Dict, user_topic: str) -> Tuple[str, List[Dict[str, Any]]]:
+def extract_json_from_text(text: str) -> List[Dict]:
+    """Extract JSON array from Gemini response text."""
+    try:
+        # Try to find JSON array in the text (corrected regex for square brackets)
+        json_match = re.search(r'\$[\s\S]*\$', text)
+        if json_match:
+            json_str = json_match.group(0)
+            # Clean up common formatting issues
+            json_str = re.sub(r',\s*}', '}', json_str)  # Remove trailing commas
+            json_str = re.sub(r',\s*]', ']', json_str)
+            return json.loads(json_str)
+    except json.JSONDecodeError:
+        pass
+    return []
+
+def enhance_user_topic(selected_video: Dict, user_topic: str, model) -> str:
     """
-    Two-step generation:
-    1. Generate full story with consistent characters, based on selected video + user topic.
-    2. Split story into 6-9 frames, enforcing same characters, with detailed prompts for AI video gen.
-    Returns (full_story: str, frames: List[{"frame_num": int, "prompt": str, "description": str}])
+    Enhance user's topic by analyzing trending video patterns and adding viral elements.
+    """
+    enhancement_prompt = f"""
+    You are a YouTube Shorts content strategist. Analyze this trending video and enhance the user's topic idea.
+    
+    TRENDING VIDEO ANALYSIS:
+    - Title: "{selected_video['title']}"
+    - Views: {selected_video['views']}
+    - Likes: {selected_video['likes']}
+    - Description: "{selected_video.get('description', '')[:300]}"
+    - Hashtags: {', '.join(selected_video.get('tags', [])[:5])}
+    - AI Confidence: {selected_video.get('ai_confidence', 'N/A')}%
+    
+    USER'S TOPIC: "{user_topic}"
+    
+    Task: Enhance this topic by:
+    1. Identifying what made the trending video viral (hook, emotion, visual style)
+    2. Incorporating those viral elements into the user's topic
+    3. Adding specific themes, emotions, and visual directions
+    4. Making it SHORT-FORM optimized (30-60 seconds max)
+    
+    Output a comprehensive enhanced topic description (100-150 words) that includes:
+    - Main theme/story angle
+    - Emotional tone (motivational, funny, shocking, heartwarming, etc.)
+    - Visual style (cinematic, animated, documentary-style, fast-paced, etc.)
+    - Key hook/twist
+    - Target audience appeal
+    
+    Enhanced Topic:
+    """
+    
+    response = model.generate_content(enhancement_prompt)
+    return response.text.strip()
+
+def video_to_dict(video) -> Dict:
+    """Convert video object (Pydantic model or dict) to dictionary."""
+    if isinstance(video, dict):
+        return video
+    # Handle Pydantic model or object with attributes
+    return {
+        'id': getattr(video, 'id', ''),
+        'title': getattr(video, 'title', ''),
+        'description': getattr(video, 'description', ''),
+        'tags': getattr(video, 'tags', []),
+        'views': getattr(video, 'views', 0),
+        'likes': getattr(video, 'likes', 0),
+        'comments': getattr(video, 'comments', 0),
+        'thumbnail': getattr(video, 'thumbnail', ''),
+        'duration': getattr(video, 'duration', ''),
+        'channel': getattr(video, 'channel', ''),
+        'ai_confidence': getattr(video, 'ai_confidence', 0),
+        'url': getattr(video, 'url', '')
+    }
+
+async def generate_story_and_frames(
+    selected_video, 
+    user_topic: str,
+    max_frames: int = 7
+) -> Dict[str, Any]:
+    """
+    Generate a complete YouTube Shorts story with consistent characters and detailed frame prompts.
+    
+    Args:
+        selected_video: The selected trending video data
+        user_topic: User's input topic
+        max_frames: Maximum number of frames (default 7 for optimal 30-60s video)
+    
+    Returns:
+        Dictionary containing:
+        - enhanced_topic: The enhanced version of user's topic
+        - full_story: Complete narrative
+        - characters: List of character descriptions (if applicable)
+        - frames: List of frame objects with detailed prompts
+        - metadata: Additional info (duration estimate, style, etc.)
     """
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="Gemini API key not configured")
 
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-
-        # Step 1: Generate full story with consistent characters
+        # Convert selected_video to a dictionary to ensure it's subscriptable
+        selected_video = video_to_dict(selected_video)
+        
+        model = genai.GenerativeModel("gemini-2.5-flash")  # Updated to the new model
+        
+        # Step 1: Enhance the user's topic
+        print("Step 1: Enhancing user topic...")
+        enhanced_topic = enhance_user_topic(selected_video, user_topic, model)
+        
+        # Step 2: Generate full story with character consistency
+        print("Step 2: Generating full story...")
         story_prompt = f"""
-        You are a creative YouTube Shorts script writer specializing in engaging, viral content.
-        Base the story on this trending video: Title: "{selected_video['title']}", Description: "{selected_video['description'][:200]}...", Hashtags: {selected_video['tags']}.
-        User topic: "{user_topic}".
-
-        Generate a COMPLETE, detailed story for a 30-60 second YouTube Short. Ensure:
-        - CONSISTENT CHARACTERS: Introduce 2-4 main characters (e.g., a protagonist, sidekick) that appear throughout. Describe their appearances, personalities, and roles clearly at the start.
-        - Engaging narrative: Start with a hook, build tension or fun, end with a twist or call-to-action.
-        - Suitable for Shorts: Fast-paced, visual, emotional, and shareable.
-        - Length: 200-400 words, narrative style.
-
-        Output format:
-        - Title: [Catchy title]
-        - Characters: [List 2-4 characters with brief descriptions]
-        - Story: [Full narrative in paragraphs]
-        - Hook: [1-2 sentence opening]
-        - Ending: [Closing line for engagement]
+        You are an expert YouTube Shorts scriptwriter specializing in VIRAL, AI-GENERATED video content.
+        
+        CONTEXT FROM TRENDING VIDEO:
+        - Title: "{selected_video['title']}"
+        - Description: "{selected_video.get('description', '')[:200]}"
+        - What's working: {selected_video['views']} views, {selected_video['likes']} likes
+        - Tags: {', '.join(selected_video.get('tags', [])[:5])}
+        
+        ENHANCED TOPIC TO CREATE:
+        {enhanced_topic}
+        
+        ORIGINAL USER TOPIC: "{user_topic}"
+        
+        Generate a COMPLETE SHORT-FORM story (30-60 seconds when narrated) with these requirements:
+        
+        1. CHARACTER CONSISTENCY (CRITICAL):
+           - If story needs characters, introduce 1-3 main characters MAX
+           - Provide DETAILED physical descriptions: age, gender, clothing, hair, distinctive features
+           - Keep characters SIMPLE and RECOGNIZABLE for AI video generation
+           - Characters must be CONSISTENT across entire story
+           - If no characters needed (e.g., nature documentary), focus on visual continuity
+        
+        2. STORY STRUCTURE:
+           - Hook (0-3s): Grab attention immediately
+           - Build-up (3-20s): Develop tension/interest
+           - Climax (20-40s): Peak moment
+           - Resolution (40-50s): Payoff/twist
+           - CTA (50-60s): Call to action or memorable ending
+        
+        3. VISUAL-FIRST WRITING:
+           - Every sentence should be visually descriptive
+           - Focus on actions, not just dialogue
+           - Include emotions through facial expressions and body language
+        
+        4. SHORT-FORM OPTIMIZATION:
+           - Fast-paced, no filler
+           - Maximum 200-250 words
+           - Every second counts
+        
+        5. VIRAL ELEMENTS:
+           - Emotional impact (surprise, joy, inspiration, shock)
+           - Relatable or aspirational content
+           - Shareable moment or quotable line
+        
+        OUTPUT FORMAT (use exact headers):
+        
+        ### TITLE
+        [Catchy, clickable title under 60 characters]
+        
+        ### CHARACTERS
+        [If applicable, list 1-3 characters with detailed descriptions. If no characters, write "No specific characters - focus on [subject/theme]"]
+        
+        Character 1: [Name], [age range], [gender], [physical appearance: hair, clothing, build], [key trait]
+        Character 2: [Name], [age range], [gender], [physical appearance], [key trait]
+        
+        ### STORY
+        [Write the complete narrative in 200-250 words. Use present tense. Be visually descriptive.]
+        
+        ### HOOK
+        [The exact opening line/visual that grabs attention in first 3 seconds]
+        
+        ### THEMES
+        [List 3-4 themes: e.g., motivation, humor, transformation, discovery]
+        
+        ### VISUAL STYLE
+        [Describe the overall aesthetic: e.g., cinematic realism, animated cartoon, documentary style, surreal, dramatic lighting, bright and colorful, etc.]
+        
+        ### EMOTIONAL TONE
+        [Primary emotion: motivational, humorous, heartwarming, shocking, inspirational, mysterious, etc.]
+        
+        Generate the story now:
         """
-
+        
         story_response = model.generate_content(story_prompt)
-        full_story = story_response.text.strip()
-
-        # Step 2: Split story into 6-9 frames, enforcing same characters
+        full_story_text = story_response.text.strip()
+        
+        # Parse story components
+        story_data = {
+            "title": "",
+            "characters": [],
+            "story": "",
+            "hook": "",
+            "themes": [],
+            "visual_style": "",
+            "emotional_tone": ""
+        }
+        
+        # Extract sections using regex
+        title_match = re.search(r'###\s*TITLE\s*\n(.*?)(?=\n###|\Z)', full_story_text, re.DOTALL | re.IGNORECASE)
+        if title_match:
+            story_data["title"] = title_match.group(1).strip()
+        
+        characters_match = re.search(r'###\s*CHARACTERS\s*\n(.*?)(?=\n###|\Z)', full_story_text, re.DOTALL | re.IGNORECASE)
+        if characters_match:
+            char_text = characters_match.group(1).strip()
+            if "no specific characters" not in char_text.lower():
+                char_lines = [line.strip() for line in char_text.split('\n') if line.strip() and not line.strip().startswith('#')]
+                story_data["characters"] = char_lines
+        
+        story_match = re.search(r'###\s*STORY\s*\n(.*?)(?=\n###|\Z)', full_story_text, re.DOTALL | re.IGNORECASE)
+        if story_match:
+            story_data["story"] = story_match.group(1).strip()
+        
+        hook_match = re.search(r'###\s*HOOK\s*\n(.*?)(?=\n###|\Z)', full_story_text, re.DOTALL | re.IGNORECASE)
+        if hook_match:
+            story_data["hook"] = hook_match.group(1).strip()
+        
+        themes_match = re.search(r'###\s*THEMES\s*\n(.*?)(?=\n###|\Z)', full_story_text, re.DOTALL | re.IGNORECASE)
+        if themes_match:
+            story_data["themes"] = [t.strip() for t in themes_match.group(1).strip().split(',')]
+        
+        visual_match = re.search(r'###\s*VISUAL\s*STYLE\s*\n(.*?)(?=\n###|\Z)', full_story_text, re.DOTALL | re.IGNORECASE)
+        if visual_match:
+            story_data["visual_style"] = visual_match.group(1).strip()
+        
+        tone_match = re.search(r'###\s*EMOTIONAL\s*TONE\s*\n(.*?)(?=\n###|\Z)', full_story_text, re.DOTALL | re.IGNORECASE)
+        if tone_match:
+            story_data["emotional_tone"] = tone_match.group(1).strip()
+        
+        # Build character consistency instruction
+        character_instruction = ""
+        if story_data["characters"]:
+            character_instruction = f"""
+            CRITICAL CHARACTER CONSISTENCY:
+            These are the ONLY characters in this story. They MUST appear exactly as described in ALL relevant frames:
+            {chr(10).join(story_data["characters"])}
+            
+            - DO NOT change their appearance, clothing, or features
+            - DO NOT introduce new characters
+            - Reference them by name and maintain visual consistency
+            - If a character isn't in a frame, explicitly state "Character not in this frame"
+            """
+        else:
+            character_instruction = "No specific characters. Focus on visual subject consistency (e.g., same location, object, animal)."
+        
+        # Step 3: Generate frames with strict character consistency
+        print("Step 3: Generating video frames...")
+        
         frames_prompt = f"""
-        You are an AI video storyboard expert. Take this full story and split it into EXACTLY 6-9 sequential frames for a YouTube Short video.
-
-        Full Story:
-        {full_story}
-
-        Rules:
-        - STRICTLY USE THE SAME CHARACTERS from the story (no new ones). Reference them consistently.
-        - Each frame: 3-7 seconds, advancing the plot visually.
-        - Frame prompts must be DETAILED for AI video generation (e.g., RunwayML, Sora): Include scene description, character actions/emotions, camera angles (e.g., close-up, wide shot), lighting (e.g., bright, dramatic), themes (e.g., motivational, humorous), scenarios (e.g., gym workout, kitchen mishap), colors, style (e.g., realistic, animated), and transitions.
-        - Ensure continuity: Characters look/act the same across frames.
-        - Total: 6-9 frames covering the entire story (hook to ending).
-        - Keep viral Shorts vibe: Dynamic, eye-catching visuals.
-
-        Output format (JSON-like for parsing):
+        You are a professional AI video generation prompt engineer. Create a shot-by-shot storyboard for AI video tools (RunwayML, Pika, Sora, etc.).
+        
+        FULL STORY TO ADAPT:
+        {story_data["story"]}
+        
+        {character_instruction}
+        
+        VISUAL STYLE: {story_data["visual_style"]}
+        EMOTIONAL TONE: {story_data["emotional_tone"]}
+        THEMES: {', '.join(story_data["themes"])}
+        
+        Remember: Output ONLY the exact JSON array as specified. Do not add any extra text.
+        
+        Create EXACTLY {max_frames} frames (shots) that cover the entire story from hook to ending.
+        
+        FRAME REQUIREMENTS:
+        1. Each frame: 5-8 seconds of video content
+        2. Total duration: {max_frames * 6}s = ~{max_frames * 6}s video
+        3. Sequential storytelling: Frame 1 → Frame {max_frames} covers complete narrative
+        4. Character consistency: SAME characters throughout (if applicable)
+        
+        PROMPT ENGINEERING RULES FOR EACH FRAME:
+        - Start with: "A [duration] shot of..."
+        - Include: Camera angle (close-up, wide shot, over-shoulder, aerial, etc.)
+        - Include: Lighting (golden hour, dramatic shadows, bright studio, moody, etc.)
+        - Include: Movement (camera pans left, zooms in, static shot, tracking shot, etc.)
+        - Include: Character details (if applicable): exact clothing, hairstyle, facial expression, body language
+        - Include: Environment: detailed setting description
+        - Include: Action: what's happening in this exact moment
+        - Include: Emotion: how it should feel (tense, joyful, mysterious, etc.)
+        - Include: Style keywords: cinematic, 4K, photorealistic, animated, etc.
+        - Length: 150-250 words per prompt (detailed enough for AI video gen)
+        
+        OUTPUT FORMAT (JSON):
+        Return a valid JSON array with EXACTLY {max_frames} frames:
+        
         [
           {{
             "frame_num": 1,
-            "description": "Brief 1-sentence summary of this frame's action.",
-            "prompt": "Detailed AI video prompt: [Full visual description, 100-200 words]."
+            "duration_seconds": 6,
+            "scene_description": "One-sentence summary of what happens in this frame",
+            "ai_video_prompt": "Detailed 150-250 word prompt for AI video generation. Start with 'A 6-second shot of...' and include all visual details: camera angle, lighting, character appearance (if applicable), environment, action, emotion, style keywords, movement, colors, atmosphere. Be extremely specific and descriptive.",
+            "narration_text": "Optional: What the narrator/character says during this frame (if applicable)",
+            "transition": "How this frame transitions to next: cut, fade, zoom, etc."
           }},
-          ... (6-9 frames)
+          {{
+            "frame_num": 2,
+            ...
+          }},
+          ... (continue for all {max_frames} frames)
         ]
+        
+        IMPORTANT:
+        - Return ONLY valid JSON, no extra text
+        - Ensure character consistency if characters exist
+        - Each prompt must be detailed enough for AI video generation
+        - Cover the complete story arc from hook to ending
+        
+        Generate the frames now:
         """
-
+        
         frames_response = model.generate_content(frames_prompt)
         frames_text = frames_response.text.strip()
-
-        # Simple parsing: Assume Gemini outputs clean list; in production, use regex/JSON parser for robustness
-        # For now, extract frames from the response (Gemini often follows format well)
-        frames = []
-        lines = frames_text.split('\n')
-        current_frame = {}
-        frame_num = 1
-        for line in lines:
-            line = line.strip()
-            if line.startswith('"frame_num":'):
-                if current_frame:
-                    frames.append(current_frame)
-                current_frame = {"frame_num": frame_num}
-                frame_num += 1
-            elif line.startswith('"description":'):
-                current_frame["description"] = line.split(':', 1)[1].strip().strip('"')
-            elif line.startswith('"prompt":'):
-                current_frame["prompt"] = line.split(':', 1)[1].strip().strip('"')
         
-        if current_frame:
-            frames.append(current_frame)
-
-        # Ensure 6-9 frames; if not, fallback or regenerate (simplified here)
-        if len(frames) < 6:
-            # Quick fallback: Pad or adjust, but for demo, just use as-is
-            pass
-        elif len(frames) > 9:
-            frames = frames[:9]
-
-        return full_story, frames
-
+        # Add debugging: Print the raw response
+        print(f"Raw frames response: {frames_text[:500]}...")  
+        
+        frames = extract_json_from_text(frames_text)
+        
+        print(f"Extracted frames: {frames[:2]}...")  # Debug the extracted frames
+        
+        if not frames or len(frames) < 5:
+            print(f"Debug: Frames response length is {len(frames)}. Full response: {frames_text}")
+            raise ValueError(f"Generated only {len(frames)} frames, expected at least 5. Check the AI response for issues.")
+        
+        # Ensure exactly max_frames
+        frames = frames[:max_frames]
+        
+        # Calculate estimated duration
+        total_duration = sum(frame.get('duration_seconds', 6) for frame in frames)
+        
+        # Return complete package
+        return {
+            "enhanced_topic": enhanced_topic,
+            "title": story_data["title"],
+            "full_story": story_data["story"],
+            "hook": story_data["hook"],
+            "characters": story_data["characters"],
+            "themes": story_data["themes"],
+            "visual_style": story_data["visual_style"],
+            "emotional_tone": story_data["emotional_tone"],
+            "frames": frames,
+            "metadata": {
+                "total_frames": len(frames),
+                "estimated_duration": total_duration,
+                "target_duration": "30-60 seconds",
+                "character_based": len(story_data["characters"]) > 0,
+                "source_video": {
+                    "title": selected_video['title'],
+                    "views": selected_video['views'],
+                    "ai_confidence": selected_video.get('ai_confidence', 0)
+                }
+            }
+        }
+        
     except Exception as e:
         print(f"Gemini generation error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate story and frames")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to generate story and frames: {str(e)}"
+        )

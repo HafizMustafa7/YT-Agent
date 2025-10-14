@@ -1,11 +1,20 @@
-// frontend/src/components/ResultsScreen.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './ResultsScreen.css';
 
-const ResultsScreen = ({ data, onBack, onGenerate, loading }) => {  // Added onGenerate and loading props
-  const [selectedVideoId, setSelectedVideoId] = useState(null);  // Track by ID for single selection
-  const [topic, setTopic] = useState('');  // User topic input
-  const [error, setError] = useState('');  // For validation
+const ResultsScreen = ({ data, onBack, onGenerate, loading }) => {
+  const [selectedVideoId, setSelectedVideoId] = useState(null);
+  const [topic, setTopic] = useState('');
+  const [error, setError] = useState('');
+
+  // Auto-fill topic when a video is selected
+  useEffect(() => {
+    if (selectedVideoId) {
+      const selectedVideo = data.trends.find(v => v.id === selectedVideoId);
+      if (selectedVideo) {
+        setTopic(selectedVideo.title);
+      }
+    }
+  }, [selectedVideoId, data.trends]);
 
   if (!data || !data.trends || data.trends.length === 0) {
     return (
@@ -16,142 +25,209 @@ const ResultsScreen = ({ data, onBack, onGenerate, loading }) => {  // Added onG
             Back to Search
           </button>
         </div>
-        <p>Try a different niche or check your connection.</p>   Improved message
+        <p>Try a different niche or check your connection.</p>
       </div>
     );
   }
 
+  const handleSelectVideo = (videoId) => {
+    setSelectedVideoId(videoId);
+    setError('');
+  };
+
   const handleGenerate = (e) => {
     e.preventDefault();
     setError('');
+    
     if (!selectedVideoId) {
-      setError('Please select one video topic.');
+      setError('Please select a video topic first.');
       return;
     }
+    
     if (!topic.trim()) {
       setError('Please enter a topic for story generation.');
       return;
     }
+    
     const selectedVideo = data.trends.find(v => v.id === selectedVideoId);
-    onGenerate({ video: selectedVideo, topic: topic.trim() });  // Pass to parent/backend
+    onGenerate({ video: selectedVideo, topic: topic.trim() });
   };
 
-  const selectedVideo = data.trends.find(v => v.id === selectedVideoId);
+  const formatNumber = (num) => {
+    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
+    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
+    return num.toString();
+  };
 
   return (
-    <div className="results-container" role="main">
+    <div className="results-container">
       <div className="results-header">
-        <h2>Trending Videos in "{data.niche}"</h2>
-        <button className="back-button" onClick={onBack} aria-label="Go back to niche input">
-          Back to Search
+        <h2>Trending AI-Generated Videos in "{data.niche}"</h2>
+        <button className="back-button" onClick={onBack}>
+          ← Back to Search
         </button>
       </div>
       
       {loading && (
-        <div className="loading" role="status" aria-live="polite">
-          <div className="loading-spinner" aria-label="Generating story..."></div>
+        <div className="loading-overlay">
+          <div className="loading-spinner"></div>
+          <p>Generating your story...</p>
         </div>
       )}
       
       <div className="stats-summary">
-        <div className="stat-item">
-          <h3>{data.trends.length}</h3>
-          <p>Trending Videos Found</p>
+        <div className="stat-card">
+          <div className="stat-number">{data.trends.length}</div>
+          <div className="stat-label">Videos Found</div>
         </div>
-        <div className="stat-item">
-          <h3>{Math.round(data.averageViews / 1000)}K</h3>
-          <p>Average Views</p>
+        <div className="stat-card">
+          <div className="stat-number">{formatNumber(Math.round(data.averageViews))}</div>
+          <div className="stat-label">Avg Views</div>
         </div>
-      </div>  {/* Simplified stats */}
+        <div className="stat-card">
+          <div className="stat-number">
+            {selectedVideoId ? '1' : '0'}
+          </div>
+          <div className="stat-label">Selected</div>
+        </div>
+      </div>
       
       <div className="video-grid">
-        {data.trends.map((video) => (
-          <div key={video.id} className={`video-card ${selectedVideoId === video.id ? 'selected' : ''}`}>
-            <label className="video-selection-label">  {/* Radio label for accessibility */}
-              <input
-                type="radio"
-                name="video-selection"  // Groups for single selection
-                value={video.id}
-                checked={selectedVideoId === video.id}
-                onChange={() => setSelectedVideoId(video.id)}
-                className="selection-radio"
-                aria-label={`Select ${video.title} as topic`}
-              />
-              <div className="video-content">  {/* Wrap content to avoid radio interference */}
-                <div className="video-thumbnail">
-                  <img 
-                    src={video.thumbnail} 
-                    alt={`Thumbnail for ${video.title}`}
-                    className="thumbnail-image"
-                  />
-                  <div className="video-duration">{video.duration}</div>
+        {data.trends.map((video) => {
+          const isSelected = selectedVideoId === video.id;
+          
+          return (
+            <div 
+              key={video.id} 
+              className={`video-card ${isSelected ? 'selected' : ''}`}
+            >
+              <div className="video-thumbnail-wrapper">
+                <img 
+                  src={video.thumbnail} 
+                  alt={video.title}
+                  className="video-thumbnail"
+                />
+                <span className="video-duration">{video.duration}</span>
+                {video.ai_confidence && (
+                  <span className="ai-badge">AI: {video.ai_confidence}%</span>
+                )}
+              </div>
+              
+              <div className="video-details">
+                <h3 className="video-title">{video.title}</h3>
+                
+                <p className="channel-name">
+                  <span className="channel-icon">📺</span>
+                  {video.channel}
+                </p>
+                
+                <div className="video-stats-row">
+                  <span className="stat-item">
+                    <span className="stat-icon">👁️</span>
+                    {formatNumber(video.views)}
+                  </span>
+                  <span className="stat-item">
+                    <span className="stat-icon">👍</span>
+                    {formatNumber(video.likes)}
+                  </span>
+                  <span className="stat-item">
+                    <span className="stat-icon">💬</span>
+                    {formatNumber(video.comments)}
+                  </span>
                 </div>
-                <div className="video-info">
-                  <h3 className="video-title">{video.title}</h3>
-                  <p className="video-description truncate">  {/* Truncated for list view */}
-                    {video.description?.substring(0, 100)}...  {/* Show partial description */}
+                
+                {video.description && (
+                  <p className="video-description">
+                    {video.description.length > 150 
+                      ? `${video.description.substring(0, 150)}...` 
+                      : video.description}
                   </p>
-                  <p className="channel-name">{video.channel}</p>
-                  <div className="video-stats">
-                    <span className="stat">{video.views} views</span>
-                    {/* Add likes/comments if needed */}
-                  </div>
-                  <div className="video-tags">
-                    <h4>Hashtags:</h4>
-                    <div className="tags-container">
-                      {video.tags?.slice(0, 3).map((tag, index) => (  // Show first 3 in list
-                        <span key={index} className="tag">{tag}</span>
-                      )) || <span>No tags</span>}
+                )}
+                
+                {video.tags && video.tags.length > 0 && (
+                  <div className="tags-section">
+                    <div className="tags-list">
+                      {video.tags.slice(0, 5).map((tag, idx) => (
+                        <span key={idx} className="tag">#{tag}</span>
+                      ))}
+                      {video.tags.length > 5 && (
+                        <span className="tag more">+{video.tags.length - 5}</span>
+                      )}
                     </div>
                   </div>
-                </div>
-                <button 
-                  className="view-more-button"
-                  onClick={() => {/* Open modal logic here if needed */}}  // Optional: Trigger modal
-                  aria-label={`View full details for ${video.title}`}
-                >
-                  View More
-                </button>
+                )}
               </div>
-            </label>
-          </div>
-        ))}
+              
+              <button 
+                className={`select-button ${isSelected ? 'selected' : ''}`}
+                onClick={() => handleSelectVideo(video.id)}
+                disabled={loading}
+              >
+                {isSelected ? (
+                  <>
+                    <span className="check-icon">✓</span>
+                    Selected
+                  </>
+                ) : (
+                  'Select Topic'
+                )}
+              </button>
+            </div>
+          );
+        })}
       </div>
 
-      {/* Bottom Topic Input Form */}
-      <form onSubmit={handleGenerate} className="topic-form">
-        <div className="input-container">
-          <input
-            type="text"
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="Enter your topic for story generation (e.g., 'A fitness journey for beginners')"
-            className="topic-input"
-            disabled={loading}
-            aria-label="Custom topic input for LLM story"
-          />
+      <div className="topic-generation-section">
+        <div className="section-header">
+          <h3>Generate Your Story</h3>
+          <p>Select a video above or enter your custom topic</p>
+        </div>
+        
+        <div className="topic-form">
+          <div className="form-group">
+            <label htmlFor="topic-input">Story Topic</label>
+            <input
+              id="topic-input"
+              type="text"
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="Enter your topic or modify the selected one..."
+              className="topic-input"
+              disabled={loading}
+            />
+            {selectedVideoId && (
+              <small className="input-hint">
+                Topic auto-filled from selected video. You can edit it.
+              </small>
+            )}
+          </div>
+          
+          {error && (
+            <div className="error-message">
+              <span className="error-icon">⚠️</span>
+              {error}
+            </div>
+          )}
+          
           <button 
-            type="submit" 
+            onClick={handleGenerate}
             className="generate-button"
-            disabled={!selectedVideoId || !topic.trim() || loading}
+            disabled={!topic.trim() || loading}
           >
-            {loading ? 'Generating...' : 'Generate Story & Frames'}
+            {loading ? (
+              <>
+                <span className="spinner-small"></span>
+                Generating...
+              </>
+            ) : (
+              <>
+                <span className="generate-icon">✨</span>
+                Generate Story & Frames
+              </>
+            )}
           </button>
         </div>
-        {error && <p className="error-message" role="alert">{error}</p>}
-        {selectedVideoId && (
-          <p className="selection-info">
-            Selected: <strong>{selectedVideo.title}</strong> as base topic.
-          </p>
-        )}
-      </form>
-
-      {/* Optional Modal for Full Details - Triggered by View More if needed */}
-      {false && selectedVideo && (  // Placeholder; implement if keeping modal
-        <div className="modal-overlay" onClick={() => setSelectedVideoId(null)}>   Reuse selection state
-          {/* Modal content similar to original, with ARIA */}
-        </div>
-      )}
+      </div>
     </div>
   );
 };

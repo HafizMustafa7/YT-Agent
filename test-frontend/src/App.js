@@ -1,15 +1,15 @@
 // frontend/src/App.js
 import React, { useState } from 'react';
 import Header from './components/Header';
-import NicheInput from './components/NicheInput';  // Updated from ChatBot (per earlier rename)
+import NicheInput from './components/NicheInput';
 import ResultsScreen from './components/ResultsScreen';
-import FrameResults from './components/FrameResults';  // New import
+import FrameResults from './components/FrameResults';
 import './App.css';
 
 function App() {
   const [currentView, setCurrentView] = useState('home');
   const [trendingData, setTrendingData] = useState(null);
-  const [generatedData, setGeneratedData] = useState(null);  // New: For story/frames
+  const [generatedData, setGeneratedData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -41,8 +41,8 @@ function App() {
     }
   };
 
-  // New: Handle generation from ResultsScreen
-  const handleGenerateStory = async (payload) => {  // payload: { video, topic } from ResultsScreen
+  // Handle story generation from ResultsScreen
+  const handleGenerateStory = async ({ video, topic }) => {
     setLoading(true);
     setError(null);
     
@@ -52,18 +52,22 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(payload),  // { selected_video, user_topic }
+        body: JSON.stringify({ 
+          selected_video: video,
+          user_topic: topic 
+        }),
       });
       
       if (!response.ok) {
-        throw new Error(`Failed to generate story: ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Failed to generate story: ${response.statusText}`);
       }
       
       const data = await response.json();
       setGeneratedData(data);
       setCurrentView('frames');
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Failed to generate story. Please try again.');
       console.error('Error generating story:', err);
     } finally {
       setLoading(false);
@@ -72,17 +76,17 @@ function App() {
 
   const handleBackToResults = () => {
     setCurrentView('results');
-    // Optionally clear generatedData if regenerating: setGeneratedData(null);
+    setGeneratedData(null);  // Clear generated data when going back
   };
 
   const handleBackToHome = () => {
     setCurrentView('home');
     setTrendingData(null);
-    setGeneratedData(null);  // Clear all data on full reset
+    setGeneratedData(null);
     setError(null);
   };
 
-  const clearError = () => setError(null);  // Utility to dismiss errors
+  const clearError = () => setError(null);
 
   return (
     <div className="App">
@@ -94,11 +98,32 @@ function App() {
         <div className="shape shape-4"></div>
       </div>
       
-      {/* Global Error Banner (shows on any view if error) */}
+      {/* Global Error Banner */}
       {error && (
-        <div className="global-error">
-          <p role="alert">{error}</p>
-          <button onClick={clearError} aria-label="Dismiss error">×</button>
+        <div className="global-error" role="alert">
+          <div className="error-content">
+            <span className="error-icon">⚠️</span>
+            <p>{error}</p>
+          </div>
+          <button 
+            onClick={clearError} 
+            className="error-dismiss"
+            aria-label="Dismiss error"
+          >
+            ×
+          </button>
+        </div>
+      )}
+      
+      {/* Loading Overlay (Global) */}
+      {loading && currentView !== 'results' && (
+        <div className="global-loading-overlay">
+          <div className="loading-content">
+            <div className="loading-spinner-large"></div>
+            <p>
+              {currentView === 'home' ? 'Analyzing trends...' : 'Generating story...'}
+            </p>
+          </div>
         </div>
       )}
       
@@ -111,7 +136,7 @@ function App() {
             optimal titles, descriptions, and even generate video scripts using advanced AI algorithms.
           </p>
           
-          <NicheInput  // Updated component name
+          <NicheInput
             onAnalyze={handleAnalyzeTrends}
             loading={loading}
           />
@@ -120,13 +145,14 @@ function App() {
         <ResultsScreen 
           data={trendingData} 
           onBack={handleBackToHome}
-          onGenerate={handleGenerateStory}  // New prop
+          onGenerate={handleGenerateStory}
           loading={loading}
         />
       ) : currentView === 'frames' ? (
         <FrameResults 
           data={generatedData}
-          onBack={handleBackToResults}  // New back handler
+          onBack={handleBackToResults}
+          onBackToHome={handleBackToHome}
           loading={loading}
         />
       ) : null}
