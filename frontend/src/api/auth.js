@@ -1,5 +1,6 @@
 import axios from "axios";
 import { supabase } from "../supabaseClient";
+import { showErrorToast, showSuccessToast, getFriendlyErrorMessage } from "../lib/errorUtils";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
@@ -8,29 +9,40 @@ console.log("[DEBUG] API Base URL:", API_BASE_URL);
 // Create axios instance with base configuration
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000, // 10 second timeout
+  timeout: 30000, // 30 second timeout
 });
 
 // 🔹 Attach Supabase access token on every request
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(async (config) => {
   console.log(`[API REQUEST] ${config.method?.toUpperCase()} ${config.url}`);
 
-  // Try to get session from Supabase (synchronous)
+  // Get session from Supabase (async)
   let session = null;
   try {
-    session = supabase.auth.session();
+    const { data: { session: supabaseSession }, error } = await supabase.auth.getSession();
+    if (!error && supabaseSession) {
+      session = supabaseSession;
+    }
   } catch (err) {
-    console.log("[API REQUEST] Could not get session from Supabase");
+    console.log("[API REQUEST] Could not get session from Supabase:", err.message);
   }
 
-  // If no session from Supabase, try localStorage
+  // If no session from Supabase, try localStorage as fallback
   if (!session) {
     const sessionData = localStorage.getItem('supabase.auth.token');
     if (sessionData) {
       try {
-        session = JSON.parse(sessionData);
+        const parsedSession = JSON.parse(sessionData);
+        // Check if session is still valid
+        if (parsedSession?.expires_at && Date.now() / 1000 < parsedSession.expires_at) {
+          session = parsedSession;
+        } else {
+          console.log("[API REQUEST] Stored session expired, removing");
+          localStorage.removeItem('supabase.auth.token');
+        }
       } catch (err) {
         console.error("[FRONTEND ERROR] Failed to parse session data:", err);
+        localStorage.removeItem('supabase.auth.token');
       }
     }
   }
@@ -60,13 +72,13 @@ api.interceptors.response.use(
 
       // Only clear session if it's not an OAuth-related request that might be retried
       const url = error.config?.url || '';
-      if (!url.includes('/sync') && !url.includes('/me')) {
+      if (!url.includes('/sync') && !url.includes('/me') && !url.includes('/login')) {
         console.warn("[API ERROR] Clearing session due to 401");
         localStorage.removeItem('supabase.auth.token');
         // Optionally redirect to login page
         // window.location.href = '/login';
       } else {
-        console.warn("[API ERROR] Not clearing session for OAuth-related request");
+        console.warn("[API ERROR] Not clearing session for OAuth-related or login request");
       }
     }
 
@@ -80,10 +92,22 @@ api.interceptors.response.use(
  */
 export const signup = async (data) => {
   try {
-    const response = await api.post("/api/auth/signup", data);
+    // Increase timeout for signup due to email sending (60 seconds for slow email delivery)
+    const response = await api.post("/api/auth/signup", data, { timeout: 60000 });
     return response.data;
   } catch (err) {
     console.error("[FRONTEND ERROR] Signup failed:", err.response?.data || err.message);
+
+    // If it's a timeout but we got a response, it means signup actually succeeded
+    if (err.code === 'ECONNABORTED' && err.message.includes('timeout')) {
+      console.warn("[FRONTEND WARNING] Signup timed out on frontend but may have succeeded on backend");
+      // Return a special response indicating potential success despite timeout
+      return {
+        message: "Signup request sent. Please check your email for verification link. If you don't receive it, try logging in or contact support.",
+        timeout: true
+      };
+    }
+
     throw err;
   }
 };
@@ -98,6 +122,7 @@ export const login = async (data) => {
     return response.data; // { access_token, refresh_token }
   } catch (err) {
     console.error("[FRONTEND ERROR] Login failed:", err.response?.data || err.message);
+    showErrorToast(err);
     throw err;
   }
 };

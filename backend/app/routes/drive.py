@@ -7,6 +7,7 @@ from googleapiclient.discovery import build
 import datetime
 import uuid
 import logging
+import httpx
 
 router = APIRouter(tags=["Drive"])
 logger = logging.getLogger(__name__)
@@ -57,10 +58,17 @@ def start_drive_oauth(current_user: dict = Depends(get_current_user)):
         state = str(uuid.uuid4())
 
         # save mapping state -> user_id
-        supabase.table("oauth_states").insert({
-            "state": state,
-            "user_id": current_user["id"],
-        }).execute()
+        try:
+            supabase.table("oauth_states").insert({
+                "state": state,
+                "user_id": current_user["id"],
+            }).execute()
+        except httpx.ReadError as e:
+            logger.warning("[DRIVE] Network error during OAuth state insertion: %s", e)
+            raise HTTPException(status_code=500, detail="Network error during OAuth setup")
+        except httpx.ConnectError as e:
+            logger.warning("[DRIVE] Connection error during OAuth state insertion: %s", e)
+            raise HTTPException(status_code=500, detail="Connection error during OAuth setup")
 
         flow = _build_flow()
         flow.redirect_uri = GOOGLE_REDIRECT_URI_DRIVE
@@ -186,15 +194,6 @@ def get_drive_status(current_user: dict = Depends(get_current_user)):
             except Exception as e:
                 logger.warning(f"[DRIVE] Invalid token_expiry format: {token_expiry}")
 
-        # If token expired, try to refresh
-        if not token_valid and drive_connected:
-            logger.info(f"[DRIVE] Access token expired for user {current_user['id']}, attempting refresh")
-            refreshed = _refresh_drive_token(account)
-            if refreshed:
-                token_valid = True
-            else:
-                drive_connected = False  # Mark disconnected if refresh failed
-
         return {
             "drive_connected": drive_connected,
             "drive_email": google_email,
@@ -203,6 +202,40 @@ def get_drive_status(current_user: dict = Depends(get_current_user)):
         }
     except Exception as e:
         logger.exception("[DRIVE] get_drive_status failed")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/refresh")
+def refresh_drive_token(current_user: dict = Depends(get_current_user)):
+    """Manually refresh Google Drive access token for the current user."""
+    try:
+        resp = supabase.table("drive_accounts").select("*").eq("user_id", current_user["id"]).execute()
+        data = resp.data if hasattr(resp, "data") else resp.get("data", [])
+
+        if not data:
+            raise HTTPException(status_code=404, detail="No drive account connected")
+
+        account = data[0]
+
+        if not account.get("drive_connected", False):
+            raise HTTPException(status_code=400, detail="Drive account not connected")
+
+        # Attempt to refresh token
+        refreshed = _refresh_drive_token(account)
+        if not refreshed:
+            raise HTTPException(status_code=400, detail="Failed to refresh Drive token")
+
+        # Return updated status
+        return {
+            "drive_connected": True,
+            "drive_email": account.get("google_email"),
+            "token_valid": True,
+            "message": "Drive token refreshed successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("[DRIVE] refresh_drive_token failed")
         raise HTTPException(status_code=400, detail=str(e))
 
 

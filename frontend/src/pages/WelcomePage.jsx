@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Zap, TrendingUp, Clock, Users, ArrowRight, Sparkles } from 'lucide-react';
-import './WelcomePage.css';
+import '../styles/shared.css';
+import Starfield from '../components/Starfield';
 
 const LandingPage = () => {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -25,7 +26,8 @@ const LandingPage = () => {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-slate-950">
+    <div className="relative min-h-screen bg-slate-950">
+      <Starfield />
       {/* Dynamic Gradient Background */}
       <div className="fixed inset-0 bg-gradient-to-br from-slate-950 via-indigo-950/40 to-slate-950" />
       
@@ -75,9 +77,9 @@ const LandingPage = () => {
               <span>AI-Powered YouTube Automation</span>
             </div>
             
-            <h2 className="mb-8 text-6xl font-black leading-tight tracking-tight text-white lg:text-7xl">
+            <h2 className="mb-8 text-4xl font-black leading-tight tracking-tight text-white md:text-5xl lg:text-6xl">
               Transform Your
-              <span className="block mt-3 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400 animate-gradient">
+              <span className="block mt-2 text-transparent md:mt-3 bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400 animate-gradient">
                 YouTube Strategy
               </span>
             </h2>

@@ -1,14 +1,15 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import AuthPage from "./pages/AuthPage";
 import ConnectDrivePage from "./pages/ConnectDrivePage";
 import Dashboard from "./pages/Dashboard";
 import WelcomePage from "./pages/WelcomePage";
 import { supabase } from "./supabaseClient";
-import { syncOAuthUser } from "./api/auth";
+import { syncOAuthUser, getCurrentUser } from "./api/auth";
 
 
 function App() {
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [synced, setSynced] = useState(false);
@@ -44,6 +45,38 @@ function App() {
 
           setUser(session.user);
 
+          // Check if this is an email verification redirect
+          const urlParams = new URLSearchParams(window.location.search);
+          const isEmailVerification = urlParams.has('token') || urlParams.has('type') || urlParams.has('access_token');
+
+          if (isEmailVerification) {
+            // This is an email verification - redirect based on drive connection
+            try {
+              const userInfo = await getCurrentUser();
+              if (userInfo.user.drive_connected) {
+                navigate("/dashboard");
+              } else {
+                navigate("/connect-drive");
+              }
+            } catch (err) {
+              console.error("[FRONTEND ERROR] Failed to fetch user info after email verification:", err);
+              navigate("/dashboard");
+            }
+          } else {
+            // Normal session check - redirect based on drive connection
+            try {
+              const userInfo = await getCurrentUser();
+              if (userInfo.user.drive_connected) {
+                navigate("/dashboard");
+              } else {
+                navigate("/connect-drive");
+              }
+            } catch (err) {
+              console.error("[FRONTEND ERROR] Failed to fetch user info:", err);
+              navigate("/dashboard");
+            }
+          }
+
           // Only sync if OAuth user (email/password signup already handled in backend)
           const provider = session.user.app_metadata?.provider;
           if (provider && provider !== "email" && !synced) {
@@ -72,7 +105,7 @@ function App() {
     const timeoutId = setTimeout(() => {
       console.warn("[WARN] getInitialSession timeout - forcing loading to false");
       setLoading(false);
-    }, 10000); // 10 seconds timeout
+    }, 30000); // 30 seconds timeout
 
     getInitialSession().then(() => {
       clearTimeout(timeoutId);
@@ -99,7 +132,7 @@ function App() {
       console.log("[DEBUG] Cleaning up auth state change subscription");
       subscription.unsubscribe();
     };
-  }, [synced]); // ✅ keep synced in deps so it updates properly
+  }, [synced, navigate]); // ✅ keep synced in deps so it updates properly
 
   if (loading) {
     return <div className="flex items-center justify-center h-screen">Loading...</div>;

@@ -3,6 +3,7 @@ from app.models.auth import SignupRequest, LoginRequest
 from app.core.config import supabase
 from app.utils.errors import handle_error
 import logging
+import httpx
 
 router = APIRouter(tags=["Auth"])
 logger = logging.getLogger(__name__)
@@ -112,6 +113,19 @@ def _try_get_user_from_token(token: str):
         user = _extract(resp, "user") or _extract(resp, "data", "user")
         if user:
             return user
+    except httpx.ReadError as e:
+        logger.warning("[AUTH] Network read error during token verification: %s", e)
+        raise HTTPException(status_code=500, detail="Network error during authentication")
+    except httpx.ConnectError as e:
+        logger.warning("[AUTH] Connection error during token verification: %s", e)
+        raise HTTPException(status_code=500, detail="Connection error during authentication")
+    except OSError as e:
+        # Handle Windows socket errors like WinError 10035 (WSAEWOULDBLOCK)
+        if hasattr(e, 'winerror') and e.winerror == 10035:
+            logger.warning("[AUTH] Socket would block error during token verification: %s", e)
+            raise HTTPException(status_code=500, detail="Network timeout during authentication")
+        logger.warning("[AUTH] OS error during token verification: %s", e)
+        raise HTTPException(status_code=500, detail="Network error during authentication")
     except Exception as e:
         logger.debug("[AUTH] supabase.auth.get_user failed: %s", e)
 
@@ -120,6 +134,19 @@ def _try_get_user_from_token(token: str):
         user = resp.get("user") if isinstance(resp, dict) else getattr(resp, "user", None)
         if user:
             return user
+    except httpx.ReadError as e:
+        logger.warning("[AUTH] Network read error during legacy token verification: %s", e)
+        raise HTTPException(status_code=500, detail="Network error during authentication")
+    except httpx.ConnectError as e:
+        logger.warning("[AUTH] Connection error during legacy token verification: %s", e)
+        raise HTTPException(status_code=500, detail="Connection error during authentication")
+    except OSError as e:
+        # Handle Windows socket errors like WinError 10035 (WSAEWOULDBLOCK)
+        if hasattr(e, 'winerror') and e.winerror == 10035:
+            logger.warning("[AUTH] Socket would block error during legacy token verification: %s", e)
+            raise HTTPException(status_code=500, detail="Network timeout during authentication")
+        logger.warning("[AUTH] OS error during legacy token verification: %s", e)
+        raise HTTPException(status_code=500, detail="Network error during authentication")
     except Exception as e:
         logger.debug("[AUTH] supabase.auth.api.get_user failed: %s", e)
 

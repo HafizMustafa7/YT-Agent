@@ -1,12 +1,28 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import { supabase } from "../supabaseClient";
 
 function ChannelSelector({ selectedChannel, setSelectedChannel }) {
   const [channels, setChannels] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
 
   useEffect(() => {
-    fetchChannels();
+    const initializeSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session || !session.user) {
+          console.error("[CHANNEL SELECTOR] No session found");
+          return;
+        }
+        setSessionReady(true);
+        fetchChannels();
+      } catch (err) {
+        console.error("[CHANNEL SELECTOR] Session verification failed:", err);
+      }
+    };
+
+    initializeSession();
   }, []);
 
   const fetchChannels = async () => {
