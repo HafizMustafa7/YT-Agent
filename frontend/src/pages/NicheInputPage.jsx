@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Input } from '@/components/ui/input'; // From shadcn/ui
 import { Button } from '@/components/ui/button'; // From shadcn/ui
 import { Loader2, Settings, Bot, Shield, Zap, ArrowLeft } from 'lucide-react'; // For loader icon and footer icons
 import { useToast } from '@/components/ui/use-toast'; // From shadcn/ui for toasts
@@ -9,26 +8,22 @@ import { Switch } from '@/components/ui/switch'; // From shadcn/ui
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'; // From shadcn/ui
 import { supabase } from '../supabaseClient'; // For session management
 import Starfield from '@/components/Starfield'; // Consistent starfield component
+import './NicheInput.css'; // Import the CSS for the NicheInput component
+import api from '../api/auth'; // Import the configured API instance
 
-// Mock API function
+// API function to fetch trending videos
 const fetchTrendingVideos = async (niche) => {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      // Simulate API response with mock data
-      resolve({
-        data: [
-          { title: 'Top 10 Space Gadgets', views: '1.2M' },
-          { title: 'Exploring Mars in 2024', views: '850K' },
-        ],
-      });
-    }, 1500); // 1.5 seconds delay
-  });
+  try {
+    const response = await api.post('/api/trends/analyze-trends', { niche });
+    return response.data; // Returns { niche, trends, averageViews, averageLikes, total_trends }
+  } catch (error) {
+    console.error('[NicheInputPage] Error fetching trends:', error);
+    throw error;
+  }
 };
 
 const NicheInputPage = () => {
-  const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
   const { toast } = useToast();
   const navigate = useNavigate();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -67,36 +62,24 @@ const NicheInputPage = () => {
     navigate("/");
   };
 
-  const handleInputChange = (e) => {
-    setInputValue(e.target.value);
-    setError(''); // Clear error on change
-  };
-
-  const handleSearch = async () => {
-    if (!inputValue.trim()) {
-      setError('Input is required.');
-      const inputElement = document.getElementById('niche-input');
-      if (inputElement) {
-        inputElement.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(10px)' }, { transform: 'translateX(-10px)' }, { transform: 'translateX(0)' }], { duration: 300 });
-      }
+  const handleSearch = async (niche) => {
+    if (!niche.trim()) {
       toast({ title: 'Error', description: 'Input is required.', variant: 'destructive' });
       return;
     }
 
-    if (inputValue.trim().length < 3) {
-      setError('Input must be at least 3 characters.');
+    if (niche.trim().length < 3) {
       toast({ title: 'Error', description: 'Input must be at least 3 characters.', variant: 'destructive' });
       return;
     }
 
     setIsLoading(true);
-    setError('');
 
     try {
-      const result = await fetchTrendingVideos(inputValue);
+      const result = await fetchTrendingVideos(niche);
       // On success, navigate to TopicSelectionPage
       setIsLoading(false);
-      navigate('/dashboard', { state: { niche: inputValue, trendingData: result.data } }); // Pass data to dashboard for now
+      navigate('/results', { state: { niche: niche, trendingData: result } }); // Pass full result to results page
     } catch (err) {
       setIsLoading(false);
       toast({ title: 'Error', description: 'Failed to fetch data. Please try again.', variant: 'destructive' });
@@ -125,7 +108,7 @@ const NicheInputPage = () => {
 
         <div className="flex items-center space-x-6">
           <motion.span
-            className="text-sm opacity-80 hidden md:block"
+            className="hidden text-sm opacity-80 md:block"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}
@@ -147,14 +130,14 @@ const NicheInputPage = () => {
                 <Settings className="w-5 h-5" />
               </Button>
             </DialogTrigger>
-            <DialogContent className="bg-gradient-to-br from-slate-900 to-blue-900 border-cyan-500/50 backdrop-blur-sm max-w-md">
+            <DialogContent className="max-w-md bg-gradient-to-br from-slate-900 to-blue-900 border-cyan-500/50 backdrop-blur-sm">
               <DialogHeader>
                 <DialogTitle className="text-white">General Settings</DialogTitle>
               </DialogHeader>
               <div className="space-y-6">
                 {/* Theme Section */}
                 <div className="space-y-2">
-                  <h3 className="text-white font-semibold text-lg">Appearance</h3>
+                  <h3 className="text-lg font-semibold text-white">Appearance</h3>
                   <div className="flex items-center justify-between">
                     <span className="text-white">Dark Theme</span>
                     <Switch checked={isDarkTheme} onCheckedChange={setIsDarkTheme} />
@@ -162,8 +145,8 @@ const NicheInputPage = () => {
                 </div>
 
                 {/* Account Section */}
-                <div className="space-y-3 pt-4 border-t border-white/20">
-                  <h3 className="text-white font-semibold text-lg">Account</h3>
+                <div className="pt-4 space-y-3 border-t border-white/20">
+                  <h3 className="text-lg font-semibold text-white">Account</h3>
                   <Button variant="destructive" className="w-full text-white" onClick={handleLogout}>
                     Logout
                   </Button>
@@ -185,7 +168,7 @@ const NicheInputPage = () => {
           <Button
             onClick={() => navigate('/dashboard')}
             variant="ghost"
-            className="flex items-center gap-2 text-white hover:text-cyan-400 hover:bg-white/10 transition-all duration-300 rounded-lg px-4 py-2"
+            className="flex items-center gap-2 px-4 py-2 text-white transition-all duration-300 rounded-lg hover:text-cyan-400 hover:bg-white/10"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
@@ -199,10 +182,10 @@ const NicheInputPage = () => {
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.2 }}
-          className="text-center mb-16 mt-16"
+          className="mt-16 mb-16 text-center"
         >
           <motion.h2
-            className="text-4xl md:text-5xl font-bold text-white mb-4"
+            className="mb-4 text-4xl font-bold text-white md:text-5xl"
             initial={{ scale: 0.9 }}
             animate={{ scale: 1 }}
             transition={{ delay: 0.4, duration: 0.5 }}
@@ -210,7 +193,7 @@ const NicheInputPage = () => {
             Enter a Niche
           </motion.h2>
           <motion.p
-            className="text-xl text-gray-300 max-w-2xl mx-auto"
+            className="max-w-2xl mx-auto text-xl text-gray-300"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.6, duration: 0.5 }}
@@ -226,59 +209,47 @@ const NicheInputPage = () => {
           transition={{ duration: 0.6, delay: 0.4 }}
           className="flex justify-center mb-16"
         >
-          <div className="w-full max-w-md bg-slate-800/60 backdrop-blur-md border border-cyan-500/30 rounded-xl p-8 shadow-lg shadow-cyan-500/20">
-            <div className="space-y-6">
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.7, delay: 0.4 }}
-              >
-                <Input
-                  id="niche-input"
-                  type="text"
-                  placeholder="e.g. Tech reviews, Fitness, Travel, etc."
-                  value={inputValue}
-                  onChange={handleInputChange}
-                  className="w-full bg-transparent border-cyan-400 text-white placeholder-gray-400 focus:border-cyan-300 focus:ring-cyan-500 transition-shadow shadow-glow rounded-lg py-6 text-lg"
-                />
-                {error && <p className="text-red-400 text-sm mt-2 text-center">{error}</p>}
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.7, delay: 0.6 }}
-              >
-                <Button
-                  onClick={handleSearch}
-                  disabled={isLoading}
-                  className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-glow hover:scale-105 transition-all duration-300 rounded-xl py-6 text-lg font-semibold"
-                  whileHover={{ scale: 1.05, boxShadow: '0 0 15px cyan' }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                      Fetching...
-                    </>
-                  ) : (
-                    'Search'
-                  )}
-                </Button>
-              </motion.div>
+          <div className="chat-container" role="main">
+            <div className="chat-bubble">
+              <label htmlFor="niche-input" className="sr-only">
+                Hi there! I'm your YouTube trend assistant. What niche or topic would you like me to
+                analyze for trending video ideas? For example, you could enter "fitness", "cooking",
+                "tech reviews", or any topic you're interested in.
+              </label>
+              <p className="chat-text" id="chat-instructions">
+                Hi there! I'm your YouTube trend assistant. What niche or topic would you like me to
+                analyze for trending video ideas? For example, you could enter "fitness", "cooking",
+                "tech reviews", or any topic you're interested in.
+              </p>
             </div>
 
-            {/* Loading State */}
+            <form onSubmit={(e) => { e.preventDefault(); handleSearch(e.target.elements['niche-input'].value); }} className="chat-form">
+              <div className="input-container">
+                <input
+                  id="niche-input"
+                  type="text"
+                  placeholder="Enter your niche (e.g., cooking, fitness, tech)"
+                  className="input-field"
+                  disabled={isLoading}
+                  autoFocus
+                  aria-describedby="chat-instructions"
+                />
+                <button
+                  type="submit"
+                  className="submit-button"
+                  disabled={isLoading}
+                  aria-label={isLoading ? "Analyzing trends, please wait" : "Analyze trends for the entered niche"}
+                >
+                  {isLoading ? 'Analyzing...' : 'Analyze Trends'}
+                </button>
+              </div>
+            </form>
+
             {isLoading && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="mt-8 flex flex-col items-center"
-              >
-                <Loader2 className="h-12 w-12 animate-spin text-cyan-400" />
-                <p className="mt-4 text-cyan-300 text-lg">Fetching trending videos...</p>
-              </motion.div>
+              <div className="loading" role="status" aria-live="polite">
+                <div className="loading-spinner" aria-label="Loading spinner"></div>
+                <span className="sr-only">Analyzing trends...</span>
+              </div>
             )}
           </div>
         </motion.section>

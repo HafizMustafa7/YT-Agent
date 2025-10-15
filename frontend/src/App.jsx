@@ -4,6 +4,8 @@ import AuthPage from "./pages/AuthPage";
 import ConnectDrivePage from "./pages/ConnectDrivePage";
 import Dashboard from "./pages/Dashboard";
 import NicheInputPage from "./pages/NicheInputPage";
+import ResultsScreen from "./pages/ResultsScreen";
+import FrameResults from "./pages/FrameResults";
 import WelcomePage from "./pages/WelcomePage";
 import Analytics from "./pages/Analytics";
 import { supabase } from "./supabaseClient";
@@ -70,8 +72,8 @@ function App() {
             try {
               const userInfo = await getCurrentUser();
               if (userInfo.user.drive_connected) {
-                // If user is already on dashboard, niche-input, generate-video, or analytics, don't redirect
-                if (location.pathname !== "/dashboard" && location.pathname !== "/niche-input" && location.pathname !== "/generate-video" && location.pathname !== "/analytics") {
+                // If user is already on dashboard, niche-input, generate-video, analytics, results, or frame-results, don't redirect
+                if (location.pathname !== "/dashboard" && location.pathname !== "/niche-input" && location.pathname !== "/generate-video" && location.pathname !== "/analytics" && location.pathname !== "/results" && location.pathname !== "/frame-results") {
                   navigate("/dashboard");
                 }
               } else {
@@ -176,10 +178,22 @@ function App() {
         element={user ? <NicheInputPage /> : <AuthPage />}
       />
 
+      {/* Results Screen (protected) */}
+      <Route
+        path="/results"
+        element={user ? <ResultsScreen /> : <AuthPage />}
+      />
+
       {/* Analytics Page (protected) */}
       <Route
         path="/analytics"
         element={user ? <Analytics /> : <AuthPage />}
+      />
+
+      {/* Frame Results Page (protected) */}
+      <Route
+        path="/frame-results"
+        element={user ? <FrameResults /> : <AuthPage />}
       />
     </Routes>
   );
