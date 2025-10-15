@@ -778,10 +778,9 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>ID</th>
-                            <th>User ID</th>
-                            <th>Prompt</th>
-                            <th>Status</th>
+                            <th style="text-align: center;">Prompt</th>
+                            <th style="text-align: center;">Status</th>
+                            <th style="text-align: center;">View</th>
                         </tr>
                     </thead>
                     <tbody id="tableBody">
@@ -799,7 +798,7 @@
 
     <script>
         // Configuration
-        const API_BASE_URL = 'http://localhost:8080/api';
+        const API_BASE_URL = 'http://localhost:8000/api';
         let progressEventSource = null;
 
         // Load initial data
@@ -827,7 +826,7 @@
                 if (records.length === 0) {
                     tbody.innerHTML = `
                         <tr>
-                            <td colspan="4" style="text-align: center; padding: 50px; color: var(--gray);">
+                            <td colspan="3" style="text-align: center; padding: 50px; color: var(--gray);">
                                 <div style="font-size: 40px; margin-bottom: 15px;">🔭</div>
                                 <div style="font-size: 18px; font-weight: 600; margin-bottom: 8px;">No Records Found</div>
                                 <div style="font-size: 14px; color: var(--gray);">Add prompts to your database to get started</div>
@@ -836,25 +835,26 @@
                     `;
                     return;
                 }
-                
+
                 tbody.innerHTML = records.map(record => {
                     const hasVideo = record.video_url && record.video_url !== 'Nullable' && record.video_url !== '';
-                    
+
                     return `
                         <tr>
-                            <td><strong style="font-size: 16px; color: var(--primary);">#${record.id}</strong></td>
-                            <td style="font-weight: 600;">User ${record.userid || 'N/A'}</td>
-                            <td style="max-width: 500px; line-height: 1.6;">${record.promt || '[Empty]'}</td>
-                            <td>
-                                ${hasVideo 
-                                    ? `<div style="display: flex; align-items: center; gap: 15px;">
-                                           <span class="badge badge-success">✓ Generated</span>
-                                           <a href="${record.video_url}" target="_blank" class="video-link">
-                                               <span>🎥</span>
-                                               <span>View Video</span>
-                                           </a>
-                                       </div>` 
+                            <td style="max-width: 500px; line-height: 1.6; word-wrap: break-word; overflow-wrap: break-word; padding: 22px 25px; vertical-align: top;">${record.promt || '[Empty]'}</td>
+                            <td style="padding: 22px 25px; vertical-align: top;">
+                                ${hasVideo
+                                    ? `<span class="badge badge-success">✓ Generated</span>`
                                     : `<span class="badge badge-pending">⏳ Pending</span>`
+                                }
+                            </td>
+                            <td style="padding: 22px 25px; vertical-align: top; text-align: center;">
+                                ${hasVideo
+                                    ? `<a href="${record.video_url}" target="_blank" class="video-link">
+                                           <span>🎥</span>
+                                           <span>View Video</span>
+                                       </a>`
+                                    : `-`
                                 }
                             </td>
                         </tr>
