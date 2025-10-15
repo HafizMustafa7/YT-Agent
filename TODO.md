@@ -1,29 +1,14 @@
-# Token Verification Fix - All Pages
+# Integration Plan for Analytics Page
 
-## Overview
-Ensure all pages/components only make API calls after successful token verification to prevent "token verification failed" errors.
+## Backend Changes
+- [ ] Modify `backend/app/routes/analysis.py` to use APIRouter instead of FastAPI app
+- [ ] Update `backend/app/main.py` to include the analysis router
 
-## Current Status
-- ✅ Dashboard.jsx: Already implemented with `sessionReady` state
-- ✅ AuthPage.jsx: Updated with session verification
-- ✅ ConnectDrivePage.jsx: Updated with session verification
-- ✅ ChannelSelector.jsx: Updated with session verification
-- ✅ App.jsx: Already checks session before API calls
+## Frontend Changes
+- [ ] Add protected route for `/analytics` in `frontend/src/App.jsx`
+- [ ] Update `frontend/src/pages/Analytics.jsx` to match app theme and session handling like `NicheInputPage.jsx`
 
-## Plan
-1. Add `sessionReady` state to all components that make API calls
-2. Create initialization useEffect that verifies session first
-3. Guard all API calls with `if (!sessionReady) return;`
-4. Redirect to login if session is invalid
-
-## Components to Update
-- AuthPage.jsx
-- ConnectDrivePage.jsx
-- ChannelSelector.jsx
-- App.jsx (if needed)
-
-## Implementation Steps
-1. Update AuthPage.jsx
-2. Update ConnectDrivePage.jsx
-3. Update ChannelSelector.jsx
-4. Test all pages
+## Testing
+- [ ] Test session handling and navigation
+- [ ] Verify API endpoints work
+- [ ] Check theme consistency

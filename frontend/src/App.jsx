@@ -1,15 +1,18 @@
-import { Routes, Route, useNavigate } from "react-router-dom";
+import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import AuthPage from "./pages/AuthPage";
 import ConnectDrivePage from "./pages/ConnectDrivePage";
 import Dashboard from "./pages/Dashboard";
+import NicheInputPage from "./pages/NicheInputPage";
 import WelcomePage from "./pages/WelcomePage";
+import Analytics from "./pages/Analytics";
 import { supabase } from "./supabaseClient";
 import { syncOAuthUser, getCurrentUser } from "./api/auth";
 
 
 function App() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [synced, setSynced] = useState(false);
@@ -63,13 +66,19 @@ function App() {
               navigate("/dashboard");
             }
           } else {
-            // Normal session check - redirect based on drive connection
+            // Normal session check - redirect based on drive connection and current path
             try {
               const userInfo = await getCurrentUser();
               if (userInfo.user.drive_connected) {
-                navigate("/dashboard");
+                // If user is already on dashboard, niche-input, generate-video, or analytics, don't redirect
+                if (location.pathname !== "/dashboard" && location.pathname !== "/niche-input" && location.pathname !== "/generate-video" && location.pathname !== "/analytics") {
+                  navigate("/dashboard");
+                }
               } else {
-                navigate("/connect-drive");
+                // If user is already on connect-drive, don't redirect
+                if (location.pathname !== "/connect-drive") {
+                  navigate("/connect-drive");
+                }
               }
             } catch (err) {
               console.error("[FRONTEND ERROR] Failed to fetch user info:", err);
@@ -132,7 +141,7 @@ function App() {
       console.log("[DEBUG] Cleaning up auth state change subscription");
       subscription.unsubscribe();
     };
-  }, [synced, navigate]); // ✅ keep synced in deps so it updates properly
+  }, [synced, navigate, location.pathname]); // ✅ keep synced in deps so it updates properly
 
   if (loading) {
     return <div className="flex items-center justify-center h-screen">Loading...</div>;
@@ -153,6 +162,24 @@ function App() {
       <Route
         path="/dashboard"
         element={user ? <Dashboard /> : <AuthPage />}
+      />
+
+      {/* Niche Input Page (protected) */}
+      <Route
+        path="/niche-input"
+        element={user ? <NicheInputPage /> : <AuthPage />}
+      />
+
+      {/* Generate Video Page (alias for niche-input) */}
+      <Route
+        path="/generate-video"
+        element={user ? <NicheInputPage /> : <AuthPage />}
+      />
+
+      {/* Analytics Page (protected) */}
+      <Route
+        path="/analytics"
+        element={user ? <Analytics /> : <AuthPage />}
       />
     </Routes>
   );

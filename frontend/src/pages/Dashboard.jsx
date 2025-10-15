@@ -317,8 +317,8 @@ const Dashboard = () => {
   };
 
   const handleShowAnalytics = () => {
-    // Placeholder for future
-    console.log('Showing analytics...');
+    // Navigate to Analytics page
+    navigate('/analytics');
   };
 
   // Map channels to display format for grid
@@ -353,7 +353,7 @@ const Dashboard = () => {
 
         <div className="flex items-center space-x-6">
           <motion.span
-            className="text-sm opacity-80 hidden md:block"
+            className="hidden text-sm opacity-80 md:block"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}
@@ -363,7 +363,7 @@ const Dashboard = () => {
 
           {/* Drive Status Indicator */}
           <div
-            className="relative group cursor-pointer"
+            className="relative cursor-pointer group"
             title={driveStatus.drive_connected ? `Connected to ${driveStatus.drive_email}` : 'Google Drive not connected'}
           >
             <HardDrive
@@ -376,7 +376,7 @@ const Dashboard = () => {
               }`}
             />
             {driveStatus.drive_connected && (
-              <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-green-400"></div>
+              <div className="absolute w-2 h-2 bg-green-400 rounded-full -top-1 -right-1"></div>
             )}
           </div>
 
@@ -394,14 +394,14 @@ const Dashboard = () => {
                 <Settings className="w-5 h-5" />
               </Button>
             </DialogTrigger>
-            <DialogContent className="bg-gradient-to-br from-slate-900 to-blue-900 border-cyan-500/50 backdrop-blur-sm max-w-md">
+            <DialogContent className="max-w-md bg-gradient-to-br from-slate-900 to-blue-900 border-cyan-500/50 backdrop-blur-sm">
               <DialogHeader>
                 <DialogTitle className="text-white">General Settings</DialogTitle>
               </DialogHeader>
               <div className="space-y-6">
                 {/* Theme Section */}
                 <div className="space-y-2">
-                  <h3 className="text-white font-semibold text-lg">Appearance</h3>
+                  <h3 className="text-lg font-semibold text-white">Appearance</h3>
                   <div className="flex items-center justify-between">
                     <span className="text-white">Dark Theme</span>
                     <Switch checked={isDarkTheme} onCheckedChange={setIsDarkTheme} />
@@ -410,23 +410,23 @@ const Dashboard = () => {
 
                 {/* Drive Section */}
                 <div className="space-y-3">
-                  <h3 className="text-white font-semibold text-lg flex items-center gap-2">
+                  <h3 className="flex items-center gap-2 text-lg font-semibold text-white">
                     <HardDrive className="w-4 h-4" />
                     Google Drive
                   </h3>
                   
                   {driveStatus.drive_connected ? (
                     <>
-                      <div className="flex items-center gap-2 p-3 bg-slate-700/50 rounded-lg">
+                      <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
                         <div className={`w-2 h-2 rounded-full ${
                           driveStatus.token_valid ? 'bg-green-400' : 'bg-yellow-400'
                         }`}></div>
-                        <span className="text-white text-sm">Connected as: {driveStatus.drive_email}</span>
+                        <span className="text-sm text-white">Connected as: {driveStatus.drive_email}</span>
                       </div>
                       {driveStatus.token_valid ? (
-                        <p className="text-green-400 text-xs">✓ Access token is valid</p>
+                        <p className="text-xs text-green-400">✓ Access token is valid</p>
                       ) : (
-                        <p className="text-yellow-400 text-xs">⚠ Token expired - will auto-refresh</p>
+                        <p className="text-xs text-yellow-400">⚠ Token expired - will auto-refresh</p>
                       )}
                       <Button
                         onClick={handleDisconnectDrive}
@@ -438,13 +438,13 @@ const Dashboard = () => {
                     </>
                   ) : (
                     <>
-                      <div className="flex items-center gap-2 p-3 bg-slate-700/50 rounded-lg">
+                      <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
                         <div className="w-2 h-2 bg-red-400 rounded-full"></div>
-                        <span className="text-red-400 text-sm">Not connected to Google Drive</span>
+                        <span className="text-sm text-red-400">Not connected to Google Drive</span>
                       </div>
                       <Button
                         onClick={() => navigate("/connect-drive")}
-                        className="w-full bg-blue-500 hover:bg-blue-600 text-white"
+                        className="w-full text-white bg-blue-500 hover:bg-blue-600"
                       >
                         Connect Drive
                       </Button>
@@ -453,8 +453,8 @@ const Dashboard = () => {
                 </div>
 
                 {/* Account Section */}
-                <div className="space-y-3 pt-4 border-t border-white/20">
-                  <h3 className="text-white font-semibold text-lg">Account</h3>
+                <div className="pt-4 space-y-3 border-t border-white/20">
+                  <h3 className="text-lg font-semibold text-white">Account</h3>
                   <Button variant="destructive" className="w-full text-white" onClick={handleLogout}>
                     Logout
                   </Button>
@@ -474,13 +474,13 @@ const Dashboard = () => {
           className="flex justify-end mb-8"
         >
           <div className="flex items-center gap-3">
-            <label className="text-white font-medium">Active Channel:</label>
+            <label className="font-medium text-white">Active Channel:</label>
             <div className="relative" ref={dropdownRef}>
               <button
                 onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                 className="flex items-center justify-between text-white bg-gradient-to-r from-slate-800/90 to-slate-700/90 border border-cyan-500/30 rounded-xl px-5 py-3 min-w-[280px] focus:outline-none focus:ring-2 focus:ring-cyan-400/50 hover:border-cyan-400/50 hover:shadow-lg hover:shadow-cyan-500/20 transition-all duration-300 backdrop-blur-sm"
               >
-                <span className="truncate font-medium">{selectedChannel}</span>
+                <span className="font-medium truncate">{selectedChannel}</span>
                 <ChevronDown className={`w-5 h-5 text-cyan-400 transition-transform duration-300 ${isDropdownOpen ? 'rotate-180' : ''}`} />
               </button>
               {isDropdownOpen && (
@@ -489,7 +489,7 @@ const Dashboard = () => {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -15, scale: 0.95 }}
                   transition={{ duration: 0.2, ease: 'easeOut' }}
-                  className="absolute top-full mt-2 w-full bg-gradient-to-b from-slate-800/95 to-slate-900/95 backdrop-blur-md border border-cyan-500/30 rounded-xl shadow-2xl shadow-cyan-500/10 z-50 max-h-64 overflow-y-auto"
+                  className="absolute z-50 w-full mt-2 overflow-y-auto border shadow-2xl top-full bg-gradient-to-b from-slate-800/95 to-slate-900/95 backdrop-blur-md border-cyan-500/30 rounded-xl shadow-cyan-500/10 max-h-64"
                 >
                   <div className="py-2">
                     {channels.map((ch, index) => (
@@ -502,15 +502,15 @@ const Dashboard = () => {
                           setSelectedChannel(ch.youtube_channel_name);
                           setIsDropdownOpen(false);
                         }}
-                        className="flex items-center justify-between w-full px-5 py-3 text-left text-white hover:bg-gradient-to-r hover:from-cyan-500/20 hover:to-purple-500/20 transition-all duration-200 group relative"
+                        className="relative flex items-center justify-between w-full px-5 py-3 text-left text-white transition-all duration-200 hover:bg-gradient-to-r hover:from-cyan-500/20 hover:to-purple-500/20 group"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center group-hover:bg-red-500/30 transition-colors overflow-hidden">
+                          <div className="flex items-center justify-center w-8 h-8 overflow-hidden transition-colors rounded-full bg-red-500/20 group-hover:bg-red-500/30">
                             {ch.thumbnail_url ? (
                               <img
                                 src={ch.thumbnail_url}
                                 alt={`${ch.youtube_channel_name} logo`}
-                                className="w-full h-full object-cover"
+                                className="object-cover w-full h-full"
                                 onError={(e) => {
                                   console.error(`[Dashboard] Failed to load thumbnail for ${ch.youtube_channel_name}:`, ch.thumbnail_url, e);
                                   e.target.style.display = 'none';
@@ -521,20 +521,20 @@ const Dashboard = () => {
                             ) : null}
                             <Youtube className="w-4 h-4 text-red-400" style={{ display: ch.thumbnail_url ? 'none' : 'flex' }} />
                           </div>
-                          <span className="truncate font-medium group-hover:text-cyan-300 transition-colors">{ch.youtube_channel_name}</span>
+                          <span className="font-medium truncate transition-colors group-hover:text-cyan-300">{ch.youtube_channel_name}</span>
                         </div>
                         {selectedChannel === ch.youtube_channel_name && (
                           <motion.div
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
-                            className="w-5 h-5 rounded-full bg-cyan-500 flex items-center justify-center"
+                            className="flex items-center justify-center w-5 h-5 rounded-full bg-cyan-500"
                           >
                             <Check className="w-3 h-3 text-white" />
                           </motion.div>
                         )}
                       </motion.button>
                     ))}
-                    <div className="border-t border-cyan-500/20 my-2 mx-3"></div>
+                    <div className="mx-3 my-2 border-t border-cyan-500/20"></div>
                     <motion.button
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -543,12 +543,12 @@ const Dashboard = () => {
                         handleAddChannel();
                         setIsDropdownOpen(false);
                       }}
-                      className="flex items-center gap-3 w-full px-5 py-3 text-left text-cyan-300 hover:bg-gradient-to-r hover:from-cyan-500/10 hover:to-purple-500/10 transition-all duration-200 group"
+                      className="flex items-center w-full gap-3 px-5 py-3 text-left transition-all duration-200 text-cyan-300 hover:bg-gradient-to-r hover:from-cyan-500/10 hover:to-purple-500/10 group"
                     >
-                      <div className="w-8 h-8 rounded-full bg-cyan-500/20 flex items-center justify-center group-hover:bg-cyan-500/30 transition-colors">
+                      <div className="flex items-center justify-center w-8 h-8 transition-colors rounded-full bg-cyan-500/20 group-hover:bg-cyan-500/30">
                         <Plus className="w-4 h-4 text-cyan-400" />
                       </div>
-                      <span className="font-medium group-hover:text-cyan-200 transition-colors">Add New Channel</span>
+                      <span className="font-medium transition-colors group-hover:text-cyan-200">Add New Channel</span>
                     </motion.button>
                   </div>
                 </motion.div>
@@ -562,10 +562,10 @@ const Dashboard = () => {
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.2 }}
-          className="text-center mb-16 mt-16"
+          className="mt-16 mb-16 text-center"
         >
           <motion.h2
-            className="text-4xl md:text-5xl font-bold text-white mb-4"
+            className="mb-4 text-4xl font-bold text-white md:text-5xl"
             initial={{ scale: 0.9 }}
             animate={{ scale: 1 }}
             transition={{ delay: 0.4, duration: 0.5 }}
@@ -573,7 +573,7 @@ const Dashboard = () => {
             Welcome to <span className="text-cyan-400">YT Agent</span>
           </motion.h2>
           <motion.p
-            className="text-xl text-gray-300 max-w-2xl mx-auto"
+            className="max-w-2xl mx-auto text-xl text-gray-300"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.6, duration: 0.5 }}
@@ -587,7 +587,7 @@ const Dashboard = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.4 }}
-          className="flex flex-col sm:flex-row justify-center gap-6 mb-16"
+          className="flex flex-col justify-center gap-6 mb-16 sm:flex-row"
         >
           <motion.div
             whileHover={{ scale: 1.05 }}
@@ -648,7 +648,7 @@ const Dashboard = () => {
 
 
           {/* Channel Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             <AnimatePresence>
               {displayChannels.map((channel, index) => (
                 <motion.div
@@ -661,12 +661,12 @@ const Dashboard = () => {
                   <Card className="transition-all duration-300 bg-slate-800/60 border-white/20 backdrop-blur-sm hover:border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/10 hover:scale-105">
                     <CardHeader className="pb-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-full bg-red-500 flex items-center justify-center overflow-hidden">
+                        <div className="flex items-center justify-center w-12 h-12 overflow-hidden bg-red-500 rounded-full">
                           {channel.thumbnailUrl ? (
                             <img
                               src={channel.thumbnailUrl}
                               alt={`${channel.name} thumbnail`}
-                              className="w-full h-full object-cover"
+                              className="object-cover w-full h-full"
                               onError={(e) => {
                                 e.target.style.display = 'none';
                                 e.target.nextSibling.style.display = 'flex';
@@ -675,23 +675,23 @@ const Dashboard = () => {
                           ) : null}
                           <Youtube className="w-6 h-6 text-white" style={{ display: channel.thumbnailUrl ? 'none' : 'flex' }} />
                         </div>
-                        <CardTitle className="text-white text-lg truncate">
+                        <CardTitle className="text-lg text-white truncate">
                           {channel.name}
                         </CardTitle>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1 text-gray-300 text-sm">
+                        <div className="flex items-center gap-1 text-sm text-gray-300">
                           <Users className="w-4 h-4" />
                           {channel.subscriberCount.toLocaleString()} subscribers
                         </div>
-                        <div className="flex items-center gap-1 text-gray-300 text-sm">
+                        <div className="flex items-center gap-1 text-sm text-gray-300">
                           <Video className="w-4 h-4" />
                           {channel.videoCount} videos
                         </div>
                       </div>
-                      <span className="px-3 py-1 rounded-full bg-green-500/20 text-green-400 text-sm font-medium">
+                      <span className="px-3 py-1 text-sm font-medium text-green-400 rounded-full bg-green-500/20">
                         {channel.status}
                       </span>
                     </CardContent>
