@@ -157,10 +157,14 @@ async def generate_story_endpoint(request: StoryGenerationRequest):
         if not request.user_topic.strip():
             raise HTTPException(status_code=400, detail="User topic cannot be empty")
 
-        story, frames = await generate_story_and_frames(
-            request.selected_video, 
+        result = await generate_story_and_frames(
+            request.selected_video,
             request.user_topic.strip()
         )
+
+        # Extract story and frames from the new result format
+        story = result.get("full_story", "")
+        frames = result.get("frames", [])
 
         return StoryAndFramesResponse(
             user_topic=request.user_topic,
@@ -214,6 +218,9 @@ async def generate_story_endpoint_v2(request: GenerateStoryRequestWithModel):
     except Exception as e:
         print(f"Error in generate_story_endpoint_v2: {e}")
         raise HTTPException(status_code=500, detail=f"Story generation failed: {str(e)}")
+
+
+
 
 
 @app.get("/health")

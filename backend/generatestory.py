@@ -18,16 +18,33 @@ if GEMINI_API_KEY:
 def extract_json_from_text(text: str) -> List[Dict]:
     """Extract JSON array from Gemini response text."""
     try:
-        # Try to find JSON array in the text (corrected regex for square brackets)
-        json_match = re.search(r'\$[\s\S]*\$', text)
-        if json_match:
-            json_str = json_match.group(0)
+        # First try to parse the entire text as JSON
+        return json.loads(text.strip())
+    except json.JSONDecodeError:
+        pass
+
+    # Try to extract the outermost JSON array by finding the first [ and last ]
+    try:
+        start = text.find('[')
+        end = text.rfind(']') + 1
+        if start != -1 and end > start:
+            json_str = text[start:end]
             # Clean up common formatting issues
             json_str = re.sub(r',\s*}', '}', json_str)  # Remove trailing commas
             json_str = re.sub(r',\s*]', ']', json_str)
             return json.loads(json_str)
     except json.JSONDecodeError:
         pass
+
+    # If still no luck, try to find JSON between code blocks or other markers
+    try:
+        # Look for ```json ... ``` blocks
+        code_block_match = re.search(r'```(?:json)?\s*(\[[\s\S]*\])\s*```', text, re.IGNORECASE)
+        if code_block_match:
+            return json.loads(code_block_match.group(1))
+    except json.JSONDecodeError:
+        pass
+
     return []
 
 def enhance_user_topic(selected_video: Dict, user_topic: str, model) -> str:
@@ -89,7 +106,7 @@ def video_to_dict(video) -> Dict:
 async def generate_story_and_frames(
     selected_video, 
     user_topic: str,
-    max_frames: int = 7
+    max_frames: int = 5
 ) -> Dict[str, Any]:
     """
     Generate a complete YouTube Shorts story with consistent characters and detailed frame prompts.
@@ -263,26 +280,31 @@ async def generate_story_and_frames(
         
         frames_prompt = f"""
         You are a professional AI video generation prompt engineer. Create a shot-by-shot storyboard for AI video tools (RunwayML, Pika, Sora, etc.).
-        
+
         FULL STORY TO ADAPT:
         {story_data["story"]}
-        
+
         {character_instruction}
-        
+
         VISUAL STYLE: {story_data["visual_style"]}
         EMOTIONAL TONE: {story_data["emotional_tone"]}
         THEMES: {', '.join(story_data["themes"])}
-        
+
         Remember: Output ONLY the exact JSON array as specified. Do not add any extra text.
-        
-        Create EXACTLY {max_frames} frames (shots) that cover the entire story from hook to ending.
-        
+
+        ANALYZE THE STORY and determine the OPTIMAL number of frames needed:
+        - Simple stories: 4-5 frames
+        - Complex stories with multiple scenes/characters: 6-8 frames
+        - Very detailed stories: up to 10 frames maximum
+        - Each frame should represent a distinct visual moment or scene change
+        - Total duration should be 30-60 seconds when played
+
         FRAME REQUIREMENTS:
         1. Each frame: 5-8 seconds of video content
-        2. Total duration: {max_frames * 6}s = ~{max_frames * 6}s video
-        3. Sequential storytelling: Frame 1 → Frame {max_frames} covers complete narrative
-        4. Character consistency: SAME characters throughout (if applicable)
-        
+        2. Sequential storytelling: Frame 1 → Frame N covers complete narrative
+        3. Character consistency: SAME characters throughout (if applicable)
+        4. Optimal frame count based on story complexity and pacing
+
         PROMPT ENGINEERING RULES FOR EACH FRAME:
         - Start with: "A [duration] shot of..."
         - Include: Camera angle (close-up, wide shot, over-shoulder, aerial, etc.)
@@ -294,14 +316,14 @@ async def generate_story_and_frames(
         - Include: Emotion: how it should feel (tense, joyful, mysterious, etc.)
         - Include: Style keywords: cinematic, 4K, photorealistic, animated, etc.
         - Length: 150-250 words per prompt (detailed enough for AI video gen)
-        
+
         OUTPUT FORMAT (JSON):
-        Return a valid JSON array with EXACTLY {max_frames} frames:
-        
+        Return a valid JSON array with the optimal number of frames for this story:
+
         [
           {{
             "frame_num": 1,
-            "duration_seconds": 6,
+            "duration_seconds": 8,
             "scene_description": "One-sentence summary of what happens in this frame",
             "ai_video_prompt": "Detailed 150-250 word prompt for AI video generation. Start with 'A 6-second shot of...' and include all visual details: camera angle, lighting, character appearance (if applicable), environment, action, emotion, style keywords, movement, colors, atmosphere. Be extremely specific and descriptive.",
             "narration_text": "Optional: What the narrator/character says during this frame (if applicable)",
@@ -311,15 +333,16 @@ async def generate_story_and_frames(
             "frame_num": 2,
             ...
           }},
-          ... (continue for all {max_frames} frames)
+          ... (continue for optimal number of frames based on story)
         ]
-        
+
         IMPORTANT:
         - Return ONLY valid JSON, no extra text
+        - Choose the RIGHT number of frames for this specific story (4-10 frames)
         - Ensure character consistency if characters exist
         - Each prompt must be detailed enough for AI video generation
         - Cover the complete story arc from hook to ending
-        
+
         Generate the frames now:
         """
         
@@ -333,12 +356,12 @@ async def generate_story_and_frames(
         
         print(f"Extracted frames: {frames[:2]}...")  # Debug the extracted frames
         
-        if not frames or len(frames) < 5:
+        if not frames or len(frames) < 4:
             print(f"Debug: Frames response length is {len(frames)}. Full response: {frames_text}")
-            raise ValueError(f"Generated only {len(frames)} frames, expected at least 5. Check the AI response for issues.")
-        
-        # Ensure exactly max_frames
-        frames = frames[:max_frames]
+            raise ValueError(f"Generated only {len(frames)} frames, expected at least 4. Check the AI response for issues.")
+
+        # No longer enforce max_frames - let AI determine optimal count
+        # frames = frames[:max_frames]
         
         # Calculate estimated duration
         total_duration = sum(frame.get('duration_seconds', 6) for frame in frames)
@@ -370,6 +393,8 @@ async def generate_story_and_frames(
     except Exception as e:
         print(f"Gemini generation error: {e}")
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"Failed to generate story and frames: {str(e)}"
         )
+
+

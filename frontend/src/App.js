@@ -1,4 +1,3 @@
-// frontend/src/App.js
 import React, { useState } from 'react';
 import Header from './components/Header';
 import NicheInput from './components/NicheInput';
@@ -27,21 +26,21 @@ function App() {
       });
       
       if (!response.ok) {
-        throw new Error(`Failed to fetch trends: ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Failed to fetch trends: ${response.statusText}`);
       }
       
       const data = await response.json();
       setTrendingData(data);
       setCurrentView('results');
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Error analyzing trends. Please try again.');
       console.error('Error fetching trends:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle story generation from ResultsScreen
   const handleGenerateStory = async ({ video, topic }) => {
     setLoading(true);
     setError(null);
@@ -64,7 +63,7 @@ function App() {
       }
       
       const data = await response.json();
-      setGeneratedData(data);
+      setGeneratedData(data);  // Ensure this includes all backend fields like frames
       setCurrentView('frames');
     } catch (err) {
       setError(err.message || 'Failed to generate story. Please try again.');
@@ -76,7 +75,7 @@ function App() {
 
   const handleBackToResults = () => {
     setCurrentView('results');
-    setGeneratedData(null);  // Clear generated data when going back
+    setGeneratedData(null);
   };
 
   const handleBackToHome = () => {
@@ -89,7 +88,7 @@ function App() {
   const clearError = () => setError(null);
 
   return (
-    <div className="App">
+    <div className="App" role="application">
       <Header />
       <div className="floating-shapes">
         <div className="shape shape-1"></div>
@@ -115,13 +114,13 @@ function App() {
         </div>
       )}
       
-      {/* Loading Overlay (Global) */}
-      {loading && currentView !== 'results' && (
-        <div className="global-loading-overlay">
+      {/* Loading Overlay */}
+      {loading && (
+        <div className="global-loading-overlay" aria-live="polite">
           <div className="loading-content">
-            <div className="loading-spinner-large"></div>
+            <div className="loading-spinner-large" aria-label="Loading..."></div>
             <p>
-              {currentView === 'home' ? 'Analyzing trends...' : 'Generating story...'}
+              {currentView === 'home' ? 'Analyzing trends...' : 'Generating story and frames...'}
             </p>
           </div>
         </div>
