@@ -126,7 +126,7 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
     """
     try:
         youtube = get_youtube_service()
-        thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        fifteen_days_ago = (datetime.now() - timedelta(days=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
         
         all_trends = []
         
@@ -150,7 +150,7 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
                     order="viewCount",
                     type="video",
                     videoDuration="short",
-                    publishedAfter=thirty_days_ago,
+                    publishedAfter=fifteen_days_ago,
                 ).execute()
 
                 items = search_response.get("items", [])

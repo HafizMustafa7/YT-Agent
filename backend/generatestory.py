@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 import google.generativeai as genai
 from fastapi import HTTPException
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import json
 import re
 
@@ -104,9 +104,11 @@ def video_to_dict(video) -> Dict:
     }
 
 async def generate_story_and_frames(
-    selected_video, 
+    selected_video,
     user_topic: str,
-    max_frames: int = 5
+    max_frames: int = 5,
+    creative_brief: Optional[Dict[str, Any]] = None,
+    video_duration: Optional[int] = 60,
 ) -> Dict[str, Any]:
     """
     Generate a complete YouTube Shorts story with consistent characters and detailed frame prompts.
@@ -139,6 +141,25 @@ async def generate_story_and_frames(
         
         # Step 2: Generate full story with character consistency
         print("Step 2: Generating full story...")
+        creative_context = ""
+        if creative_brief:
+            constraints = ", ".join(creative_brief.get("constraints", [])) or "None"
+            creative_context = f"""
+        CREATIVE DIRECTION:
+        - Tone / Style: {creative_brief.get("tone", "dynamic")}
+        - Target Audience: {creative_brief.get("target_audience", "General")}
+        - Visual Style: {creative_brief.get("visual_style", "cinematic realism")}
+        - Camera Movement Prefs: {creative_brief.get("camera_movement", "smooth handheld + push-ins")}
+        - Effects / Mood: {creative_brief.get("effects", "subtle light leaks")}
+        - Constraints: {constraints}
+        - Story Format: {creative_brief.get("story_format", "narrative")}
+        - Desired Duration: {creative_brief.get("duration_seconds", video_duration)} seconds
+        """
+
+        target_duration = video_duration or 60
+        if creative_brief:
+            target_duration = creative_brief.get("duration_seconds") or target_duration
+
         story_prompt = f"""
         You are an expert YouTube Shorts scriptwriter specializing in VIRAL, AI-GENERATED video content.
         
@@ -152,8 +173,10 @@ async def generate_story_and_frames(
         {enhanced_topic}
         
         ORIGINAL USER TOPIC: "{user_topic}"
+
+        {creative_context}
         
-        Generate a COMPLETE SHORT-FORM story (30-60 seconds when narrated) with these requirements:
+        Generate a COMPLETE SHORT-FORM story (target {target_duration or 60} seconds when narrated) with these requirements:
         
         1. CHARACTER CONSISTENCY (CRITICAL):
            - If story needs characters, introduce 1-3 main characters MAX
@@ -278,6 +301,13 @@ async def generate_story_and_frames(
         # Step 3: Generate frames with strict character consistency
         print("Step 3: Generating video frames...")
         
+        # Prepare creative modules for prompt
+        tone_val = creative_brief.get("tone") if creative_brief else story_data.get("emotional_tone", "dynamic")
+        visual_style_val = creative_brief.get("visual_style") if creative_brief else story_data.get("visual_style", "cinematic realism")
+        camera_movement_val = creative_brief.get("camera_movement") if creative_brief else "dynamic tracking"
+        effects_val = creative_brief.get("effects") if creative_brief else "subtle transitions"
+        target_audience_val = creative_brief.get("target_audience") if creative_brief else "General"
+        
         frames_prompt = f"""
         You are a professional AI video generation prompt engineer. Create a shot-by-shot storyboard for AI video tools (RunwayML, Pika, Sora, etc.).
 
@@ -286,64 +316,101 @@ async def generate_story_and_frames(
 
         {character_instruction}
 
-        VISUAL STYLE: {story_data["visual_style"]}
-        EMOTIONAL TONE: {story_data["emotional_tone"]}
-        THEMES: {', '.join(story_data["themes"])}
+        CREATIVE MODULES (MUST be included in EVERY frame's ai_video_prompt):
+        - TONE: {tone_val}
+        - VISUAL STYLE: {visual_style_val}
+        - CAMERA MOVEMENT: {camera_movement_val}
+        - EFFECTS: {effects_val}
+        - TARGET AUDIENCE: {target_audience_val}
+        - THEMES: {', '.join(story_data.get("themes", []))}
+        - TARGET DURATION: {creative_brief.get("duration_seconds") if creative_brief else target_duration} seconds
 
         Remember: Output ONLY the exact JSON array as specified. Do not add any extra text.
 
-        ANALYZE THE STORY and determine the OPTIMAL number of frames needed:
-        - Simple stories: 4-5 frames
-        - Complex stories with multiple scenes/characters: 6-8 frames
-        - Very detailed stories: up to 10 frames maximum
+        ANALYZE THE STORY and determine the OPTIMAL number of frames needed based on TARGET DURATION:
+        - Simple stories (20-40s): 3-5 frames
+        - Medium stories (40-80s): 5-8 frames
+        - Complex stories (80-120s): 8-12 frames
         - Each frame should represent a distinct visual moment or scene change
-        - Total duration should be 30-60 seconds when played
+        - Total duration MUST match TARGET DURATION exactly ({creative_brief.get("duration_seconds") if creative_brief else target_duration} seconds)
 
         FRAME REQUIREMENTS:
-        1. Each frame: 5-8 seconds of video content
+        1. Each frame: 5-10 seconds of video content (adjust based on total duration)
         2. Sequential storytelling: Frame 1 → Frame N covers complete narrative
         3. Character consistency: SAME characters throughout (if applicable)
         4. Optimal frame count based on story complexity and pacing
 
-        PROMPT ENGINEERING RULES FOR EACH FRAME:
-        - Start with: "A [duration] shot of..."
-        - Include: Camera angle (close-up, wide shot, over-shoulder, aerial, etc.)
-        - Include: Lighting (golden hour, dramatic shadows, bright studio, moody, etc.)
-        - Include: Movement (camera pans left, zooms in, static shot, tracking shot, etc.)
-        - Include: Character details (if applicable): exact clothing, hairstyle, facial expression, body language
-        - Include: Environment: detailed setting description
-        - Include: Action: what's happening in this exact moment
-        - Include: Emotion: how it should feel (tense, joyful, mysterious, etc.)
-        - Include: Style keywords: cinematic, 4K, photorealistic, animated, etc.
-        - Length: 150-250 words per prompt (detailed enough for AI video gen)
+        PROMPT ENGINEERING RULES FOR EACH FRAME (CRITICAL FOR CONSISTENCY & CREATIVITY):
+        
+        CONSISTENCY REQUIREMENTS:
+        - Maintain EXACT visual continuity between frames (same characters, same settings, same style)
+        - Use consistent color palette and lighting mood throughout
+        - Ensure smooth visual flow from frame to frame
+        - Reference previous frames to maintain continuity
+        
+        CREATIVITY REQUIREMENTS:
+        - Create visually stunning, eye-catching scenes that captivate viewers
+        - Use dynamic compositions with strong visual hierarchy
+        - Incorporate interesting perspectives and unique camera angles
+        - Add visual interest through contrast, depth, and movement
+        
+        PERFECT SCENE REQUIREMENTS:
+        - Start with: "A [duration]-second [shot type] of..."
+        - Specify EXACT camera angle (close-up, medium shot, wide shot, over-shoulder, aerial, dutch angle, etc.)
+        - Define PRECISE lighting (golden hour, dramatic shadows, bright studio, moody, high-key, low-key, rim lighting, etc.)
+        - Describe camera movement (smooth tracking, handheld, push-in, pull-out, pan, tilt, dolly, crane, etc.)
+        - Detail character appearance EXACTLY (if applicable): clothing, hairstyle, facial expression, body language, posture
+        - Describe environment COMPLETELY: location, time of day, weather, props, background details
+        - Specify action CLEARLY: what's happening, movement, gestures, interactions
+        - Convey emotion EFFECTIVELY: mood, atmosphere, feeling (tense, joyful, mysterious, inspiring, etc.)
+        - Include style keywords: cinematic, 4K UHD, photorealistic, professional cinematography, color graded, etc.
+        - Add creative elements: depth of field, bokeh, lens flares, color grading, visual effects
+        
+        TECHNICAL SPECIFICATIONS:
+        - Frame rate: 24fps or 30fps
+        - Aspect ratio: 9:16 (vertical for Shorts)
+        - Resolution: 1080p minimum
+        - Length: 200-300 words per prompt (extremely detailed for perfect AI video generation)
+        - Must be production-ready for professional video generation tools
 
         OUTPUT FORMAT (JSON):
-        Return a valid JSON array with the optimal number of frames for this story:
+        Return a valid JSON array with the optimal number of frames for this story.
+        Each frame MUST be a complete JSON object with ALL required fields in JSON format:
 
         [
           {{
             "frame_num": 1,
             "duration_seconds": 8,
             "scene_description": "One-sentence summary of what happens in this frame",
-            "ai_video_prompt": "Detailed 150-250 word prompt for AI video generation. Start with 'A 6-second shot of...' and include all visual details: camera angle, lighting, character appearance (if applicable), environment, action, emotion, style keywords, movement, colors, atmosphere. Be extremely specific and descriptive.",
+            "ai_video_prompt": "Highly detailed 200-300 word production-ready prompt for professional AI video generation. Start with 'A [duration]-second [shot type] of...' and MUST seamlessly integrate ALL creative modules: camera movement ({camera_movement_val}), visual style ({visual_style_val}), effects ({effects_val}), tone ({tone_val}). Create a visually stunning, consistent scene with: EXACT camera angle and movement, PRECISE lighting setup, DETAILED character appearance (if applicable) maintaining consistency, COMPLETE environment description, CLEAR action and movement, STRONG emotional impact, PROFESSIONAL cinematography style, CREATIVE visual elements. Ensure perfect scene composition, visual continuity, and maximum creative appeal. Be extremely specific about every visual element to ensure consistency and perfection.",
             "narration_text": "Optional: What the narrator/character says during this frame (if applicable)",
-            "transition": "How this frame transitions to next: cut, fade, zoom, etc."
+            "transition": "How this frame transitions to next: cut, fade, zoom, etc.",
+            "creative_modules": {{
+              "tone": "{tone_val}",
+              "visual_style": "{visual_style_val}",
+              "camera_movement": "{camera_movement_val}",
+              "effects": "{effects_val}",
+              "target_audience": "{target_audience_val}"
+            }}
           }},
           {{
             "frame_num": 2,
             ...
           }},
-          ... (continue for optimal number of frames based on story)
+          ... (continue for optimal number of frames based on story - DO NOT hardcode frame count)
         ]
 
         IMPORTANT:
-        - Return ONLY valid JSON, no extra text
-        - Choose the RIGHT number of frames for this specific story (4-10 frames)
+        - Return ONLY valid JSON array, no extra text before or after
+        - DYNAMICALLY determine the optimal number of frames based on story complexity (NOT hardcoded)
+        - Each frame MUST include creative_modules as a JSON object within the frame JSON
+        - Each ai_video_prompt MUST incorporate ALL creative modules (tone, visual_style, camera_movement, effects)
         - Ensure character consistency if characters exist
         - Each prompt must be detailed enough for AI video generation
         - Cover the complete story arc from hook to ending
+        - Frame numbers should be sequential (1, 2, 3, ...) based on actual story division
 
-        Generate the frames now:
+        Generate the frames now as a valid JSON array:
         """
         
         frames_response = model.generate_content(frames_prompt)
@@ -377,10 +444,11 @@ async def generate_story_and_frames(
             "visual_style": story_data["visual_style"],
             "emotional_tone": story_data["emotional_tone"],
             "frames": frames,
+            "creative_brief": creative_brief,
             "metadata": {
                 "total_frames": len(frames),
                 "estimated_duration": total_duration,
-                "target_duration": "30-60 seconds",
+                "target_duration": f"{target_duration or 60} seconds",
                 "character_based": len(story_data["characters"]) > 0,
                 "source_video": {
                     "title": selected_video['title'],
