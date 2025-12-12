@@ -1,7 +1,4 @@
-"""
-Complete Payment Structure Backend for YouTube Agent Web App
-Built with FastAPI, SQLAlchemy, and Pydantic
-"""
+
 
 from fastapi import FastAPI, HTTPException, Depends, status, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,10 +37,7 @@ def get_db():
     finally:
         db.close()
 
-# ==================== ENUMS ====================
-# Removed subscription-related enums - only credits now
 
-# ==================== DATABASE MODELS ====================
 
 class User(Base):
     __tablename__ = 'users'
@@ -77,7 +71,7 @@ class Transaction(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     user = relationship("User", back_populates="transactions")
 
-# ==================== PYDANTIC SCHEMAS ====================
+
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -95,7 +89,7 @@ class CreditPurchase(BaseModel):
     user_id: int
     package_name: str
 
-# ==================== PRICING CONFIGURATION ====================
+# PRICING CONFIGURATION 
 
 @dataclass
 class CreditPackage:
@@ -177,7 +171,7 @@ class PaymentStructure:
 
 payment_structure = PaymentStructure()
 
-# ==================== STARTUP FUNCTION ====================
+#  STARTUP FUNCTION 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -195,7 +189,7 @@ async def lifespan(app: FastAPI):
     # Shutdown (if needed)
     pass
 
-# ==================== FASTAPI APP SETUP ====================
+# FASTAPI APP SETUP 
 
 app = FastAPI(
     title="YouTube Agent Payment API",
@@ -215,7 +209,8 @@ app.add_middleware(
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# ==================== API ENDPOINTS ====================
+#  API ENDPOINTS 
+
 
 @app.get("/")
 def root():
@@ -270,7 +265,7 @@ def buy_credits(purchase: CreditPurchase, db: Session = Depends(get_db)):
 
 
 
-# ==================== PADDLE INTEGRATION ====================
+#  PADDLE INTEGRATION 
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -493,7 +488,7 @@ async def paddle_webhook(request: Request):
         print(f"Webhook error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ==================== MAIN ====================
+# 
 
 if __name__ == "__main__":
     import uvicorn
