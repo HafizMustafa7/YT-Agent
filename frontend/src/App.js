@@ -1,160 +1,201 @@
 import React, { useState } from 'react';
 import Header from './components/Header';
-import NicheInput from './components/NicheInput';
-import ResultsScreen from './components/ResultsScreen';
-import FrameResults from './components/FrameResults';
+import HomeScreen from './components/HomeScreen';
+import TrendsScreen from './components/TrendsScreen';
+import TopicValidationScreen from './components/TopicValidationScreen';
+import CreativeFormScreen from './components/CreativeFormScreen';
+import StoryResultsScreen from './components/StoryResultsScreen';
 import './App.css';
 
+const API_BASE = 'http://localhost:8000';
+
 function App() {
-  const [currentView, setCurrentView] = useState('home');
-  const [trendingData, setTrendingData] = useState(null);
-  const [generatedData, setGeneratedData] = useState(null);
+  const [currentScreen, setCurrentScreen] = useState('home');
+  const [trendsData, setTrendsData] = useState(null);
+  const [selectedVideo, setSelectedVideo] = useState(null);
+  const [topicInput, setTopicInput] = useState('');
+  const [validationResult, setValidationResult] = useState(null);
+  const [storyResult, setStoryResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const handleAnalyzeTrends = async (niche) => {
+  const callApi = async (endpoint, payload) => {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || 'Request failed.');
+    }
+    return response.json();
+  };
+
+  const handleFetchTrends = async (mode, niche = null) => {
     setLoading(true);
     setError(null);
-    
     try {
-      const response = await fetch('http://localhost:8000/analyze-trends', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ niche }),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `Failed to fetch trends: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      setTrendingData(data);
-      setCurrentView('results');
+      const data = await callApi('/api/fetch-trends', { mode, niche });
+      setTrendsData(data);
+      setCurrentScreen('trends');
     } catch (err) {
-      setError(err.message || 'Error analyzing trends. Please try again.');
-      console.error('Error fetching trends:', err);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGenerateStory = async ({ video, topic }) => {
+  const handleSelectVideo = (video) => {
+    setSelectedVideo(video);
+    setTopicInput(video.title);
+    setValidationResult(null);
+    setCurrentScreen('topic');
+  };
+
+  const handleValidateTopic = async () => {
+    if (!topicInput.trim()) {
+      setError('Please enter a topic.');
+      return;
+    }
     setLoading(true);
     setError(null);
-    
     try {
-      const response = await fetch('http://localhost:8000/generate-story-and-frames', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          selected_video: video,
-          user_topic: topic 
-        }),
+      const result = await callApi('/api/validate-topic', {
+        topic: topicInput.trim(),
+        niche_hint: selectedVideo?.title,
       });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `Failed to generate story: ${response.statusText}`);
+      setValidationResult(result);
+      // Auto-proceed if valid
+      if (result.valid) {
+        setTimeout(() => {
+          setCurrentScreen('creative');
+        }, 1000);
       }
-      
-      const data = await response.json();
-      setGeneratedData(data);  // Ensure this includes all backend fields like frames
-      setCurrentView('frames');
     } catch (err) {
-      setError(err.message || 'Failed to generate story. Please try again.');
-      console.error('Error generating story:', err);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleBackToResults = () => {
-    setCurrentView('results');
-    setGeneratedData(null);
+  const handleSubmitCreative = (preferences) => {
+    setCurrentScreen('generating');
+    generateStory(preferences);
   };
 
-  const handleBackToHome = () => {
-    setCurrentView('home');
-    setTrendingData(null);
-    setGeneratedData(null);
+  const generateStory = async (preferences) => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Create a dummy video object if no video was selected (custom topic)
+      const videoData = selectedVideo || {
+        id: 'custom',
+        title: topicInput,
+        description: '',
+        views: 0,
+        likes: 0,
+        tags: [],
+        ai_confidence: 0,
+      };
+      
+      const result = await callApi('/api/generate-story', {
+        topic: validationResult?.normalized?.normalized || topicInput,
+        selected_video: videoData,
+        creative_preferences: preferences,
+      });
+      setStoryResult(result);
+      setCurrentScreen('story');
+    } catch (err) {
+      setError(err.message);
+      setCurrentScreen('creative');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetApp = () => {
+    setCurrentScreen('home');
+    setTrendsData(null);
+    setSelectedVideo(null);
+    setTopicInput('');
+    setValidationResult(null);
+    setStoryResult(null);
     setError(null);
   };
-
-  const clearError = () => setError(null);
 
   return (
-    <div className="App" role="application">
+    <div className="App">
       <Header />
-      <div className="floating-shapes">
-        <div className="shape shape-1"></div>
-        <div className="shape shape-2"></div>
-        <div className="shape shape-3"></div>
-        <div className="shape shape-4"></div>
-      </div>
       
-      {/* Global Error Banner */}
       {error && (
         <div className="global-error" role="alert">
           <div className="error-content">
             <span className="error-icon">⚠️</span>
             <p>{error}</p>
           </div>
-          <button 
-            onClick={clearError} 
-            className="error-dismiss"
-            aria-label="Dismiss error"
-          >
-            ×
-          </button>
+          <button onClick={() => setError(null)} className="error-dismiss">×</button>
         </div>
       )}
-      
-      {/* Loading Overlay */}
-      {loading && (
-        <div className="global-loading-overlay" aria-live="polite">
+
+      {loading && currentScreen === 'generating' && (
+        <div className="global-loading-overlay">
           <div className="loading-content">
-            <div className="loading-spinner-large" aria-label="Loading..."></div>
-            <p>
-              {currentView === 'home' ? 'Analyzing trends...' : 'Generating story and frames...'}
-            </p>
+            <div className="loading-spinner-large"></div>
+            <p>Generating your story and frames...</p>
           </div>
         </div>
       )}
-      
-      {currentView === 'home' ? (
-        <div className="hero-section">
-          <h1 className="title">AI-Powered YouTube Trend Generator</h1>
-          <p className="subtitle">
-            Our cutting-edge AI analyzes YouTube trends to help you create viral content. 
-            Simply enter your niche and our system will generate trending video ideas, 
-            optimal titles, descriptions, and even generate video scripts using advanced AI algorithms.
-          </p>
-          
-          <NicheInput
-            onAnalyze={handleAnalyzeTrends}
-            loading={loading}
-          />
-        </div>
-      ) : currentView === 'results' ? (
-        <ResultsScreen 
-          data={trendingData} 
-          onBack={handleBackToHome}
-          onGenerate={handleGenerateStory}
+
+      {currentScreen === 'home' && (
+        <HomeScreen 
+          onAnalyzeTrends={() => handleFetchTrends('search_trends')}
+          onSearchNiche={(niche) => handleFetchTrends('analyze_niche', niche)}
           loading={loading}
         />
-      ) : currentView === 'frames' ? (
-        <FrameResults 
-          data={generatedData}
-          onBack={handleBackToResults}
-          onBackToHome={handleBackToHome}
+      )}
+
+      {currentScreen === 'trends' && trendsData && (
+        <TrendsScreen
+          trendsData={trendsData}
+          onSelectVideo={handleSelectVideo}
+          onCustomTopic={(topic) => {
+            setTopicInput(topic);
+            setSelectedVideo(null);
+            setValidationResult(null);
+            setCurrentScreen('topic');
+          }}
+          onBack={resetApp}
           loading={loading}
         />
-      ) : null}
+      )}
+
+      {currentScreen === 'topic' && topicInput && (
+        <TopicValidationScreen
+          topic={topicInput}
+          onTopicChange={setTopicInput}
+          onValidate={handleValidateTopic}
+          validationResult={validationResult}
+          onBack={() => setCurrentScreen('trends')}
+          loading={loading}
+        />
+      )}
+
+      {currentScreen === 'creative' && validationResult && (
+        <CreativeFormScreen
+          onSubmit={handleSubmitCreative}
+          onBack={() => setCurrentScreen('topic')}
+          loading={loading}
+        />
+      )}
+
+      {currentScreen === 'story' && storyResult && (
+        <StoryResultsScreen
+          storyResult={storyResult}
+          topic={validationResult?.normalized?.normalized || topicInput}
+          onBack={resetApp}
+        />
+      )}
     </div>
   );
 }
