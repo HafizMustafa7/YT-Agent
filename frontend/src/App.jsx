@@ -3,9 +3,9 @@ import { useEffect, useState } from "react";
 import AuthPage from "./pages/AuthPage";
 import ConnectDrivePage from "./pages/ConnectDrivePage";
 import Dashboard from "./pages/Dashboard";
-import NicheInputPage from "./pages/NicheInputPage";
-import ResultsScreen from "./pages/ResultsScreen";
-import FrameResults from "./pages/FrameResults";
+// import NicheInputPage from "./pages/NicheInputPage";
+// import ResultsScreen from "./pages/ResultsScreen";
+// import FrameResults from "./pages/FrameResults";
 import WelcomePage from "./pages/WelcomePage";
 import Analytics from "./pages/Analytics";
 import { supabase } from "./supabaseClient";
@@ -72,8 +72,8 @@ function App() {
             try {
               const userInfo = await getCurrentUser();
               if (userInfo.user.drive_connected) {
-                // If user is already on dashboard, niche-input, generate-video, analytics, results, or frame-results, don't redirect
-                if (location.pathname !== "/dashboard" && location.pathname !== "/niche-input" && location.pathname !== "/generate-video" && location.pathname !== "/analytics" && location.pathname !== "/results" && location.pathname !== "/frame-results") {
+                // If user is already on dashboard or analytics, don't redirect
+                if (location.pathname !== "/dashboard" && location.pathname !== "/analytics") {
                   navigate("/dashboard");
                 }
               } else {
@@ -166,35 +166,35 @@ function App() {
         element={user ? <Dashboard /> : <AuthPage />}
       />
 
-      {/* Niche Input Page (protected) */}
-      <Route
-        path="/niche-input"
-        element={user ? <NicheInputPage /> : <AuthPage />}
-      />
-
-      {/* Generate Video Page (alias for niche-input) */}
-      <Route
-        path="/generate-video"
-        element={user ? <NicheInputPage /> : <AuthPage />}
-      />
-
-      {/* Results Screen (protected) */}
-      <Route
-        path="/results"
-        element={user ? <ResultsScreen /> : <AuthPage />}
-      />
-
       {/* Analytics Page (protected) */}
       <Route
         path="/analytics"
         element={user ? <Analytics /> : <AuthPage />}
       />
 
-      {/* Frame Results Page (protected) */}
-      <Route
+      {/* Niche Input Page (protected) - COMMENTED OUT */}
+      {/* <Route
+        path="/niche-input"
+        element={user ? <NicheInputPage /> : <AuthPage />}
+      /> */}
+
+      {/* Generate Video Page (alias for niche-input) - COMMENTED OUT */}
+      {/* <Route
+        path="/generate-video"
+        element={user ? <NicheInputPage /> : <AuthPage />}
+      /> */}
+
+      {/* Results Screen (protected) - COMMENTED OUT */}
+      {/* <Route
+        path="/results"
+        element={user ? <ResultsScreen /> : <AuthPage />}
+      /> */}
+
+      {/* Frame Results Page (protected) - COMMENTED OUT */}
+      {/* <Route
         path="/frame-results"
         element={user ? <FrameResults /> : <AuthPage />}
-      />
+      /> */}
     </Routes>
   );
 }

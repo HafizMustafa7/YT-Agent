@@ -149,13 +149,13 @@ def oauth_callback(request: Request, state: str = None, code: str = None):
         expiry = getattr(credentials, "expiry", None)
         token_expiry = None
         if expiry:
-            # ensure timestamptz format
+            # ensure timestamptz format - make timezone-aware (expiry is naive UTC)
             if hasattr(expiry, "isoformat"):
-                token_expiry = expiry.isoformat()
+                token_expiry = expiry.replace(tzinfo=datetime.timezone.utc).isoformat()
             else:
                 # last resort: convert timestamp
                 try:
-                    token_expiry = datetime.datetime.fromtimestamp(expiry).isoformat()
+                    token_expiry = datetime.datetime.fromtimestamp(expiry, tz=datetime.timezone.utc).isoformat()
                 except Exception:
                     token_expiry = None
 
@@ -192,6 +192,10 @@ def list_channels(current_user: dict = Depends(get_current_user)):
     """List channels for the logged-in user with token validity check and fresh thumbnails."""
     resp = supabase.table("channels").select("*").eq("user_id", current_user["id"]).order("created_at", desc=True).execute()
     channels = resp.data if hasattr(resp, "data") else resp.get("data", [])
+
+    # Debug: Print YouTube tokens
+    for channel in channels:
+        print(f"[DEBUG] YouTube Channel: {channel.get('youtube_channel_name')}, Access Token: {channel.get('access_token')[:20]}...")
 
     # Add token_valid flag and fetch fresh thumbnails for each channel
     for channel in channels:
@@ -274,6 +278,7 @@ def _refresh_youtube_token(channel):
     import requests
 
     refresh_token = channel.get("refresh_token")
+    print(f"[DEBUG] Refreshing YouTube token for channel {channel.get('youtube_channel_name')}, refresh_token present: {refresh_token is not None}")
     if not refresh_token:
         logger.warning("[CHANNELS] No refresh token available")
         return False

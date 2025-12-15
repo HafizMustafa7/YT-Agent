@@ -130,11 +130,13 @@ def oauth_callback(request: Request, code: str, state: str):
         expiry = getattr(credentials, "expiry", None)
         token_expiry = None
         if expiry:
+            # ensure timestamptz format - make timezone-aware (expiry is naive UTC)
             if hasattr(expiry, "isoformat"):
-                token_expiry = expiry.isoformat()
+                token_expiry = expiry.replace(tzinfo=datetime.timezone.utc).isoformat()
             else:
+                # last resort: convert timestamp
                 try:
-                    token_expiry = datetime.datetime.fromtimestamp(expiry).isoformat()
+                    token_expiry = datetime.datetime.fromtimestamp(expiry, tz=datetime.timezone.utc).isoformat()
                 except Exception:
                     token_expiry = None
 
@@ -178,6 +180,9 @@ def get_drive_status(current_user: dict = Depends(get_current_user)):
             }
 
         account = data[0]
+
+        # Debug: Print Drive token
+        print(f"[DEBUG] Drive Account: {account.get('google_email')}, Access Token: {account.get('access_token')[:20]}...")
 
         # Check token expiry
         token_expiry = account.get("token_expiry")
@@ -244,6 +249,7 @@ def _refresh_drive_token(account):
     import requests
 
     refresh_token = account.get("refresh_token")
+    print(f"[DEBUG] Refreshing Drive token for account {account.get('google_email')}, refresh_token present: {refresh_token is not None}")
     if not refresh_token:
         logger.warning("[DRIVE] No refresh token available for token refresh")
         return False
@@ -261,8 +267,16 @@ def _refresh_drive_token(account):
 
     try:
         response = requests.post(token_url, data=payload)
-        response.raise_for_status()
         token_data = response.json()
+
+        # Check for invalid refresh token
+        if response.status_code == 400 and token_data.get("error") == "invalid_grant":
+            logger.warning(f"[DRIVE] Refresh token invalid for user {account['user_id']} - disconnecting drive account")
+            # Disconnect the drive account since refresh token is invalid
+            supabase.table("drive_accounts").delete().eq("user_id", account["user_id"]).execute()
+            return False
+
+        response.raise_for_status()
 
         access_token = token_data.get("access_token")
         expires_in = token_data.get("expires_in")

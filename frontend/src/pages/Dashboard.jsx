@@ -50,8 +50,50 @@ const Dashboard = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDarkTheme, setIsDarkTheme] = useState(true);
   const [sessionReady, setSessionReady] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
   const dropdownRef = useRef(null);
+
+  // Cache keys and TTL (only for channels)
+  const CACHE_KEYS = {
+    CHANNELS: 'dashboard_channels',
+    CACHE_TIMESTAMP: 'dashboard_cache_timestamp'
+  };
+  const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+  // Cache management functions (only for channels)
+  const setChannelsCache = (channels) => {
+    localStorage.setItem(CACHE_KEYS.CHANNELS, JSON.stringify(channels));
+    localStorage.setItem(CACHE_KEYS.CACHE_TIMESTAMP, Date.now().toString());
+    console.log('[Dashboard] Channels cache updated');
+  };
+
+  const getChannelsCache = () => {
+    try {
+      const timestamp = localStorage.getItem(CACHE_KEYS.CACHE_TIMESTAMP);
+      if (!timestamp) return null;
+
+      const cacheAge = Date.now() - parseInt(timestamp);
+      if (cacheAge > CACHE_TTL) {
+        console.log('[Dashboard] Cache expired, clearing...');
+        clearChannelsCache();
+        return null;
+      }
+
+      const channels = JSON.parse(localStorage.getItem(CACHE_KEYS.CHANNELS) || '[]');
+      console.log('[Dashboard] Using cached channels data');
+      return channels;
+    } catch (error) {
+      console.warn('[Dashboard] Cache read error:', error);
+      clearChannelsCache();
+      return null;
+    }
+  };
+
+  const clearChannelsCache = () => {
+    localStorage.removeItem(CACHE_KEYS.CHANNELS);
+    localStorage.removeItem(CACHE_KEYS.CACHE_TIMESTAMP);
+  };
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -92,12 +134,26 @@ const Dashboard = () => {
     initializeSession();
   }, [navigate]);
 
-  // ✅ Fetch channels from backend with auto-refresh if expired
+  // ✅ Fetch channels from backend with caching and auto-refresh if expired
   useEffect(() => {
     if (!sessionReady) return;
 
     const fetchChannels = async () => {
       try {
+        // Check cache first
+        const cachedChannels = getChannelsCache();
+        if (cachedChannels) {
+          console.log('[Dashboard] Using cached channels data');
+          setChannels(cachedChannels);
+          setIsLoading(false);
+
+          // Set default selected channel if available
+          if (cachedChannels.length > 0 && selectedChannel === "Select Channel") {
+            setSelectedChannel(cachedChannels[0].youtube_channel_name);
+          }
+          return;
+        }
+
         const { data: { session } } = await supabase.auth.getSession();
         if (!session || !session.user) {
           navigate("/");
@@ -125,7 +181,11 @@ const Dashboard = () => {
                 Authorization: `Bearer ${session.access_token}`,
               },
             }).then(res => res.ok ? res.json() : null).then(refreshData => {
-              if (refreshData) setChannels(refreshData);
+              if (refreshData) {
+                setChannels(refreshData);
+                // Update cache with refreshed data
+                setChannelsCache(refreshData);
+              }
             }).catch(err => console.warn('[Dashboard] Failed to re-fetch channels after refresh:', err));
           }).catch(refreshError => {
             console.error('[Dashboard] YouTube token refresh failed:', refreshError);
@@ -155,6 +215,10 @@ const Dashboard = () => {
         );
 
         setChannels(updatedChannels);
+        setIsLoading(false);
+
+        // Cache the channels data
+        setChannelsCache(updatedChannels);
 
         // Set default selected channel if available
         if (updatedChannels.length > 0 && selectedChannel === "Select Channel") {
@@ -162,13 +226,14 @@ const Dashboard = () => {
         }
       } catch (err) {
         showErrorToast(err);
+        setIsLoading(false);
       }
     };
 
     fetchChannels();
   }, [navigate, sessionReady]);
 
-  // ✅ Fetch Drive connection status
+  // ✅ Fetch Drive connection status (always fresh, no caching)
   useEffect(() => {
     if (!sessionReady) return;
 
@@ -198,7 +263,9 @@ const Dashboard = () => {
                 Authorization: `Bearer ${session.access_token}`,
               },
             }).then(res => res.ok ? res.json() : null).then(refreshData => {
-              if (refreshData) setDriveStatus(refreshData);
+              if (refreshData) {
+                setDriveStatus(refreshData);
+              }
             }).catch(err => console.warn('[Dashboard] Failed to re-fetch drive status after refresh:', err));
           }).catch(refreshError => {
             console.error('[Dashboard] Drive token refresh failed:', refreshError);
@@ -589,7 +656,7 @@ const Dashboard = () => {
           transition={{ duration: 0.6, delay: 0.4 }}
           className="flex flex-col justify-center gap-6 mb-16 sm:flex-row"
         >
-          <motion.div
+          {/* <motion.div
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
@@ -600,7 +667,7 @@ const Dashboard = () => {
               <PlayCircle className="w-6 h-6" />
               Generate Video
             </Button>
-          </motion.div>
+          </motion.div> */}
 
           <motion.div
             whileHover={{ scale: 1.02 }}
