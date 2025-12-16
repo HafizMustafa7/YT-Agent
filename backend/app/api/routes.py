@@ -152,3 +152,58 @@ async def generate_story(request: GenerateStoryRequest) -> Dict[str, Any]:
             status_code=500, 
             detail=f"Error generating story: {str(e)}"
         )
+
+
+# ==================== Cache Management Endpoints ====================
+
+@api_router.get("/cache/stats")
+async def get_cache_stats():
+    """
+    Get Redis cache statistics.
+    
+    Returns cache hits, misses, hit rate, and Redis info.
+    """
+    from app.core.redis_cache import redis_cache
+    
+    stats = redis_cache.get_stats()
+    return {
+        "success": True,
+        "cache_stats": stats
+    }
+
+
+@api_router.get("/cache/keys")
+async def get_cache_keys():
+    """Get all cached keys."""
+    from app.core.redis_cache import redis_cache
+    
+    keys = redis_cache.get_all_keys()
+    return {
+        "success": True,
+        "total_keys": len(keys),
+        "keys": keys
+    }
+
+
+@api_router.delete("/cache/clear")
+async def clear_cache():
+    """Clear all cached data."""
+    from app.core.redis_cache import redis_cache
+    
+    success = redis_cache.clear_all()
+    return {
+        "success": success,
+        "message": "Cache cleared successfully" if success else "Failed to clear cache"
+    }
+
+
+@api_router.delete("/cache/invalidate/{key}")
+async def invalidate_cache_key(key: str):
+    """Invalidate specific cache entry."""
+    from app.core.redis_cache import redis_cache
+    
+    success = redis_cache.delete(key)
+    return {
+        "success": success,
+        "message": f"Cache key '{key}' invalidated" if success else "Failed to invalidate key"
+    }

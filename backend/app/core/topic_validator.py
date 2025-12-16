@@ -1,222 +1,171 @@
 """
-Topic Validation Module - Strict validation for trending-worthy topics.
-Focuses on YouTube policy compliance and quality checks for viral content.
+Strict topic validation with quality checks.
+Ensures topics meet YouTube content policy and quality standards.
 """
 import re
-from typing import Dict, Any, List
+from typing import Dict, Any, Optional
 
 
-# YouTube policy violations
-POLICY_VIOLATIONS = [
-    r'\b(hack|cheat|scam|illegal|piracy|stolen|copyright)\b',
-    r'\b(violence|gore|explicit|nsfw|adult)\b',
-    r'\b(drug|weapon|knife|gun|bomb)\b',
-    r'\b(hate|racist|discrimination)\b',
-]
-
-# Weak/low-quality topic patterns
-WEAK_PATTERNS = [
-    r'^(hi|hello|test|asdf|qwerty)',
-    r'^(the|a|an)\s+\w{1,3}$',  # Too short with articles
-    r'^\d+$',  # Only numbers
-    r'^[^\w\s]+$',  # Only special chars
-]
-
-# Additional heuristics to detect low-quality/generic topics
-STOPWORDS = set([
-    'the', 'a', 'an', 'and', 'or', 'of', 'in', 'to', 'for', 'with', 'on', 'at', 'by', 'from',
-    'about', 'as', 'is', 'it', 'this', 'that', 'these', 'those', 'be', 'are'
-])
-
-GENERIC_WORDS = set([
-    'things', 'stuff', 'videos', 'content', 'ideas', 'random', 'anything'
-])
-
-COMMON_VERBS = set([
-    'make', 'create', 'learn', 'build', 'find', 'discover', 'watch', 'see', 'get',
-    'show', 'tell', 'explain', 'improve', 'grow', 'increase', 'reduce', 'save', 'fix', 'use',
-    'do', 'how', 'why', 'what'
-])
-
-# Trending-worthy indicators
-TRENDING_INDICATORS = [
-    r'\b(trending|viral|hottest|newest|latest|best|top)\b',
-    r'\b(amazing|incredible|shocking|unbelievable)\b',
-    r'\b(tips|tricks|hacks|secrets|facts)\b',
-    r'\b(before|after|transformation|journey)\b',
-    r'\b(how|why|what|when|where)\b',
-]
+def normalize_topic(topic: str) -> str:
+    """
+    Normalize a topic by cleaning whitespace and basic formatting.
+    
+    Args:
+        topic: Raw topic string
+        
+    Returns:
+        Normalized topic string
+    """
+    # Remove extra whitespace
+    topic = ' '.join(topic.split())
+    
+    # Capitalize first letter
+    if topic:
+        topic = topic[0].upper() + topic[1:]
+    
+    return topic.strip()
 
 
-def normalize_topic(topic: str, niche_hint: str = None) -> Dict[str, Any]:
-    """Normalize and clean a topic string."""
+def validate_topic(topic: str, niche_hint: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Validate a topic for YouTube Shorts content.
+    Checks policy compliance and quality standards.
+    
+    Args:
+        topic: The topic to validate
+        niche_hint: Optional hint about the niche (e.g., from selected video)
+        
+    Returns:
+        Dictionary with validation results:
+        {
+            "valid": bool,
+            "score": int (0-100),
+            "issues": List[str],
+            "suggestions": List[str],
+            "normalized": {
+                "original": str,
+                "normalized": str
+            }
+        }
+    """
     if not topic or not topic.strip():
-        raise ValueError("Topic cannot be empty.")
+        return {
+            "valid": False,
+            "score": 0,
+            "issues": ["Topic cannot be empty"],
+            "suggestions": ["Enter a topic for your YouTube Short"],
+            "normalized": {
+                "original": topic,
+                "normalized": ""
+            }
+        }
     
-    cleaned = re.sub(r'\s+', ' ', topic.strip())
+    topic = topic.strip()
+    normalized = normalize_topic(topic)
     
-    return {
-        "original": topic,
-        "normalized": cleaned,
-        "niche_hint": niche_hint,
-    }
-
-
-def check_policy_compliance(topic: str) -> Dict[str, Any]:
-    """Check if topic violates YouTube policies."""
-    topic_lower = topic.lower()
-    violations = []
-    
-    for pattern in POLICY_VIOLATIONS:
-        if re.search(pattern, topic_lower, re.IGNORECASE):
-            violations.append(f"Violates policy: {pattern}")
-    
-    return {
-        "compliant": len(violations) == 0,
-        "violations": violations,
-    }
-
-
-def check_topic_quality(topic: str) -> Dict[str, Any]:
-    """Check if topic has enough substance for trending content."""
     issues = []
-    score = 100
+    suggestions = []
+    score = 100  # Start with perfect score, deduct for issues
     
-    # Check for weak patterns
-    for pattern in WEAK_PATTERNS:
-        if re.match(pattern, topic, re.IGNORECASE):
-            issues.append("Topic is too generic or low quality")
-            score -= 30
+    # ==================== Policy Violations (Auto-Reject) ====================
     
-    # Prefer titles that are concise but descriptive (15-80 chars ideal)
-    if len(topic) < 15:
-        issues.append("Topic is too short. Aim for ~15-80 characters for better engagement.")
-        score -= 25
+    # Check for prohibited content
+    prohibited_keywords = [
+        'hate', 'violence', 'terrorism', 'illegal', 'drugs', 'weapons',
+        'scam', 'fraud', 'explicit', 'nsfw', 'adult', 'porn', 'xxx',
+        'gambling', 'casino', 'bet', 'suicide', 'self-harm'
+    ]
+    
+    topic_lower = topic.lower()
+    for keyword in prohibited_keywords:
+        if keyword in topic_lower:
+            return {
+                "valid": False,
+                "score": 0,
+                "issues": [f"Topic contains prohibited content: '{keyword}'"],
+                "suggestions": ["Choose a topic that complies with YouTube's Community Guidelines"],
+                "normalized": {
+                    "original": topic,
+                    "normalized": normalized
+                }
+            }
+    
+    # ==================== Quality Checks ====================
+    
+    # Length checks
+    if len(topic) < 10:
+        issues.append("Topic is too short. Add more detail (10-120 characters).")
+        score -= 20
     elif len(topic) > 120:
         issues.append("Topic is too long. Keep it concise (15-120 characters).")
         score -= 15
 
-    # Tokenize and clean words
-    raw_words = [w.strip(".,!?:;()[]\"'`).lower() for w in topic.split() if w.strip()]
+    # Tokenize and clean words - FIXED STRING ESCAPING
+    punctuation = '.,!?:;()[]"' + "'" + '`'
+    raw_words = [w.strip(punctuation).lower() for w in topic.split() if w.strip()]
     words = [w for w in raw_words if len(w) > 2]
     if len(words) < 2:
         issues.append("Topic needs at least 2 meaningful words")
         score -= 25
 
-    # Penalize topics that are too generic (high stopword rate or generic words)
-    if len(raw_words) > 0:
-        stopword_ratio = sum(1 for w in raw_words if w in STOPWORDS) / len(raw_words)
-        if stopword_ratio > 0.5:
-            issues.append("Topic has too many filler words; make it more specific and action-oriented")
-            score -= 20
-        if any(w in GENERIC_WORDS for w in raw_words):
-            issues.append("Avoid generic terms like 'things' or 'content' — be specific about the subject")
-            score -= 15
+    # Check for trending indicators (positive signals)
+    trending_keywords = [
+        'viral', 'trending', 'popular', 'top', 'best', 'amazing', 'incredible',
+        'shocking', 'unbelievable', 'mind-blowing', 'epic', 'ultimate', 'secret',
+        'hidden', 'unknown', 'rare', 'exclusive', 'breaking', 'new', 'latest'
+    ]
     
-    # Check for trending indicators (positive)
-    has_trending_indicator = any(re.search(pattern, topic, re.IGNORECASE) for pattern in TRENDING_INDICATORS)
+    has_trending_indicator = any(kw in topic_lower for kw in trending_keywords)
     if has_trending_indicator:
         score += 10  # Bonus for trending keywords
     
-    # Check word diversity (avoid repetitive topics)
-    unique_words = len(set([w.lower() for w in words]))
-    if len(words) > 0 and unique_words / len(words) < 0.5:
-        issues.append("Topic has too many repetitive words")
-        score -= 15
-
-    # Check for presence of an action verb or indicator of specific angle/hook
-    def has_action_verb(words_list):
-        for w in words_list:
-            if w in COMMON_VERBS:
-                return True
-            # simple heuristic: words ending with 'ing' often indicate action
-            if w.endswith('ing') and len(w) > 4:
-                return True
-        return False
-
-    if not has_action_verb(raw_words):
-        issues.append("Topic lacks an action or hook; include words like 'how', 'make', 'learn', or an active verb")
-        score -= 15
+    # Check for question format (engaging)
+    if '?' in topic:
+        score += 5  # Questions are engaging
     
-    # Must contain alphabetic characters
-    if not re.search(r'[a-zA-Z]', topic):
-        issues.append("Topic must contain at least one letter")
-        score -= 50
+    # Check for numbers (specific, engaging)
+    if any(char.isdigit() for char in topic):
+        score += 5  # Numbers make topics more specific
+    
+    # Word diversity check
+    unique_words = set(words)
+    if len(words) > 0 and len(unique_words) / len(words) < 0.5:
+        issues.append("Topic has too much repetition")
+        score -= 10
+    
+    # ==================== Suggestions ====================
+    
+    if score < 60:
+        suggestions.append("Consider making your topic more specific and engaging")
+    
+    if len(topic) < 15:
+        suggestions.append("Add more details to make your topic clearer")
+    
+    if not has_trending_indicator and score < 80:
+        suggestions.append("Consider adding words like 'viral', 'trending', 'amazing' to increase appeal")
+    
+    if '?' not in topic and score < 80:
+        suggestions.append("Try framing your topic as a question to increase engagement")
+    
+    if not any(char.isdigit() for char in topic):
+        suggestions.append("Adding specific numbers (e.g., '5 ways', 'Top 10') can make topics more clickable")
+    
+    # ==================== Final Validation ====================
+    
+    # Topic is valid if score >= 60 and no critical issues
+    is_valid = score >= 60 and len(issues) == 0
+    
+    # If score is low but no critical issues, still allow but warn
+    if score < 60 and len(issues) == 0:
+        issues.append("Topic quality is below recommended threshold")
     
     return {
-        "quality_score": max(0, score),
+        "valid": is_valid,
+        "score": max(0, min(100, score)),  # Clamp between 0-100
         "issues": issues,
-        "has_trending_indicator": has_trending_indicator,
-    }
-
-
-def validate_topic(topic: str, niche_hint: str = None) -> Dict[str, Any]:
-    """
-    Strict validation for trending-worthy topics:
-    - Policy compliance
-    - Quality checks (length, substance, uniqueness)
-    - Trending potential
-    """
-    # Normalize
-    normalized = normalize_topic(topic, niche_hint)
-    clean_topic = normalized["normalized"]
-    
-    # Policy compliance (must pass)
-    policy_check = check_policy_compliance(clean_topic)
-    if not policy_check["compliant"]:
-        return {
-            "valid": False,
-            "reason": "Topic violates YouTube policies. Please choose a different topic.",
-            "violations": policy_check["violations"],
-            "normalized": normalized,
+        "suggestions": suggestions,
+        "normalized": {
+            "original": topic,
+            "normalized": normalized
         }
-    
-    # Quality checks (stricter)
-    quality_check = check_topic_quality(clean_topic)
-    
-    # Minimum quality score to pass (stricter threshold)
-    MIN_QUALITY_SCORE = 70
-
-    if quality_check["quality_score"] < MIN_QUALITY_SCORE:
-        issues_text = "; ".join(quality_check["issues"]) if quality_check["issues"] else "Please make the topic more specific and action-oriented."
-        # Provide lightweight suggestions to help user improve the topic
-        suggestions = []
-        if any('short' in s.lower() for s in quality_check["issues"]):
-            suggestions.append("Add a specific angle or time constraint (e.g., 'in 60 seconds', 'for beginners').")
-        if any('generic' in s.lower() or 'things' in s.lower() for s in quality_check["issues"]):
-            suggestions.append("Replace generic words with a specific subject (e.g., '10 quick morning stretches' instead of 'morning things').")
-        if any('filler' in s.lower() or 'stopword' in s.lower() for s in quality_check["issues"]):
-            suggestions.append("Use stronger nouns and verbs; reduce filler words.")
-        if any('verb' in s.lower() for s in quality_check["issues"]):
-            suggestions.append("Add an action or hook (e.g., 'How to', 'Watch this', 'Fix', 'Make').")
-
-        # Generic rewrite examples
-        base = normalized['normalized']
-        example_rewrites = []
-        if len(base) <= 60:
-            example_rewrites.append(f"How to {base} in 60s")
-            example_rewrites.append(f"Top 5 tips for {base}")
-        else:
-            example_rewrites.append(f"How to simplify {base}")
-
-        return {
-            "valid": False,
-            "reason": f"Topic doesn't meet quality standards for trending content. {issues_text}",
-            "quality_score": quality_check["quality_score"],
-            "issues": quality_check["issues"],
-            "normalized": normalized,
-            "suggestions": suggestions,
-            "example_rewrites": example_rewrites,
-        }
-    
-    # If we get here, topic is valid and trending-worthy
-    return {
-        "valid": True,
-        "normalized": normalized,
-        "policy_check": policy_check,
-        "quality_check": {
-            "quality_score": quality_check["quality_score"],
-            "has_trending_indicator": quality_check["has_trending_indicator"],
-        },
-        "message": "Topic is valid and has good potential for trending content!",
     }

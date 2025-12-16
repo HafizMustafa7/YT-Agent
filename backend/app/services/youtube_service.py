@@ -10,6 +10,7 @@ import re
 from typing import List, Dict
 
 from app.config.settings import settings
+from app.core.redis_cache import redis_cache
 
 
 def get_youtube_service():
@@ -121,6 +122,7 @@ def is_ai_generated(title: str, description: str, tags: List[str], channel_title
 def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 30, search_pages: int = 3) -> List[Dict]:
     """
     Fetch trending YouTube Shorts videos for a given niche, focusing on AI-generated content.
+    Now with Redis caching support.
     
     Args:
         niche: The content niche to search for (e.g., "facts", "motivation", "tech tips")
@@ -131,6 +133,15 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
     Returns:
         List of dictionaries containing AI-generated video information, sorted by views
     """
+    # Generate cache key
+    cache_key = f"trends_{niche}_{max_results}_{ai_threshold}"
+    
+    # Try to get from cache first
+    cached_data = redis_cache.get(cache_key)
+    if cached_data:
+        return cached_data
+    
+    # Cache miss - fetch from YouTube API
     try:
         youtube = get_youtube_service()
         fifteen_days_ago = (datetime.now() - timedelta(days=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -235,7 +246,13 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
         
         # Sort by views (highest first) and return
         all_trends.sort(key=lambda x: x["views"], reverse=True)
-        return all_trends[:max_results]
+        result = all_trends[:max_results]
+        
+        # Store in cache
+        if result:
+            redis_cache.set(cache_key, result)
+        
+        return result
 
     except HttpError as e:
         print(f"YouTube API error: {e}")

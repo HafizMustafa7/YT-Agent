@@ -136,32 +136,21 @@ async def generate_story_and_frames(
         # Convert selected_video to a dictionary to ensure it's subscriptable
         selected_video = video_to_dict(selected_video)
         
-        model = genai.GenerativeModel("gemini-2.5-flash")  # Updated to the new model
+        # Use Gemini 2.5 Flash Lite (free tier model)
+        model = genai.GenerativeModel("gemini-2.5-flash-lite")
         
         # Step 1: Enhance the user's topic
         print("Step 1: Enhancing user topic...")
         enhanced_topic = enhance_user_topic(selected_video, user_topic, model)
         
-        # Step 2: Generate full story with character consistency
-        print("Step 2: Generating full story...")
-        creative_context = ""
-        if creative_brief:
-            constraints = ", ".join(creative_brief.get("constraints", [])) or "None"
-            creative_context = f"""
-        CREATIVE DIRECTION:
-        - Tone / Style: {creative_brief.get("tone", "dynamic")}
-        - Target Audience: {creative_brief.get("target_audience", "General")}
-        - Visual Style: {creative_brief.get("visual_style", "cinematic realism")}
-        - Camera Movement Prefs: {creative_brief.get("camera_movement", "smooth handheld + push-ins")}
-        - Effects / Mood: {creative_brief.get("effects", "subtle light leaks")}
-        - Constraints: {constraints}
-        - Story Format: {creative_brief.get("story_format", "narrative")}
-        - Desired Duration: {creative_brief.get("duration_seconds", video_duration)} seconds
-        """
-
-        target_duration = video_duration or 60
-        if creative_brief:
-            target_duration = creative_brief.get("duration_seconds") or target_duration
+        # Step 2: Generate story with creative brief integration
+        print("Step 2: Generating story with creative modules...")
+        # Extract creative modules
+        tone = creative_brief.get("tone", "dynamic") if creative_brief else "dynamic"
+        visual_style = creative_brief.get("visual_style", "cinematic") if creative_brief else "cinematic"
+        target_audience = creative_brief.get("target_audience", "General") if creative_brief else "General"
+        story_format = creative_brief.get("story_format", "narrative") if creative_brief else "narrative"
+        target_duration = creative_brief.get("duration_seconds", video_duration) if creative_brief else (video_duration or 60)
 
         story_prompt = f"""
         You are an expert YouTube Shorts scriptwriter specializing in VIRAL, AI-GENERATED video content.
@@ -177,9 +166,14 @@ async def generate_story_and_frames(
         
         ORIGINAL USER TOPIC: "{user_topic}"
 
-        {creative_context}
+        CREATIVE MODULES:
+        - Tone: {tone}
+        - Visual Style: {visual_style}
+        - Target Audience: {target_audience}
+        - Story Format: {story_format}
+        - Duration: {target_duration} seconds
         
-        Generate a COMPLETE SHORT-FORM story (target {target_duration or 60} seconds when narrated) with these requirements:
+        Generate a COMPLETE SHORT-FORM story (target {target_duration} seconds when narrated) with these requirements:
         
         1. CHARACTER CONSISTENCY (CRITICAL):
            - If story needs characters, introduce 1-3 main characters MAX

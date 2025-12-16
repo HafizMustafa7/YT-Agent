@@ -46,6 +46,24 @@ class Settings:
     DEFAULT_VIDEO_DURATION: int = 60
     MAX_FRAMES: int = 5
     
+    # Redis Cache Settings
+    REDIS_ENABLED: bool = os.getenv("REDIS_ENABLED", "True").lower() == "true"
+    REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
+    REDIS_PASSWORD: str = os.getenv("REDIS_PASSWORD", "")
+    REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
+    REDIS_TTL_SECONDS: int = int(os.getenv("REDIS_TTL_SECONDS", "3600"))  # 1 hour
+    REDIS_KEY_PREFIX: str = "yt_agent:"
+    REDIS_SSL: bool = os.getenv("REDIS_SSL", "False").lower() == "true"
+    
+    # Connection pool settings
+    REDIS_MAX_CONNECTIONS: int = 10
+    REDIS_SOCKET_TIMEOUT: int = 5
+    REDIS_SOCKET_CONNECT_TIMEOUT: int = 5
+    
+    # Gemini AI Settings
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")  # Free tier model
+    
     def validate(self) -> None:
         """Validate required settings."""
         if not self.YOUTUBE_API_KEY:

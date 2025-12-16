@@ -18,3 +18,7 @@ pytest-mock==3.12.0
 # Logging and utilities
 loguru==0.7.2
 tenacity==8.2.3
+
+# Redis caching
+redis==7.1.0
+hiredis==3.3.0
