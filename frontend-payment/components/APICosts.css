@@ -1,0 +1,82 @@
+.api-costs {
+  background: rgba(30, 41, 59, 0.8);
+  border: 2px solid rgba(59, 130, 246, 0.2);
+  border-radius: 25px;
+  padding: 40px;
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+  margin-top: 50px;
+  backdrop-filter: blur(10px);
+}
+
+.api-costs h2 {
+  color: #60a5fa;
+  margin-bottom: 10px;
+  text-align: center;
+  font-size: 2rem;
+}
+
+.api-costs-description {
+  text-align: center;
+  color: #94a3b8;
+  margin-bottom: 30px;
+  font-size: 1rem;
+}
+
+.api-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.api-card {
+  background: rgba(15, 23, 42, 0.5);
+  padding: 20px;
+  border-radius: 15px;
+  border-left: 4px solid #3b82f6;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.api-card:hover {
+  transform: translateX(5px);
+  box-shadow: 0 5px 15px rgba(59, 130, 246, 0.3);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.api-name {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #60a5fa;
+  margin-bottom: 10px;
+}
+
+.api-cost {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #e2e8f0;
+  margin: 10px 0;
+}
+
+.api-cost span {
+  font-size: 1rem;
+  color: #94a3b8;
+}
+
+.api-description {
+  color: #cbd5e1;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+.included-tiers {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.included-tiers strong {
+  color: #60a5fa;
+}
+
+
