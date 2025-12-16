@@ -1,5 +1,80 @@
 # Changelog - Bug Fixes and Improvements
 
+## [v2.0.0] - 2025-12-16 - Architecture Refactoring
+
+### Major Restructuring
+
+#### Backend Architecture (Breaking Changes)
+- **✅ API Versioning**: All endpoints now use `/api/v1/` prefix
+  - `/api/fetch-trends` → `/api/v1/trends/fetch`
+  - `/api/validate-topic` → `/api/v1/topics/validate`
+  - `/api/generate-story` → `/api/v1/stories/generate`
+  
+- **✅ Layered Architecture**: Implemented proper separation of concerns
+  - **API Layer** (`app/api/`): Route handlers with versioning
+  - **Services Layer** (`app/services/`): Business logic
+    - `youtube_service.py` (moved from `fetchtrend.py`)
+    - `story_service.py` (moved from `generatestory.py`)
+  - **Schemas Layer** (`app/schemas/`): Pydantic models
+  - **Config Layer** (`app/config/`): Centralized settings
+  - **Core Layer** (`app/core/`): Utilities (topic_validator, creative_builder)
+
+- **✅ Centralized Configuration**: 
+  - Created `app/config/settings.py` for environment variables
+  - CORS settings now configurable
+  - API keys managed centrally
+
+- **✅ Simplified main.py**: 
+  - Reduced from 115 lines to 50 lines
+  - Now only handles app initialization
+  - Routes imported from API layer
+
+- **✅ Removed Redundancy**:
+  - Deleted `app/core/trend_fetcher.py` (redundant wrapper)
+  - Deprecated `fetchtrend.py` and `generatestory.py` (kept for reference)
+
+#### Frontend Architecture
+- **✅ Organized Styles**: All CSS files moved to `src/styles/`
+  - Global styles: `styles/index.css`, `styles/App.css`
+  - Component styles: `styles/components/*.css`
+  - Components now only contain JS logic
+
+- **✅ Services Layer**: Created centralized API communication
+  - `services/apiService.js`: All API calls with error handling
+  - Timeout management for long-running requests
+  - Consistent error handling across the app
+
+- **✅ Configuration Layer**:
+  - `config/constants.js`: API endpoints and app constants
+  - Environment-based configuration support
+  - Easy to switch between dev/prod environments
+
+- **✅ Updated Imports**: All components updated to use new paths
+  - CSS imports: `'../styles/components/ComponentName.css'`
+  - API calls: Use `apiService.fetchTrends()` instead of inline fetch
+
+### Benefits
+- 📈 **Scalability**: Modular structure allows easy feature additions
+- 🔧 **Maintainability**: Clear separation of concerns
+- ✅ **Testability**: Services can be tested independently
+- 🚀 **Future-proof**: API versioning supports backward compatibility
+- 📦 **Organization**: Logical file structure and grouping
+
+### Migration Guide
+**For Frontend:**
+- Update API base URL to use new versioned endpoints
+- Import `apiService` instead of inline API calls
+- Update CSS import paths if customizing components
+
+**For Backend:**
+- Environment variables now managed in `app/config/settings.py`
+- Import services from `app.services` instead of root level
+- Use new API routes from `app.api.routes`
+
+---
+
+## [v1.0.0] - Previous Version
+
 ## Fixed Issues
 
 ### Frontend

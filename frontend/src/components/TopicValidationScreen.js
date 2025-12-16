@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import './TopicValidationScreen.css';
+import '../styles/components/TopicValidationScreen.css';
 
 const TopicValidationScreen = ({
   topic,
@@ -74,7 +74,7 @@ const TopicValidationScreen = ({
                 : 'Topic Validation Failed'}
             </h3>
           </div>
-          
+
           <p className="validation-message">
             {validationResult.message || validationResult.reason}
           </p>

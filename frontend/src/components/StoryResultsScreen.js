@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import './StoryResultsScreen.css';
+import '../styles/components/StoryResultsScreen.css';
 
 const StoryResultsScreen = ({ storyResult, topic, onBack }) => {
   const [expandedFrame, setExpandedFrame] = useState(null);

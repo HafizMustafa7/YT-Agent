@@ -1,114 +1,57 @@
 """
-Main FastAPI Application - Clean structure with component-based architecture
+Main FastAPI Application Entry Point
+Simplified structure using new API router architecture.
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any, Literal
 
-# Component imports
-from app.core.trend_fetcher import fetch_trends
-from app.core.topic_validator import validate_topic, normalize_topic
-from app.core.creative_builder import build_creative_brief
-from generatestory import generate_story_and_frames
+from app.config.settings import settings
+from app.api.routes import api_router
 
-app = FastAPI(title="YouTube Trend Analyzer API")
+# Initialize FastAPI app
+app = FastAPI(
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+    description="AI-powered YouTube Shorts content generation platform"
+)
 
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+    allow_methods=settings.CORS_ALLOW_METHODS,
+    allow_headers=settings.CORS_ALLOW_HEADERS,
 )
 
-# ==================== Pydantic Models ====================
+# Include API router (all routes are prefixed with /api/v1)
+app.include_router(api_router)
 
-class TrendRequest(BaseModel):
-    mode: Literal["search_trends", "analyze_niche"]
-    niche: Optional[str] = None
-
-class TopicValidationRequest(BaseModel):
-    topic: str
-    niche_hint: Optional[str] = None
-
-class CreativePreferencesRequest(BaseModel):
-    tone: str
-    target_audience: str
-    visual_style: str
-    camera_movement: str
-    effects: str
-    story_format: str
-    duration_seconds: int
-    constraints: List[str] = []
-
-class GenerateStoryRequest(BaseModel):
-    topic: str
-    selected_video: Dict[str, Any]
-    creative_preferences: CreativePreferencesRequest
-
-# ==================== API Endpoints ====================
 
 @app.get("/")
 async def root():
-    return {"message": "YouTube Trend Analyzer API is running!"}
+    """Root endpoint - API information."""
+    return {
+        "message": f"{settings.APP_NAME} is running!",
+        "version": settings.APP_VERSION,
+        "docs": "/docs",
+        "health": "/api/v1/health"
+    }
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
-
-@app.post("/api/fetch-trends")
-async def api_fetch_trends(request: TrendRequest):
-    """Fetch trending videos based on mode (search_trends or analyze_niche)"""
-    try:
-        result = fetch_trends(
-            mode=request.mode,
-            niche=request.niche,
-            limit=20
-        )
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching trends: {str(e)}")
-
-@app.post("/api/validate-topic")
-async def api_validate_topic(request: TopicValidationRequest):
-    """Validate a topic - checks policy compliance and basic quality"""
-    try:
-        result = validate_topic(request.topic, request.niche_hint)
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error validating topic: {str(e)}")
-
-@app.post("/api/generate-story")
-async def api_generate_story(request: GenerateStoryRequest):
-    """Generate story and frames with creative brief"""
-    try:
-        # Build creative brief
-        creative_brief = build_creative_brief(request.creative_preferences.model_dump())
-        
-        # Generate story with creative brief
-        story_result = await generate_story_and_frames(
-            selected_video=request.selected_video,
-            user_topic=request.topic,
-            creative_brief=creative_brief,
-            video_duration=creative_brief.get("duration_seconds", 60),
-        )
-        
-        return {
-            "success": True,
-            "story": story_result,
-            "creative_brief": creative_brief,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating story: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    
+    # Validate settings before starting
+    try:
+        settings.validate()
+    except ValueError as e:
+        print(f"Configuration error: {e}")
+        exit(1)
+    
+    uvicorn.run(
+        app, 
+        host=settings.HOST, 
+        port=settings.PORT,
+        reload=settings.DEBUG
+    )

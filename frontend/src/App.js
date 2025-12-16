@@ -5,9 +5,8 @@ import TrendsScreen from './components/TrendsScreen';
 import TopicValidationScreen from './components/TopicValidationScreen';
 import CreativeFormScreen from './components/CreativeFormScreen';
 import StoryResultsScreen from './components/StoryResultsScreen';
-import './App.css';
-
-const API_BASE = 'http://localhost:8000';
+import apiService from './services/apiService';
+import './styles/App.css';
 
 function App() {
   const [currentScreen, setCurrentScreen] = useState('home');
@@ -19,24 +18,13 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const callApi = async (endpoint, payload) => {
-    const response = await fetch(`${API_BASE}${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || 'Request failed.');
-    }
-    return response.json();
-  };
+  // API calls now handled by apiService
 
   const handleFetchTrends = async (mode, niche = null) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await callApi('/api/fetch-trends', { mode, niche });
+      const data = await apiService.fetchTrends(mode, niche);
       setTrendsData(data);
       setCurrentScreen('trends');
     } catch (err) {
@@ -61,10 +49,10 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      const result = await callApi('/api/validate-topic', {
-        topic: topicInput.trim(),
-        niche_hint: selectedVideo?.title,
-      });
+      const result = await apiService.validateTopic(
+        topicInput.trim(),
+        selectedVideo?.title
+      );
       setValidationResult(result);
       // Auto-proceed if valid
       if (result.valid) {
@@ -98,12 +86,12 @@ function App() {
         tags: [],
         ai_confidence: 0,
       };
-      
-      const result = await callApi('/api/generate-story', {
-        topic: validationResult?.normalized?.normalized || topicInput,
-        selected_video: videoData,
-        creative_preferences: preferences,
-      });
+
+      const result = await apiService.generateStory(
+        validationResult?.normalized?.normalized || topicInput,
+        videoData,
+        preferences
+      );
       setStoryResult(result);
       setCurrentScreen('story');
     } catch (err) {
@@ -127,7 +115,7 @@ function App() {
   return (
     <div className="App">
       <Header />
-      
+
       {error && (
         <div className="global-error" role="alert">
           <div className="error-content">
@@ -148,7 +136,7 @@ function App() {
       )}
 
       {currentScreen === 'home' && (
-        <HomeScreen 
+        <HomeScreen
           onAnalyzeTrends={() => handleFetchTrends('search_trends')}
           onSearchNiche={(niche) => handleFetchTrends('analyze_niche', niche)}
           loading={loading}

@@ -1,19 +1,19 @@
-import os
-from dotenv import load_dotenv
+"""
+Story generation service using Google Gemini AI.
+Moved from generatestory.py to follow service layer architecture.
+"""
 import google.generativeai as genai
 from fastapi import HTTPException
 from typing import List, Dict, Any, Optional
 import json
 import re
 
-# Load environment variables
-load_dotenv()
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+from app.config.settings import settings
 
 # Configure Gemini
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+if settings.GEMINI_API_KEY:
+    genai.configure(api_key=settings.GEMINI_API_KEY)
+
 
 def extract_json_from_text(text: str) -> List[Dict]:
     """Extract JSON array from Gemini response text."""
@@ -46,6 +46,7 @@ def extract_json_from_text(text: str) -> List[Dict]:
         pass
 
     return []
+
 
 def enhance_user_topic(selected_video: Dict, user_topic: str, model) -> str:
     """
@@ -83,6 +84,7 @@ def enhance_user_topic(selected_video: Dict, user_topic: str, model) -> str:
     response = model.generate_content(enhancement_prompt)
     return response.text.strip()
 
+
 def video_to_dict(video) -> Dict:
     """Convert video object (Pydantic model or dict) to dictionary."""
     if isinstance(video, dict):
@@ -102,6 +104,7 @@ def video_to_dict(video) -> Dict:
         'ai_confidence': getattr(video, 'ai_confidence', 0),
         'url': getattr(video, 'url', '')
     }
+
 
 async def generate_story_and_frames(
     selected_video,
@@ -126,7 +129,7 @@ async def generate_story_and_frames(
         - frames: List of frame objects with detailed prompts
         - metadata: Additional info (duration estimate, style, etc.)
     """
-    if not GEMINI_API_KEY:
+    if not settings.GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="Gemini API key not configured")
 
     try:
@@ -464,5 +467,3 @@ async def generate_story_and_frames(
             status_code=500,
             detail=f"Failed to generate story and frames: {str(e)}"
         )
-
-

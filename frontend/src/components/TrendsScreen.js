@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import './TrendsScreen.css';
+import '../styles/components/TrendsScreen.css';
 
 const TrendsScreen = ({ trendsData, onSelectVideo, onBack, loading, onCustomTopic }) => {
   const [customTopic, setCustomTopic] = useState('');
@@ -15,8 +15,8 @@ const TrendsScreen = ({ trendsData, onSelectVideo, onBack, loading, onCustomTopi
         <button className="back-btn" onClick={onBack}>← Back</button>
         <h2>Trending Videos</h2>
         <p className="trends-subtitle">
-          {trendsData?.mode === 'analyze_niche' 
-            ? `Results for: ${trendsData.query_used}` 
+          {trendsData?.mode === 'analyze_niche'
+            ? `Results for: ${trendsData.query_used}`
             : 'Top trending YouTube Shorts'}
         </p>
       </div>
@@ -84,7 +84,7 @@ const TrendsScreen = ({ trendsData, onSelectVideo, onBack, loading, onCustomTopi
 
             <div className="video-content">
               <h3 className="video-title">{video.title}</h3>
-              
+
               <div className="video-meta">
                 <span className="channel-name">
                   <span className="icon">📺</span>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import './CreativeFormScreen.css';
+import '../styles/components/CreativeFormScreen.css';
 
 const CREATIVE_OPTIONS = {
   tone: [

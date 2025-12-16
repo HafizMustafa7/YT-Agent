@@ -1,27 +1,30 @@
+"""
+YouTube API service for fetching trending shorts and AI-generated content.
+Moved from fetchtrend.py to follow service layer architecture.
+"""
 from fastapi import HTTPException
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-import os
-from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import re
-from typing import List, Dict, Optional
+from typing import List, Dict
 
-# Load environment variables
-load_dotenv()
+from app.config.settings import settings
 
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
 def get_youtube_service():
-    if not YOUTUBE_API_KEY:
+    """Initialize YouTube API service."""
+    if not settings.YOUTUBE_API_KEY:
         raise HTTPException(status_code=500, detail="YouTube API key not configured")
-    return build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
+    return build("youtube", "v3", developerKey=settings.YOUTUBE_API_KEY)
+
 
 def format_duration(seconds: int) -> str:
     """Format seconds to MM:SS."""
     minutes = seconds // 60
     secs = seconds % 60
     return f"{minutes}:{secs:02d}"
+
 
 def parse_iso_duration(duration: str) -> int:
     """Parse ISO 8601 duration to seconds."""
@@ -32,12 +35,14 @@ def parse_iso_duration(duration: str) -> int:
     seconds = int(match.group(2) or 0)
     return minutes * 60 + seconds
 
+
 def extract_hashtags(description: str) -> List[str]:
     """Extract hashtags from description."""
     if not description:
         return []
     hashtags = re.findall(r'#\w+', description)
     return list(set([tag[1:].lower() for tag in hashtags]))
+
 
 def calculate_ai_score(title: str, description: str, tags: List[str], channel_title: str) -> int:
     """
@@ -99,6 +104,7 @@ def calculate_ai_score(title: str, description: str, tags: List[str], channel_ti
     
     return min(score, 100)  # Cap at 100
 
+
 def is_ai_generated(title: str, description: str, tags: List[str], channel_title: str, threshold: int = 30) -> bool:
     """
     Determine if content is AI-generated based on confidence score.
@@ -110,6 +116,7 @@ def is_ai_generated(title: str, description: str, tags: List[str], channel_title
     """
     score = calculate_ai_score(title, description, tags, channel_title)
     return score >= threshold
+
 
 def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 30, search_pages: int = 3) -> List[Dict]:
     """

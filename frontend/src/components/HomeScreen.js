@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import './HomeScreen.css';
+import '../styles/components/HomeScreen.css';
 
 const HomeScreen = ({ onAnalyzeTrends, onSearchNiche, loading }) => {
   const [nicheInput, setNicheInput] = useState('');
@@ -16,12 +16,12 @@ const HomeScreen = ({ onAnalyzeTrends, onSearchNiche, loading }) => {
       <div className="home-content">
         <h1 className="home-title">AI-Powered YouTube Shorts Generator</h1>
         <p className="home-intro">
-          Transform your ideas into viral YouTube Shorts with our advanced automation platform. 
-          Our AI analyzes trending content, validates your concepts, and generates complete 
+          Transform your ideas into viral YouTube Shorts with our advanced automation platform.
+          Our AI analyzes trending content, validates your concepts, and generates complete
           storyboards with frame-by-frame prompts ready for video creation.
         </p>
         <p className="home-description">
-          Whether you're looking for inspiration or have a specific niche in mind, 
+          Whether you're looking for inspiration or have a specific niche in mind,
           we'll help you create engaging short-form content that captivates your audience.
         </p>
 
