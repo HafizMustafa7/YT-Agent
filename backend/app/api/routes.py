@@ -93,16 +93,16 @@ async def fetch_trends(request: TrendRequest) -> Dict[str, Any]:
 @api_router.post("/topics/validate")
 async def validate_topic_endpoint(request: TopicValidationRequest) -> Dict[str, Any]:
     """
-    Validate a topic - checks policy compliance and basic quality.
+    Validate a topic using LLM - checks policy compliance and quality.
     
     Args:
         request: TopicValidationRequest with topic and optional niche hint
         
     Returns:
-        Validation result with valid flag and details
+        Validation result with valid flag, score, reason, issues, and suggestions
     """
     try:
-        result = validate_topic(request.topic, request.niche_hint)
+        result = await validate_topic(request.topic, request.niche_hint)
         return {
             "success": True,
             **result

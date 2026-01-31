@@ -15,7 +15,11 @@ class Settings:
     
     # API Keys
     YOUTUBE_API_KEY: str = os.getenv("YOUTUBE_API_KEY", "")
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    MEGALLM_API_KEY: str = os.getenv("MEGALLM_API_KEY", "")
+    
+    # MegaLLM API Settings
+    MEGALLM_BASE_URL: str = os.getenv("MEGALLM_BASE_URL", "https://ai.megallm.io/v1")
+    MEGALLM_MODEL: str = os.getenv("MEGALLM_MODEL", "openai-gpt-oss-20b")
     
     # Application Settings
     APP_NAME: str = "YouTube Trend Analyzer API"
@@ -61,15 +65,12 @@ class Settings:
     REDIS_SOCKET_TIMEOUT: int = 5
     REDIS_SOCKET_CONNECT_TIMEOUT: int = 5
     
-    # Gemini AI Settings
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")  # Free tier model
-    
     def validate(self) -> None:
         """Validate required settings."""
         if not self.YOUTUBE_API_KEY:
             raise ValueError("YOUTUBE_API_KEY environment variable is required")
-        if not self.GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY environment variable is required")
+        if not self.MEGALLM_API_KEY:
+            raise ValueError("MEGALLM_API_KEY environment variable is required")
 
 
 # Global settings instance

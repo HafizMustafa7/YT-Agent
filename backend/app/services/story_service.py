@@ -1,8 +1,8 @@
 """
-Story generation service using Google Gemini AI.
-Moved from generatestory.py to follow service layer architecture.
+Story generation service using MegaLLM API (OpenAI-compatible).
+Uses the OpenAI SDK with MegaLLM's base URL for story and frame generation.
 """
-import google.generativeai as genai
+from openai import OpenAI
 from fastapi import HTTPException
 from typing import List, Dict, Any, Optional
 import json
@@ -10,45 +10,98 @@ import re
 
 from app.config.settings import settings
 
-# Configure Gemini
-if settings.GEMINI_API_KEY:
-    genai.configure(api_key=settings.GEMINI_API_KEY)
+# Configure MegaLLM client (OpenAI-compatible)
+client = None
+if settings.MEGALLM_API_KEY:
+    client = OpenAI(
+        api_key=settings.MEGALLM_API_KEY,
+        base_url=settings.MEGALLM_BASE_URL
+    )
 
 
 def extract_json_from_text(text: str) -> List[Dict]:
-    """Extract JSON array from Gemini response text."""
+    """Extract JSON array from AI response text."""
+    print(f"[DEBUG] Attempting to extract JSON from text of length: {len(text)}")
+    
+    # First try to parse the entire text as JSON
     try:
-        # First try to parse the entire text as JSON
-        return json.loads(text.strip())
-    except json.JSONDecodeError:
-        pass
-
+        result = json.loads(text.strip())
+        print(f"[DEBUG] Successfully parsed entire text as JSON")
+        return result
+    except json.JSONDecodeError as e:
+        print(f"[DEBUG] Could not parse entire text: {e}")
+    
+    # Try to find JSON between code blocks first (common AI response format)
+    try:
+        # Look for ```json ... ``` blocks
+        code_block_match = re.search(r'```(?:json)?\s*(\[[\s\S]*?\])\s*```', text, re.IGNORECASE)
+        if code_block_match:
+            json_str = code_block_match.group(1)
+            print(f"[DEBUG] Found JSON in code block, length: {len(json_str)}")
+            result = json.loads(json_str)
+            print(f"[DEBUG] Successfully parsed code block JSON, got {len(result)} items")
+            return result
+    except json.JSONDecodeError as e:
+        print(f"[DEBUG] Could not parse code block JSON: {e}")
+    
     # Try to extract the outermost JSON array by finding the first [ and last ]
     try:
         start = text.find('[')
         end = text.rfind(']') + 1
         if start != -1 and end > start:
             json_str = text[start:end]
+            print(f"[DEBUG] Found JSON array from index {start} to {end}, length: {len(json_str)}")
+            
             # Clean up common formatting issues
-            json_str = re.sub(r',\s*}', '}', json_str)  # Remove trailing commas
-            json_str = re.sub(r',\s*]', ']', json_str)
-            return json.loads(json_str)
-    except json.JSONDecodeError:
-        pass
-
-    # If still no luck, try to find JSON between code blocks or other markers
-    try:
-        # Look for ```json ... ``` blocks
-        code_block_match = re.search(r'```(?:json)?\s*(\[[\s\S]*\])\s*```', text, re.IGNORECASE)
-        if code_block_match:
-            return json.loads(code_block_match.group(1))
-    except json.JSONDecodeError:
-        pass
-
+            json_str = re.sub(r',\s*}', '}', json_str)  # Remove trailing commas before }
+            json_str = re.sub(r',\s*]', ']', json_str)  # Remove trailing commas before ]
+            json_str = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', json_str)  # Remove control characters
+            
+            result = json.loads(json_str)
+            print(f"[DEBUG] Successfully parsed extracted JSON, got {len(result)} items")
+            return result
+    except json.JSONDecodeError as e:
+        print(f"[DEBUG] Could not parse extracted JSON array: {e}")
+        # Print the problematic part
+        if start != -1 and end > start:
+            problem_area = text[max(0, e.pos - 50):e.pos + 50] if hasattr(e, 'pos') else "N/A"
+            print(f"[DEBUG] Problem area: ...{problem_area}...")
+    
+    print(f"[DEBUG] All JSON extraction methods failed. First 500 chars: {text[:500]}")
     return []
 
 
-def enhance_user_topic(selected_video: Dict, user_topic: str, model) -> str:
+def call_megallm(prompt: str, json_mode: bool = False) -> str:
+    """Call MegaLLM API and return the response text."""
+    if not client:
+        raise HTTPException(status_code=500, detail="MegaLLM API key not configured")
+    
+    messages = []
+    
+    # Add system message for JSON mode
+    if json_mode:
+        messages.append({
+            "role": "system", 
+            "content": "You are a helpful assistant that responds only in valid JSON format. Do not include any text before or after the JSON. Ensure all JSON is properly formatted with correct syntax."
+        })
+    
+    messages.append({"role": "user", "content": prompt})
+    
+    print(f"[DEBUG] Calling MegaLLM with model: {settings.MEGALLM_MODEL}")
+    
+    response = client.chat.completions.create(
+        model=settings.MEGALLM_MODEL,
+        messages=messages,
+        temperature=0.7,
+        max_tokens=8192  # Increased for longer JSON responses
+    )
+    
+    result = response.choices[0].message.content.strip()
+    print(f"[DEBUG] MegaLLM response length: {len(result)} chars")
+    return result
+
+
+def enhance_user_topic(selected_video: Dict, user_topic: str) -> str:
     """
     Enhance user's topic by analyzing trending video patterns and adding viral elements.
     """
@@ -81,8 +134,7 @@ def enhance_user_topic(selected_video: Dict, user_topic: str, model) -> str:
     Enhanced Topic:
     """
     
-    response = model.generate_content(enhancement_prompt)
-    return response.text.strip()
+    return call_megallm(enhancement_prompt)
 
 
 def video_to_dict(video) -> Dict:
@@ -129,19 +181,16 @@ async def generate_story_and_frames(
         - frames: List of frame objects with detailed prompts
         - metadata: Additional info (duration estimate, style, etc.)
     """
-    if not settings.GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API key not configured")
+    if not settings.MEGALLM_API_KEY:
+        raise HTTPException(status_code=500, detail="MegaLLM API key not configured")
 
     try:
         # Convert selected_video to a dictionary to ensure it's subscriptable
         selected_video = video_to_dict(selected_video)
         
-        # Use Gemini 2.5 Flash Lite (free tier model)
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
-        
         # Step 1: Enhance the user's topic
         print("Step 1: Enhancing user topic...")
-        enhanced_topic = enhance_user_topic(selected_video, user_topic, model)
+        enhanced_topic = enhance_user_topic(selected_video, user_topic)
         
         # Step 2: Generate story with creative brief integration
         print("Step 2: Generating story with creative modules...")
@@ -233,8 +282,7 @@ async def generate_story_and_frames(
         Generate the story now:
         """
         
-        story_response = model.generate_content(story_prompt)
-        full_story_text = story_response.text.strip()
+        full_story_text = call_megallm(story_prompt)
         
         # Parse story components
         story_data = {
@@ -331,8 +379,15 @@ async def generate_story_and_frames(
         - Each frame should represent a distinct visual moment or scene change
         - Total duration MUST match TARGET DURATION exactly ({creative_brief.get("duration_seconds") if creative_brief else target_duration} seconds)
 
+        CRITICAL FRAME DURATION LIMIT (SORA 2 API CONSTRAINT):
+        - MAXIMUM frame duration: 12 seconds (this is a hard limit - never exceed!)
+        - MINIMUM frame duration: 5 seconds
+        - Calculate number of frames: TARGET_DURATION ÷ 10 (average frame length)
+        - For a 60s video: minimum 5 frames (12s each) to 12 frames (5s each)
+        - For a 120s video: minimum 10 frames (12s each) to 24 frames (5s each)
+        
         FRAME REQUIREMENTS:
-        1. Each frame: 5-10 seconds of video content (adjust based on total duration)
+        1. Each frame: 5-12 seconds of video content (NEVER exceed 12 seconds!)
         2. Sequential storytelling: Frame 1 → Frame N covers complete narrative
         3. Character consistency: SAME characters throughout (if applicable)
         4. Optimal frame count based on story complexity and pacing
@@ -400,6 +455,7 @@ async def generate_story_and_frames(
         IMPORTANT:
         - Return ONLY valid JSON array, no extra text before or after
         - DYNAMICALLY determine the optimal number of frames based on story complexity (NOT hardcoded)
+        - CRITICAL: duration_seconds MUST be between 5 and 12 (NEVER exceed 12 seconds per frame!)
         - Each frame MUST include creative_modules as a JSON object within the frame JSON
         - Each ai_video_prompt MUST incorporate ALL creative modules (tone, visual_style, camera_movement, effects)
         - Ensure character consistency if characters exist
@@ -410,25 +466,32 @@ async def generate_story_and_frames(
         Generate the frames now as a valid JSON array:
         """
         
-        frames_response = model.generate_content(frames_prompt)
-        frames_text = frames_response.text.strip()
+        frames_text = call_megallm(frames_prompt, json_mode=True)
         
         # Add debugging: Print the raw response
         print(f"Raw frames response: {frames_text[:500]}...")  
         
         frames = extract_json_from_text(frames_text)
         
-        print(f"Extracted frames: {frames[:2]}...")  # Debug the extracted frames
+        print(f"Extracted frames: {frames[:2] if frames else 'None'}...")  # Debug the extracted frames
         
-        if not frames or len(frames) < 4:
+        if not frames or len(frames) < 3:
             print(f"Debug: Frames response length is {len(frames)}. Full response: {frames_text}")
-            raise ValueError(f"Generated only {len(frames)} frames, expected at least 4. Check the AI response for issues.")
+            raise ValueError(f"Generated only {len(frames)} frames, expected at least 3. Check the AI response for issues.")
 
-        # No longer enforce max_frames - let AI determine optimal count
-        # frames = frames[:max_frames]
-        
+        # Post-process: Enforce max 12 seconds per frame (Sora 2 API limit)
+        MAX_FRAME_DURATION = 12
+        MIN_FRAME_DURATION = 5
+        for frame in frames:
+            duration = frame.get('duration_seconds', 10)
+            if duration > MAX_FRAME_DURATION:
+                print(f"[WARNING] Frame {frame.get('frame_num')} exceeded {MAX_FRAME_DURATION}s limit ({duration}s), capping to {MAX_FRAME_DURATION}s")
+                frame['duration_seconds'] = MAX_FRAME_DURATION
+            elif duration < MIN_FRAME_DURATION:
+                frame['duration_seconds'] = MIN_FRAME_DURATION
+
         # Calculate estimated duration
-        total_duration = sum(frame.get('duration_seconds', 6) for frame in frames)
+        total_duration = sum(frame.get('duration_seconds', 10) for frame in frames)
         
         # Return complete package
         return {
@@ -451,12 +514,13 @@ async def generate_story_and_frames(
                     "title": selected_video['title'],
                     "views": selected_video['views'],
                     "ai_confidence": selected_video.get('ai_confidence', 0)
-                }
+                },
+                "ai_model": settings.MEGALLM_MODEL
             }
         }
         
     except Exception as e:
-        print(f"Gemini generation error: {e}")
+        print(f"MegaLLM generation error: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate story and frames: {str(e)}"

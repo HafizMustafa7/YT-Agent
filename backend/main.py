@@ -49,9 +49,11 @@ if __name__ == "__main__":
         print(f"Configuration error: {e}")
         exit(1)
     
+    # Use import string for reload to work properly
     uvicorn.run(
-        app, 
+        "main:app", 
         host=settings.HOST, 
         port=settings.PORT,
         reload=settings.DEBUG
     )
+
