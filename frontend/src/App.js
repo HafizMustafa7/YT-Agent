@@ -54,16 +54,17 @@ function App() {
         selectedVideo?.title
       );
       setValidationResult(result);
-      // Auto-proceed if valid
-      if (result.valid) {
-        setTimeout(() => {
-          setCurrentScreen('creative');
-        }, 1000);
-      }
+      // Don't auto-proceed - let user click Proceed button
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleProceedToCreative = () => {
+    if (validationResult?.valid) {
+      setCurrentScreen('creative');
     }
   };
 
@@ -165,6 +166,7 @@ function App() {
           onValidate={handleValidateTopic}
           validationResult={validationResult}
           onBack={() => setCurrentScreen('trends')}
+          onProceed={handleProceedToCreative}
           loading={loading}
         />
       )}
