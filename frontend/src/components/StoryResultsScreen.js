@@ -23,6 +23,9 @@ const StoryResultsScreen = ({ storyResult, topic, onBack, onGenerateVideo }) => 
     navigator.clipboard.writeText(text).then(() => {
       setCopiedFrame(frameNum);
       setTimeout(() => setCopiedFrame(null), 2000);
+    }).catch(err => {
+      console.error('Failed to copy text: ', err);
+      alert('Could not copy text. Please try selecting and copying manually.');
     });
   };
 

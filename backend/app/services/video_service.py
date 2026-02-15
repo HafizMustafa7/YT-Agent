@@ -5,6 +5,7 @@ uploads to Cloudflare R2 via Worker, combines with FFmpeg.
 """
 import os
 import time
+from datetime import datetime, timezone
 import asyncio
 import logging
 from typing import List, Dict, Any, Optional
@@ -14,6 +15,35 @@ from supabase import create_client, Client
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Shared HTTP client (connection pooling)
+# ---------------------------------------------------------------------------
+
+_http_client: Optional[httpx.AsyncClient] = None
+
+
+def get_http_client() -> httpx.AsyncClient:
+    """Get or create shared httpx.AsyncClient with connection pooling."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=60.0,
+            limits=httpx.Limits(
+                max_connections=20,
+                max_keepalive_connections=20,
+            ),
+        )
+    return _http_client
+
+
+async def close_http_client():
+    """Close the shared HTTP client. Call on app shutdown."""
+    global _http_client
+    if _http_client is not None and not _http_client.is_closed:
+        await _http_client.aclose()
+        _http_client = None
+        logger.info("Shared HTTP client closed")
 
 # ---------------------------------------------------------------------------
 # Supabase client
@@ -50,7 +80,7 @@ def get_default_user_id() -> str:
 # Temp dir
 # ---------------------------------------------------------------------------
 
-TEMP_DIR = getattr(settings, "VIDEO_TEMP_DIR", "temp_video_cache")
+TEMP_DIR = settings.VIDEO_TEMP_DIR
 
 
 def ensure_temp_dir():
@@ -111,23 +141,8 @@ def create_video_project(title: str, frames: List[Dict[str, Any]], user_id: Opti
             "project_name": (title or "Video")[:255],
         }).execute()
     except Exception as e:
-        error_msg = str(e).lower()
-        if "enum" in error_msg or "invalid" in error_msg or "violates" in error_msg:
-            logger.warning("Project insert failed (possible enum issue), retrying with fallback: %s", e)
-            try:
-                project_row = sb.table("projects").insert({
-                    "user_id": uid,
-                    "input_type": "trend",
-                    "input_value": input_value,
-                    "status": "queued",
-                    "project_name": (title or "Video")[:255],
-                }).execute()
-            except Exception as retry_err:
-                logger.error("Project creation failed on retry: %s", retry_err)
-                raise RuntimeError(f"Failed to create project: {retry_err}") from retry_err
-        else:
-            logger.error("Project creation failed: %s", e)
-            raise RuntimeError(f"Failed to create project: {e}") from e
+        logger.error("Project creation failed: %s", e)
+        raise RuntimeError(f"Failed to create project: {e}") from e
 
     if not project_row.data:
         raise RuntimeError("Project creation returned no data")
@@ -194,7 +209,7 @@ def update_frame_status(frame_id: str, status: str, asset_id: Optional[str] = No
     try:
         payload: Dict[str, Any] = {
             "status": status,
-            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         if asset_id is not None:
             payload["asset_id"] = asset_id
@@ -213,23 +228,25 @@ SORA_BASE = "https://api.openai.com/v1/videos"
 
 
 async def sora_create(prompt: str, duration_seconds: int = 8) -> str:
-    """Start Sora job; returns job id."""
+    """Start Sora job; returns job id. Retries on transient failures."""
     if not settings.OPENAI_API_KEY:
         raise ValueError("OPENAI_API_KEY must be set in .env to use Sora video generation")
 
     # Sora 2 only accepts 4, 8, or 12 seconds
     ALLOWED = [4, 8, 12]
     sec = min(ALLOWED, key=lambda x: abs(x - duration_seconds))
-    max_sec = getattr(settings, "SORA_MAX_DURATION_SECONDS", 12)
+    max_sec = settings.SORA_MAX_DURATION_SECONDS
     if sec > max_sec:
         sec = max(d for d in ALLOWED if d <= max_sec)
-    model = getattr(settings, "SORA_MODEL", "sora-2")
-    size = getattr(settings, "SORA_VIDEO_SIZE", "1280x720")
+    model = settings.SORA_MODEL
+    size = settings.SORA_VIDEO_SIZE
 
     logger.info("Starting Sora job: model=%s, size=%s, seconds=%d", model, size, sec)
 
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            client = get_http_client()
             r = await client.post(
                 SORA_BASE,
                 headers={
@@ -245,70 +262,119 @@ async def sora_create(prompt: str, duration_seconds: int = 8) -> str:
             )
             if r.status_code != 200:
                 error_body = r.text
-                logger.error("Sora API creation failed (%d): %s", r.status_code, error_body)
-                raise RuntimeError(f"Sora API error ({r.status_code}): {error_body}")
+                # Don't retry on 4xx client errors (bad request, auth, etc.)
+                if 400 <= r.status_code < 500:
+                    logger.error("Sora API client error (%d): %s", r.status_code, error_body)
+                    raise RuntimeError(f"Sora API error ({r.status_code}): {error_body}")
+                # Retry on 5xx server errors
+                logger.warning("Sora API server error (%d) attempt %d/%d: %s", r.status_code, attempt, max_retries, error_body)
+                if attempt == max_retries:
+                    raise RuntimeError(f"Sora API error ({r.status_code}): {error_body}")
+                await asyncio.sleep(2 ** attempt)
+                continue
+
             job_id = r.json().get("id")
             if not job_id:
                 raise RuntimeError("Sora API returned no job ID")
             logger.info("Sora job created: %s", job_id)
             return job_id
-    except httpx.TimeoutException as e:
-        logger.error("Sora API request timed out: %s", e)
-        raise TimeoutError("Sora API request timed out") from e
-    except httpx.RequestError as e:
-        logger.error("Sora API connection error: %s", e)
-        raise RuntimeError(f"Sora API connection error: {e}") from e
+        except (httpx.TimeoutException, httpx.RequestError) as e:
+            logger.warning("Sora API connection error (attempt %d/%d): %s", attempt, max_retries, e)
+            if attempt == max_retries:
+                raise RuntimeError(f"Sora API connection failed after {max_retries} attempts: {e}") from e
+            await asyncio.sleep(2 ** attempt)
+
+    raise RuntimeError("Sora job creation failed after all retries")
 
 
-async def sora_poll_and_download(job_id: str, max_wait_sec: int = 600) -> bytes:
-    """Poll until completed, then download content. Returns video bytes."""
-    poll_interval = 5
+async def sora_poll_and_download(job_id: str, duration_seconds: int = 8) -> bytes:
+    """
+    Poll until completed, then download content. Returns video bytes.
+    Timeouts and poll intervals adapt based on frame duration.
+    Download retries on failure.
+    """
+    # Adaptive settings based on frame duration
+    if duration_seconds >= 12:
+        poll_interval = 15
+        max_wait_sec = 900     # 15 min for 12s frames
+        download_timeout = 180.0
+    elif duration_seconds >= 8:
+        poll_interval = 10
+        max_wait_sec = 720     # 12 min for 8s frames
+        download_timeout = 150.0
+    else:
+        poll_interval = 5
+        max_wait_sec = 600     # 10 min for 4s frames
+        download_timeout = 120.0
+
     max_polls = max(1, max_wait_sec // poll_interval)
-    logger.info("Polling Sora job %s (max %d seconds)...", job_id, max_wait_sec)
+    download_retries = 3
+    logger.info(
+        "Polling Sora job %s (duration=%ds, interval=%ds, max_wait=%ds)...",
+        job_id, duration_seconds, poll_interval, max_wait_sec,
+    )
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        for attempt in range(max_polls):
-            try:
-                r = await client.get(
-                    f"{SORA_BASE}/{job_id}",
-                    headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
-                )
-                if r.status_code != 200:
-                    logger.warning("Sora poll attempt %d failed (%d): %s", attempt + 1, r.status_code, r.text)
-                    await asyncio.sleep(poll_interval)
-                    continue
+    client = get_http_client()
+    for attempt in range(max_polls):
+        try:
+            r = await client.get(
+                f"{SORA_BASE}/{job_id}",
+                headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
+                timeout=30.0,
+            )
+            if r.status_code != 200:
+                logger.warning("Sora poll attempt %d failed (%d): %s", attempt + 1, r.status_code, r.text)
+                await asyncio.sleep(poll_interval)
+                continue
 
-                data = r.json()
-                status = data.get("status")
+            data = r.json()
+            status = data.get("status")
 
-                if status == "completed":
-                    logger.info("Sora job %s completed, downloading content...", job_id)
+            if status == "completed":
+                logger.info("Sora job %s completed, downloading content...", job_id)
+                # Retry download on failure
+                for dl_attempt in range(1, download_retries + 1):
                     try:
                         dl = await client.get(
                             f"{SORA_BASE}/{job_id}/content",
                             headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
-                            timeout=120.0,
+                            timeout=download_timeout,
                         )
                         if dl.status_code != 200:
-                            raise RuntimeError(f"Failed to download video content ({dl.status_code}): {dl.text}")
+                            logger.warning(
+                                "Download attempt %d/%d failed (%d): %s",
+                                dl_attempt, download_retries, dl.status_code, dl.text,
+                            )
+                            if dl_attempt == download_retries:
+                                raise RuntimeError(f"Failed to download video after {download_retries} attempts ({dl.status_code})")
+                            await asyncio.sleep(2 ** dl_attempt)
+                            continue
                         logger.info("Downloaded %d bytes for job %s", len(dl.content), job_id)
                         return dl.content
                     except httpx.TimeoutException:
-                        raise TimeoutError("Sora content download timed out")
+                        logger.warning("Download attempt %d/%d timed out", dl_attempt, download_retries)
+                        if dl_attempt == download_retries:
+                            raise TimeoutError(f"Sora content download timed out after {download_retries} attempts")
+                        await asyncio.sleep(2 ** dl_attempt)
+                    except httpx.RequestError as e:
+                        logger.warning("Download attempt %d/%d connection error: %s", dl_attempt, download_retries, e)
+                        if dl_attempt == download_retries:
+                            raise RuntimeError(f"Download connection failed after {download_retries} attempts: {e}") from e
+                        await asyncio.sleep(2 ** dl_attempt)
 
-                if status == "failed":
-                    error_info = data.get("error", "Unknown error")
-                    logger.error("Sora job %s failed: %s", job_id, error_info)
-                    raise RuntimeError(f"Sora job failed: {error_info}")
+            if status == "failed":
+                error_info = data.get("error", "Unknown error")
+                logger.error("Sora job %s failed: %s", job_id, error_info)
+                raise RuntimeError(f"Sora job failed: {error_info}")
 
-                # Still processing
-                if (attempt + 1) % 12 == 0:  # Log every 60s
-                    logger.info("Sora job %s still processing (attempt %d/%d)...", job_id, attempt + 1, max_polls)
+            # Still processing
+            if (attempt + 1) % 12 == 0:  # Log every ~60s
+                logger.info("Sora job %s still processing (attempt %d/%d)...", job_id, attempt + 1, max_polls)
 
-            except (httpx.TimeoutException, httpx.RequestError) as e:
-                logger.warning("Sora poll attempt %d network error: %s", attempt + 1, e)
+        except (httpx.TimeoutException, httpx.RequestError) as e:
+            logger.warning("Sora poll attempt %d network error: %s", attempt + 1, e)
 
-            await asyncio.sleep(poll_interval)
+        await asyncio.sleep(poll_interval)
 
     raise TimeoutError(f"Sora job {job_id} did not complete within {max_wait_sec} seconds")
 
@@ -321,7 +387,8 @@ async def sora_poll_and_download(job_id: str, max_wait_sec: int = 600) -> bytes:
 async def upload_to_r2(file_data: bytes, bucket: str, path: str) -> Optional[str]:
     """
     Upload file to Cloudflare R2 via Worker.
-    Returns the public URL on success, None on failure.
+    Returns the public URL (or None if R2_*_PUBLIC_URL not configured).
+    Raises RuntimeError/TimeoutError on upload failure.
     """
     if not settings.WORKER_URL:
         logger.error("WORKER_URL not set — cannot upload to R2")
@@ -336,22 +403,23 @@ async def upload_to_r2(file_data: bytes, bucket: str, path: str) -> Optional[str
     logger.info("Uploading %d bytes to R2: %s/%s", len(file_data), bucket, path)
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            r = await client.post(
-                url,
-                headers={
-                    "x-api-key": settings.R2_UPLOAD_API_KEY,
-                    "Content-Type": content_type,
-                },
-                content=file_data,
-            )
-            if r.status_code != 200:
-                logger.error("R2 upload failed (%d): %s", r.status_code, r.text)
-                raise RuntimeError(f"R2 upload failed ({r.status_code}): {r.text}")
+        client = get_http_client()
+        r = await client.post(
+            url,
+            headers={
+                "x-api-key": settings.R2_UPLOAD_API_KEY,
+                "Content-Type": content_type,
+            },
+            content=file_data,
+            timeout=120.0,
+        )
+        if r.status_code != 200:
+            logger.error("R2 upload failed (%d): %s", r.status_code, r.text)
+            raise RuntimeError(f"R2 upload failed ({r.status_code}): {r.text}")
 
-            public_url = build_public_url(path, bucket)
-            logger.info("R2 upload successful. Public URL: %s", public_url or "(not configured)")
-            return public_url
+        public_url = build_public_url(path, bucket)
+        logger.info("R2 upload successful. Public URL: %s", public_url or "(not configured)")
+        return public_url
 
     except httpx.TimeoutException as e:
         logger.error("R2 upload timed out: %s", e)
@@ -420,6 +488,38 @@ def create_asset(
 
 
 # ---------------------------------------------------------------------------
+# Helpers: download from R2, cleanup
+# ---------------------------------------------------------------------------
+
+
+async def download_clip_from_r2(url: str, local_path: str) -> bool:
+    """Download a clip from R2 public URL to local path. Returns True on success."""
+    try:
+        client = get_http_client()
+        r = await client.get(url, timeout=120.0)
+        if r.status_code != 200:
+            logger.error("R2 download failed (%d) for %s", r.status_code, url)
+            return False
+        with open(local_path, "wb") as f:
+            f.write(r.content)
+        logger.info("Downloaded clip from R2: %s (%d bytes)", local_path, len(r.content))
+        return True
+    except Exception as e:
+        logger.error("Failed to download clip from R2 (%s): %s", url, e)
+        return False
+
+
+def cleanup_temp_file(path: str):
+    """Silently remove a temp file if it exists."""
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+            logger.debug("Cleaned up temp file: %s", path)
+    except OSError as e:
+        logger.warning("Failed to clean temp file %s: %s", path, e)
+
+
+# ---------------------------------------------------------------------------
 # Generate one frame
 # ---------------------------------------------------------------------------
 
@@ -441,8 +541,8 @@ async def generate_single_frame(
         # 1. Call Sora API
         job_id = await sora_create(prompt, duration_seconds)
 
-        # 2. Poll and download
-        video_data = await sora_poll_and_download(job_id)
+        # 2. Poll and download (adaptive timeouts based on duration)
+        video_data = await sora_poll_and_download(job_id, duration_seconds=duration_seconds)
         if not video_data:
             raise RuntimeError("Sora returned empty video data")
 
@@ -467,6 +567,8 @@ async def generate_single_frame(
             file_size=len(video_data),
             file_url=public_url,
         )
+
+        # Local clip kept on disk for FFmpeg combine — cleaned up after combine succeeds
 
         update_frame_status(frame_id, "completed", asset_id=asset_id)
         logger.info("Frame %d completed successfully (asset=%s)", frame_num, asset_id)
@@ -520,11 +622,11 @@ async def generate_all_pending_frames(project_id: str):
             total = len(all_frames)
 
             if completed == total:
-                update_project_status(project_id, "completed")
-                logger.info("Project %s: all %d frames completed", project_id, total)
+                update_project_status(project_id, "clips_ready")
+                logger.info("Project %s: all %d frames completed — ready to combine", project_id, total)
             elif completed > 0:
-                update_project_status(project_id, "completed")  # Partial success
-                logger.warning("Project %s: %d/%d frames completed (%d failed)", project_id, completed, total, failed)
+                update_project_status(project_id, "generating")  # Partial — keep active for retries
+                logger.warning("Project %s: %d/%d frames completed (%d failed, retry needed)", project_id, completed, total, failed)
             else:
                 update_project_status(project_id, "failed")
                 logger.error("Project %s: all frames failed", project_id)
@@ -601,9 +703,13 @@ async def combine_project(project_id: str) -> Dict[str, Any]:
     """
     Combine all clips, upload to R2, create final asset.
     Safe for BackgroundTask — never raises.
+    Downloads clips from R2 if not found locally (restart-safe).
+    Cleans up all temp files after successful upload.
     Returns dict with asset_id and video_url, or error.
     """
+    temp_files_to_clean = []  # track files for cleanup
     try:
+        ensure_temp_dir()
         project = get_project_with_frames_and_assets(project_id)
         if not project:
             logger.error("Project %s not found for combine", project_id)
@@ -619,13 +725,45 @@ async def combine_project(project_id: str) -> Dict[str, Any]:
             logger.error("No completed clips to combine for project %s", project_id)
             return {"error": "No completed clips to combine"}
 
-        # Pass actual frame_nums (not count) to handle gaps from failed frames
-        frame_nums = [f["frame_num"] for f in completed_frames]
+        assets = project.get("assets") or []
+
+        # Ensure each clip exists locally — download from R2 if missing
+        frame_nums = []
+        for cf in completed_frames:
+            fnum = cf["frame_num"]
+            local_path = os.path.join(TEMP_DIR, f"clip_{project_id}_{fnum}.mp4")
+            temp_files_to_clean.append(local_path)
+
+            if not os.path.exists(local_path):
+                # Find the R2 URL from assets
+                clip_asset = next(
+                    (a for a in assets
+                     if a.get("asset_type") == "frame"
+                     and a.get("file_url")
+                     and f"clip_{fnum}" in (a.get("file_path") or "")),
+                    None
+                )
+                if clip_asset and clip_asset.get("file_url"):
+                    logger.info("Clip for frame %d not found locally, downloading from R2...", fnum)
+                    ok = await download_clip_from_r2(clip_asset["file_url"], local_path)
+                    if not ok:
+                        logger.error("Failed to download clip for frame %d from R2", fnum)
+                        return {"error": f"Cannot retrieve clip for frame {fnum} — not on disk or R2"}
+                else:
+                    logger.error("No R2 URL found for frame %d clip", fnum)
+                    return {"error": f"Clip for frame {fnum} not found locally and no R2 URL available"}
+
+            frame_nums.append(fnum)
+
         logger.info("Combining %d clips (frames %s) for project %s", len(frame_nums), frame_nums, project_id)
 
         # Run FFmpeg in executor to avoid blocking
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         final_data = await loop.run_in_executor(None, combine_clips_local, project_id, frame_nums)
+
+        # Track additional temp files created by combine
+        temp_files_to_clean.append(os.path.join(TEMP_DIR, f"list_{project_id}.txt"))
+        temp_files_to_clean.append(os.path.join(TEMP_DIR, f"final_{project_id}.mp4"))
 
         # Upload final video to R2
         r2_path = f"final/videos/{project_id}/final.mp4"
@@ -643,6 +781,11 @@ async def combine_project(project_id: str) -> Dict[str, Any]:
         # Update project status with video URL
         update_project_status(project_id, "completed", video_url=public_url)
         logger.info("Project %s combined successfully. URL: %s", project_id, public_url or "N/A")
+
+        # Cleanup all temp files (clips, concat list, final video)
+        for path in temp_files_to_clean:
+            cleanup_temp_file(path)
+        logger.info("Cleaned up %d temp files for project %s", len(temp_files_to_clean), project_id)
 
         return {
             "asset_id": asset_id,

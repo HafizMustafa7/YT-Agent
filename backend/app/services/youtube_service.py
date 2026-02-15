@@ -2,6 +2,7 @@
 YouTube API service for fetching trending shorts and AI-generated content.
 Moved from fetchtrend.py to follow service layer architecture.
 """
+import logging
 from fastapi import HTTPException
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -12,12 +13,20 @@ from typing import List, Dict
 from app.config.settings import settings
 from app.core.redis_cache import redis_cache
 
+logger = logging.getLogger(__name__)
+
+# Cached YouTube API service singleton (build() does HTTP discovery, so cache it)
+_youtube_service = None
+
 
 def get_youtube_service():
-    """Initialize YouTube API service."""
+    """Get or create cached YouTube API service singleton."""
+    global _youtube_service
     if not settings.YOUTUBE_API_KEY:
         raise HTTPException(status_code=500, detail="YouTube API key not configured")
-    return build("youtube", "v3", developerKey=settings.YOUTUBE_API_KEY)
+    if _youtube_service is None:
+        _youtube_service = build("youtube", "v3", developerKey=settings.YOUTUBE_API_KEY)
+    return _youtube_service
 
 
 def format_duration(seconds: int) -> str:
@@ -28,13 +37,14 @@ def format_duration(seconds: int) -> str:
 
 
 def parse_iso_duration(duration: str) -> int:
-    """Parse ISO 8601 duration to seconds."""
-    match = re.match(r'PT(?:(\d+)M)?(?:(\d+)S)?', duration)
+    """Parse ISO 8601 duration to seconds including hours."""
+    match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration)
     if not match:
         return 0
-    minutes = int(match.group(1) or 0)
-    seconds = int(match.group(2) or 0)
-    return minutes * 60 + seconds
+    hours = int(match.group(1) or 0)
+    minutes = int(match.group(2) or 0)
+    seconds = int(match.group(3) or 0)
+    return hours * 3600 + minutes * 60 + seconds
 
 
 def extract_hashtags(description: str) -> List[str]:
@@ -134,7 +144,8 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
         List of dictionaries containing AI-generated video information, sorted by views
     """
     # Generate cache key
-    cache_key = f"trends_{niche}_{max_results}_{ai_threshold}"
+    # Scoped cache keys (M-8) — using "public" for now as there's no auth yet
+    cache_key = f"public:trends_{niche}_{max_results}_{ai_threshold}"
     
     # Try to get from cache first
     cached_data = redis_cache.get(cache_key)
@@ -148,12 +159,11 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
         
         all_trends = []
         
-        # Multiple search strategies to find AI content
+        # Focused search strategies — 2 queries instead of 4 to save API quota
+        # Each search.list costs 100 quota units; daily limit is 10,000
         search_queries = [
             f"{niche} AI generated shorts",
             f"{niche} AI shorts trending",
-            f"{niche} shorts AI automation",
-            f"{niche} shorts chatgpt midjourney",
         ]
         
         for query in search_queries:
@@ -243,7 +253,7 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
                         break
 
             except HttpError as e:
-                print(f"Search query '{query}' failed: {e}")
+                logger.warning("Search query '%s' failed: %s", query, e)
                 continue
         
         # Sort by views (highest first) and return
@@ -257,10 +267,10 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
         return result
 
     except HttpError as e:
-        print(f"YouTube API error: {e}")
+        logger.error("YouTube API error: %s", e)
         if e.resp.status == 403:
             raise HTTPException(status_code=403, detail="YouTube API quota exceeded or key invalid")
-        return []
+        raise HTTPException(status_code=502, detail="YouTube API error. Please try again later.")
     except Exception as e:
-        print(f"Unexpected error in get_trending_shorts: {e}")
-        return []
+        logger.error("Unexpected error in get_trending_shorts: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to fetch trends. Please try again.")

@@ -19,10 +19,11 @@ class TrendRequest(BaseModel):
 
 class TopicValidationRequest(BaseModel):
     """Request model for topic validation."""
-    topic: str = Field(..., description="Topic to validate")
+    topic: str = Field(..., description="Topic to validate", max_length=500)
     niche_hint: Optional[str] = Field(
         None, 
-        description="Optional niche hint for context"
+        description="Optional niche hint for context",
+        max_length=200
     )
 
 
@@ -43,7 +44,7 @@ class CreativePreferencesRequest(BaseModel):
 
 class GenerateStoryRequest(BaseModel):
     """Request model for story generation."""
-    topic: str = Field(..., description="Topic for the story")
+    topic: str = Field(..., description="Topic for the story", max_length=500)
     selected_video: Dict[str, Any] = Field(
         ..., 
         description="Selected video data or custom video object"
@@ -60,14 +61,14 @@ class GenerateStoryRequest(BaseModel):
 class FrameInput(BaseModel):
     """One frame for video project creation."""
     frame_num: int = Field(..., ge=1)
-    ai_video_prompt: str = Field(..., min_length=1)
+    ai_video_prompt: str = Field(..., min_length=1, max_length=5000)
     scene_description: Optional[str] = None
-    duration_seconds: int = Field(8, ge=4, le=12)
+    duration_seconds: Literal[4, 8, 12] = Field(8, description="Must be a valid Sora duration: 4, 8, or 12")
 
 
 class CreateVideoProjectRequest(BaseModel):
     """Request to create a video project from story frames."""
-    title: str = Field("Story Video", max_length=255)
+    title: str = Field("Story Video", max_length=255, min_length=1)
     frames: List[FrameInput] = Field(..., min_length=1)
 
 

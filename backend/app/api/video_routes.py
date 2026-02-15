@@ -3,6 +3,7 @@ Video generation API: create project from story frames, generate per-frame or al
 All endpoints return structured JSON with success flag and descriptive messages.
 """
 import logging
+import uuid as uuid_module
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Dict, Any
 
@@ -13,6 +14,15 @@ from app.services import video_service
 logger = logging.getLogger(__name__)
 
 video_router = APIRouter(prefix="/video", tags=["Video Generation"])
+
+
+def _validate_uuid(value: str, label: str = "ID") -> str:
+    """Validate that a string is a valid UUID. Returns the normalized string."""
+    try:
+        uuid_module.UUID(value)
+        return value
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail=f"Invalid {label}: '{value}' is not a valid UUID")
 
 
 def _check_video_config():
@@ -79,10 +89,15 @@ async def create_video_project(request: CreateVideoProjectRequest):
 @video_router.get("/projects/{project_id}", response_model=Dict[str, Any])
 async def get_video_project(project_id: str):
     """Get project with frames, assets, and status for the dashboard."""
+    _validate_uuid(project_id, "project_id")
     try:
         project = video_service.get_project_with_frames_and_assets(project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
+
+        # TODO (M-9): Validate ownership when auth is added
+        # if project.get("user_id") != current_user.id:
+        #     raise HTTPException(status_code=403, detail="Not authorized")
 
         # Calculate progress for frontend
         frames = project.get("frames") or []
@@ -122,6 +137,7 @@ async def get_video_project(project_id: str):
 @video_router.post("/projects/{project_id}/generate")
 async def start_generate_all(project_id: str, background_tasks: BackgroundTasks):
     """Start background task to generate all pending frames (Sora)."""
+    _validate_uuid(project_id, "project_id")
     _check_video_config()
     _check_sora_config()
 
@@ -129,6 +145,10 @@ async def start_generate_all(project_id: str, background_tasks: BackgroundTasks)
         proj = video_service.get_project_with_frames_and_assets(project_id)
         if not proj:
             raise HTTPException(status_code=404, detail="Project not found")
+
+        # TODO (M-9): Validate ownership when auth is added
+        # if proj.get("user_id") != current_user.id:
+        #     raise HTTPException(status_code=403, detail="Not authorized")
 
         pending = [f for f in (proj.get("frames") or []) if f.get("status") in ("pending", "failed")]
         if not pending:
@@ -152,6 +172,8 @@ async def start_generate_all(project_id: str, background_tasks: BackgroundTasks)
 @video_router.post("/projects/{project_id}/generate-frame")
 async def generate_one_frame(project_id: str, body: GenerateFrameRequest, background_tasks: BackgroundTasks):
     """Generate a single frame by frame_id (UUID of project_frames row)."""
+    _validate_uuid(project_id, "project_id")
+    _validate_uuid(body.frame_id, "frame_id")
     _check_video_config()
     _check_sora_config()
 
@@ -191,6 +213,7 @@ async def generate_one_frame(project_id: str, body: GenerateFrameRequest, backgr
 @video_router.post("/projects/{project_id}/combine")
 async def combine_videos(project_id: str, background_tasks: BackgroundTasks):
     """Combine all completed clips into one video (FFmpeg) and upload to Cloudflare R2."""
+    _validate_uuid(project_id, "project_id")
     _check_video_config()
     _check_sora_config()
 

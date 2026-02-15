@@ -3,10 +3,13 @@ Redis cache service for trending videos.
 Provides caching with TTL, statistics, and management functions.
 """
 import json
+import logging
 import redis
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from app.config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 class RedisCache:
@@ -40,30 +43,30 @@ class RedisCache:
                         connection_params["ssl_cert_reqs"] = ssl.CERT_NONE
                         self.client = redis.Redis(**connection_params)
                         self.client.ping()
-                        print(f"✅ Redis connected successfully (SSL) to {settings.REDIS_HOST}:{settings.REDIS_PORT}")
+                        logger.info("Redis connected successfully (SSL) to %s:%s", settings.REDIS_HOST, settings.REDIS_PORT)
                     except Exception as ssl_error:
-                        print(f"⚠️  SSL connection failed: {ssl_error}")
-                        print(f"🔄 Retrying without SSL...")
+                        logger.warning("SSL connection failed: %s", ssl_error)
+                        logger.info("Retrying without SSL...")
                         # Retry without SSL
                         connection_params.pop("ssl", None)
                         connection_params.pop("ssl_cert_reqs", None)
                         self.client = redis.Redis(**connection_params)
                         self.client.ping()
-                        print(f"✅ Redis connected successfully (non-SSL) to {settings.REDIS_HOST}:{settings.REDIS_PORT}")
+                        logger.info("Redis connected successfully (non-SSL) to %s:%s", settings.REDIS_HOST, settings.REDIS_PORT)
                 else:
                     # Connect without SSL
                     self.client = redis.Redis(**connection_params)
                     self.client.ping()
-                    print(f"✅ Redis connected successfully to {settings.REDIS_HOST}:{settings.REDIS_PORT}")
+                    logger.info("Redis connected successfully to %s:%s", settings.REDIS_HOST, settings.REDIS_PORT)
                 
-                print(f"⏱️  Cache TTL: {self.ttl} seconds ({self.ttl/3600} hours)")
+                logger.info("Cache TTL: %ds (%.1f hours)", self.ttl, self.ttl / 3600)
             except redis.ConnectionError as e:
-                print(f"❌ Redis connection failed: {e}")
+                logger.error("Redis connection failed: %s", e)
                 self.enabled = False
                 self.client = None
         else:
             self.client = None
-            print("ℹ️  Redis caching disabled")
+            logger.info("Redis caching disabled")
     
     def _make_key(self, key: str) -> str:
         """Generate prefixed cache key."""
@@ -87,35 +90,35 @@ class RedisCache:
             try:
                 data = self.client.get(cache_key)
             except (redis.TimeoutError, redis.ConnectionError, OSError) as timeout_error:
-                print(f"⚠️  Redis get timeout/connection error for {key}: {timeout_error}")
+                logger.warning("Redis get timeout/connection error for %s: %s", key, timeout_error)
                 # Try to reconnect once
                 try:
                     self.client.ping()
                     # Retry once after ping
                     data = self.client.get(cache_key)
                 except Exception as reconnect_error:
-                    print(f"⚠️  Redis reconnection failed: {reconnect_error}")
+                    logger.warning("Redis reconnection failed: %s", reconnect_error)
                     return None
             
             if data:
                 # Increment hit counter (non-critical, don't fail if this fails)
                 try:
                     self.client.incr(f"{self.key_prefix}stats:hits")
-                except:
+                except Exception:
                     pass  # Stats are non-critical
-                print(f"✅ Cache HIT: {key}")
+                logger.debug("Cache HIT: %s", key)
                 return json.loads(data)
             else:
                 # Increment miss counter (non-critical, don't fail if this fails)
                 try:
                     self.client.incr(f"{self.key_prefix}stats:misses")
-                except:
+                except Exception:
                     pass  # Stats are non-critical
-                print(f"❌ Cache MISS: {key}")
+                logger.debug("Cache MISS: %s", key)
                 return None
                 
         except Exception as e:
-            print(f"Redis get error: {e}")
+            logger.warning("Redis get error: %s", e)
             # Don't fail the entire request if cache fails
             return None
     
@@ -146,12 +149,12 @@ class RedisCache:
                     json.dumps(data, default=str)
                 )
             except (redis.TimeoutError, redis.ConnectionError, OSError) as timeout_error:
-                print(f"⚠️  Redis set timeout/connection error for {key}: {timeout_error}")
+                logger.warning("Redis set timeout/connection error for %s: %s", key, timeout_error)
                 # Try to reconnect once
                 try:
                     self.client.ping()
-                except:
-                    print(f"⚠️  Redis reconnection failed, disabling cache for this operation")
+                except Exception:
+                    logger.warning("Redis reconnection failed, disabling cache for this operation")
                     return False
                 # Retry once after ping
                 try:
@@ -161,7 +164,7 @@ class RedisCache:
                         json.dumps(data, default=str)
                     )
                 except Exception as retry_error:
-                    print(f"Redis set retry failed: {retry_error}")
+                    logger.warning("Redis set retry failed: %s", retry_error)
                     return False
             
             # Track cache metadata (non-critical, don't fail if this fails)
@@ -169,19 +172,17 @@ class RedisCache:
                 metadata_key = f"{cache_key}:metadata"
                 metadata = {
                     "created_at": datetime.now().isoformat(),
-                    "ttl": ttl,
-                    "expires_at": datetime.now().timestamp() + ttl
+                    "ttl": ttl
                 }
                 self.client.setex(metadata_key, ttl, json.dumps(metadata))
             except Exception as metadata_error:
-                # Metadata is non-critical, just log and continue
-                print(f"⚠️  Redis metadata set failed (non-critical): {metadata_error}")
+                logger.debug("Redis metadata set failed (non-critical): %s", metadata_error)
             
-            print(f"💾 Cached: {key} (TTL: {ttl}s)")
+            logger.debug("Cached: %s (TTL: %ds)", key, ttl)
             return True
             
         except Exception as e:
-            print(f"Redis set error: {e}")
+            logger.warning("Redis set error: %s", e)
             # Don't fail the entire request if caching fails
             return False
     
@@ -194,10 +195,10 @@ class RedisCache:
             cache_key = self._make_key(key)
             self.client.delete(cache_key)
             self.client.delete(f"{cache_key}:metadata")
-            print(f"🗑️  Deleted cache: {key}")
+            logger.info("Deleted cache: %s", key)
             return True
         except Exception as e:
-            print(f"Redis delete error: {e}")
+            logger.warning("Redis delete error: %s", e)
             return False
     
     def clear_all(self) -> bool:
@@ -208,15 +209,15 @@ class RedisCache:
         try:
             # Find all keys with our prefix
             pattern = f"{self.key_prefix}*"
-            keys = self.client.keys(pattern)
+            keys = list(self.client.scan_iter(match=pattern))
             
             if keys:
                 self.client.delete(*keys)
-                print(f"🧹 Cleared {len(keys)} cache entries")
+                logger.info("Cleared %d cache entries", len(keys))
             
             return True
         except Exception as e:
-            print(f"Redis clear error: {e}")
+            logger.warning("Redis clear error: %s", e)
             return False
     
     def get_stats(self) -> Dict[str, Any]:
@@ -235,7 +236,7 @@ class RedisCache:
             
             # Count cached items
             pattern = f"{self.key_prefix}trends_*"
-            cached_items = len(self.client.keys(pattern))
+            cached_items = len(list(self.client.scan_iter(match=pattern)))
             
             # Get Redis info
             info = self.client.info()
@@ -268,11 +269,11 @@ class RedisCache:
         
         try:
             pattern = f"{self.key_prefix}trends_*"
-            keys = self.client.keys(pattern)
+            keys = list(self.client.scan_iter(match=pattern))
             # Remove prefix from keys
             return [key.replace(self.key_prefix, "") for key in keys]
         except Exception as e:
-            print(f"Redis keys error: {e}")
+            logger.warning("Redis keys error: %s", e)
             return []
 
 

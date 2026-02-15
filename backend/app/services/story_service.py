@@ -2,34 +2,30 @@
 Story generation service using MegaLLM API (OpenAI-compatible).
 Uses the OpenAI SDK with MegaLLM's base URL for story and frame generation.
 """
-from openai import OpenAI
+import asyncio
+import logging
 from fastapi import HTTPException
 from typing import List, Dict, Any, Optional
 import json
 import re
 
 from app.config.settings import settings
+from app.core.llm_client import get_megallm_client
 
-# Configure MegaLLM client (OpenAI-compatible)
-client = None
-if settings.MEGALLM_API_KEY:
-    client = OpenAI(
-        api_key=settings.MEGALLM_API_KEY,
-        base_url=settings.MEGALLM_BASE_URL
-    )
+logger = logging.getLogger(__name__)
 
 
 def extract_json_from_text(text: str) -> List[Dict]:
     """Extract JSON array from AI response text."""
-    print(f"[DEBUG] Attempting to extract JSON from text of length: {len(text)}")
+    logger.debug("Attempting to extract JSON from text of length: %d", len(text))
     
     # First try to parse the entire text as JSON
     try:
         result = json.loads(text.strip())
-        print(f"[DEBUG] Successfully parsed entire text as JSON")
+        logger.debug("Successfully parsed entire text as JSON")
         return result
     except json.JSONDecodeError as e:
-        print(f"[DEBUG] Could not parse entire text: {e}")
+        logger.debug("Could not parse entire text: %s", e)
     
     # Try to find JSON between code blocks first (common AI response format)
     try:
@@ -37,12 +33,12 @@ def extract_json_from_text(text: str) -> List[Dict]:
         code_block_match = re.search(r'```(?:json)?\s*(\[[\s\S]*?\])\s*```', text, re.IGNORECASE)
         if code_block_match:
             json_str = code_block_match.group(1)
-            print(f"[DEBUG] Found JSON in code block, length: {len(json_str)}")
+            logger.debug("Found JSON in code block, length: %d", len(json_str))
             result = json.loads(json_str)
-            print(f"[DEBUG] Successfully parsed code block JSON, got {len(result)} items")
+            logger.debug("Successfully parsed code block JSON, got %d items", len(result))
             return result
     except json.JSONDecodeError as e:
-        print(f"[DEBUG] Could not parse code block JSON: {e}")
+        logger.debug("Could not parse code block JSON: %s", e)
     
     # Try to extract the outermost JSON array by finding the first [ and last ]
     try:
@@ -50,7 +46,7 @@ def extract_json_from_text(text: str) -> List[Dict]:
         end = text.rfind(']') + 1
         if start != -1 and end > start:
             json_str = text[start:end]
-            print(f"[DEBUG] Found JSON array from index {start} to {end}, length: {len(json_str)}")
+            logger.debug("Found JSON array from index %d to %d, length: %d", start, end, len(json_str))
             
             # Clean up common formatting issues
             json_str = re.sub(r',\s*}', '}', json_str)  # Remove trailing commas before }
@@ -58,21 +54,22 @@ def extract_json_from_text(text: str) -> List[Dict]:
             json_str = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', json_str)  # Remove control characters
             
             result = json.loads(json_str)
-            print(f"[DEBUG] Successfully parsed extracted JSON, got {len(result)} items")
+            logger.debug("Successfully parsed extracted JSON, got %d items", len(result))
             return result
     except json.JSONDecodeError as e:
-        print(f"[DEBUG] Could not parse extracted JSON array: {e}")
-        # Print the problematic part
+        logger.debug("Could not parse extracted JSON array: %s", e)
+        # Log the problematic part
         if start != -1 and end > start:
             problem_area = text[max(0, e.pos - 50):e.pos + 50] if hasattr(e, 'pos') else "N/A"
-            print(f"[DEBUG] Problem area: ...{problem_area}...")
+            logger.debug("Problem area: ...%s...", problem_area)
     
-    print(f"[DEBUG] All JSON extraction methods failed. First 500 chars: {text[:500]}")
+    logger.warning("All JSON extraction methods failed. First 500 chars: %s", text[:500])
     return []
 
 
-def call_megallm(prompt: str, json_mode: bool = False) -> str:
-    """Call MegaLLM API and return the response text."""
+def _call_megallm_sync(prompt: str, json_mode: bool = False) -> str:
+    """Synchronous MegaLLM call (internal — use call_megallm() instead)."""
+    client = get_megallm_client()
     if not client:
         raise HTTPException(status_code=500, detail="MegaLLM API key not configured")
     
@@ -87,7 +84,7 @@ def call_megallm(prompt: str, json_mode: bool = False) -> str:
     
     messages.append({"role": "user", "content": prompt})
     
-    print(f"[DEBUG] Calling MegaLLM with model: {settings.MEGALLM_MODEL}")
+    logger.info("Calling MegaLLM with model: %s", settings.MEGALLM_MODEL)
     
     response = client.chat.completions.create(
         model=settings.MEGALLM_MODEL,
@@ -97,11 +94,19 @@ def call_megallm(prompt: str, json_mode: bool = False) -> str:
     )
     
     result = response.choices[0].message.content.strip()
-    print(f"[DEBUG] MegaLLM response length: {len(result)} chars")
+    logger.debug("MegaLLM response length: %d chars", len(result))
     return result
 
 
-def enhance_user_topic(selected_video: Dict, user_topic: str) -> str:
+async def call_megallm(prompt: str, json_mode: bool = False) -> str:
+    """Call MegaLLM API without blocking the event loop.
+    Runs the synchronous OpenAI SDK call in a thread executor.
+    """
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _call_megallm_sync, prompt, json_mode)
+
+
+async def enhance_user_topic(selected_video: Dict, user_topic: str) -> str:
     """
     Enhance user's topic by analyzing trending video patterns and adding viral elements.
     """
@@ -134,7 +139,7 @@ def enhance_user_topic(selected_video: Dict, user_topic: str) -> str:
     Enhanced Topic:
     """
     
-    return call_megallm(enhancement_prompt)
+    return await call_megallm(enhancement_prompt)
 
 
 def video_to_dict(video) -> Dict:
@@ -189,11 +194,11 @@ async def generate_story_and_frames(
         selected_video = video_to_dict(selected_video)
         
         # Step 1: Enhance the user's topic
-        print("Step 1: Enhancing user topic...")
-        enhanced_topic = enhance_user_topic(selected_video, user_topic)
+        logger.info("Step 1: Enhancing user topic...")
+        enhanced_topic = await enhance_user_topic(selected_video, user_topic)
         
         # Step 2: Generate story with creative brief integration
-        print("Step 2: Generating story with creative modules...")
+        logger.info("Step 2: Generating story with creative modules...")
         # Extract creative modules
         tone = creative_brief.get("tone", "dynamic") if creative_brief else "dynamic"
         visual_style = creative_brief.get("visual_style", "cinematic") if creative_brief else "cinematic"
@@ -282,7 +287,7 @@ async def generate_story_and_frames(
         Generate the story now:
         """
         
-        full_story_text = call_megallm(story_prompt)
+        full_story_text = await call_megallm(story_prompt)
         
         # Parse story components
         story_data = {
@@ -344,7 +349,7 @@ async def generate_story_and_frames(
             character_instruction = "No specific characters. Focus on visual subject consistency (e.g., same location, object, animal)."
         
         # Step 3: Generate frames with strict character consistency
-        print("Step 3: Generating video frames...")
+        logger.info("Step 3: Generating video frames...")
         
         # Prepare creative modules for prompt
         tone_val = creative_brief.get("tone") if creative_brief else story_data.get("emotional_tone", "dynamic")
@@ -466,18 +471,23 @@ async def generate_story_and_frames(
         Generate the frames now as a valid JSON array:
         """
         
-        frames_text = call_megallm(frames_prompt, json_mode=True)
+        frames_text = await call_megallm(frames_prompt, json_mode=True)
         
-        # Add debugging: Print the raw response
-        print(f"Raw frames response: {frames_text[:500]}...")  
+        # Add debugging: Log the raw response
+        logger.debug("Raw frames response: %s...", frames_text[:500])
         
         frames = extract_json_from_text(frames_text)
         
-        print(f"Extracted frames: {frames[:2] if frames else 'None'}...")  # Debug the extracted frames
+        logger.debug("Extracted frames: %s...", frames[:2] if frames else 'None')
         
         if not frames or len(frames) < 1:
-            print(f"Debug: Frames response length is {len(frames) if frames else 0}. Full response: {frames_text}")
+            logger.error("Frames response length is %d. Full response: %s", len(frames) if frames else 0, frames_text)
             raise ValueError(f"Generated {len(frames) if frames else 0} frames, expected at least 1. Check the AI response for issues.")
+
+        # Truncate to max_frames if necessary (M-7)
+        if len(frames) > max_frames:
+            logger.info("Truncating frames from %d to max_frames=%d", len(frames), max_frames)
+            frames = frames[:max_frames]
 
         # Post-process: Snap duration to Sora 2 allowed values (4, 8, 12)
         ALLOWED_DURATIONS = [4, 8, 12]
@@ -486,7 +496,7 @@ async def generate_story_and_frames(
             if duration not in ALLOWED_DURATIONS:
                 # Snap to nearest allowed value
                 snapped = min(ALLOWED_DURATIONS, key=lambda x: abs(x - duration))
-                print(f"[WARNING] Frame {frame.get('frame_num')} had duration {duration}s, snapped to {snapped}s (Sora allows only 4, 8, 12)")
+                logger.warning("Frame %s had duration %ds, snapped to %ds (Sora allows only 4, 8, 12)", frame.get('frame_num'), duration, snapped)
                 frame['duration_seconds'] = snapped
 
         # Calculate estimated duration
@@ -519,7 +529,7 @@ async def generate_story_and_frames(
         }
         
     except Exception as e:
-        print(f"MegaLLM generation error: {e}")
+        logger.error("MegaLLM generation error: %s", e)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate story and frames: {str(e)}"

@@ -1,12 +1,12 @@
 /**
  * API Service - Centralized API communication layer
- * Handles all backend API calls with proper error handling
+ * Handles all backend API calls with proper error handling and timeouts
  */
 
 import { API_BASE_URL, ENDPOINTS, TIMEOUTS } from '../config/constants';
 
 /**
- * Generic API call function
+ * Generic API POST call function
  * @param {string} endpoint - API endpoint path
  * @param {object} payload - Request payload
  * @param {number} timeout - Request timeout in milliseconds
@@ -21,6 +21,40 @@ const callApi = async (endpoint, payload, timeout = TIMEOUTS.DEFAULT) => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
+            signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || `Request failed with status ${response.status}`);
+        }
+
+        return response.json();
+    } catch (error) {
+        clearTimeout(timeoutId);
+
+        if (error.name === 'AbortError') {
+            throw new Error('Request timed out. Please try again.');
+        }
+
+        throw error;
+    }
+};
+
+/**
+ * Generic API GET call function
+ * @param {string} endpoint - API endpoint path
+ * @param {number} timeout - Request timeout in milliseconds
+ * @returns {Promise<object>} - API response data
+ */
+const callApiGet = async (endpoint, timeout = TIMEOUTS.DEFAULT) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
             signal: controller.signal,
         });
 
@@ -81,7 +115,7 @@ export const generateStory = async (topic, selectedVideo, creativePreferences) =
             selected_video: selectedVideo,
             creative_preferences: creativePreferences,
         },
-        TIMEOUTS.STORY_GENERATION  // Longer timeout for AI generation
+        TIMEOUTS.STORY_GENERATION
     );
 };
 
@@ -90,8 +124,7 @@ export const generateStory = async (topic, selectedVideo, creativePreferences) =
  * @returns {Promise<object>} - Health status
  */
 export const checkHealth = async () => {
-    const response = await fetch(`${API_BASE_URL}${ENDPOINTS.HEALTH}`);
-    return response.json();
+    return callApiGet(ENDPOINTS.HEALTH);
 };
 
 /**
@@ -101,16 +134,11 @@ export const checkHealth = async () => {
  * @returns {Promise<object>} - { project_id, total_frames }
  */
 export const createVideoProject = async (title, frames) => {
-    const response = await fetch(`${API_BASE_URL}${ENDPOINTS.VIDEO_CREATE_PROJECT}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, frames }),
-    });
-    if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.detail || response.statusText);
-    }
-    return response.json();
+    return callApi(
+        ENDPOINTS.VIDEO_CREATE_PROJECT,
+        { title, frames },
+        TIMEOUTS.VIDEO_OPERATION
+    );
 };
 
 /**
@@ -119,12 +147,10 @@ export const createVideoProject = async (title, frames) => {
  * @returns {Promise<object>} - { project }
  */
 export const getVideoProject = async (projectId) => {
-    const response = await fetch(`${API_BASE_URL}${ENDPOINTS.VIDEO_GET_PROJECT(projectId)}`);
-    if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.detail || response.statusText);
-    }
-    return response.json();
+    return callApiGet(
+        ENDPOINTS.VIDEO_GET_PROJECT(projectId),
+        TIMEOUTS.VIDEO_OPERATION
+    );
 };
 
 /**
@@ -133,14 +159,11 @@ export const getVideoProject = async (projectId) => {
  * @returns {Promise<object>}
  */
 export const startGenerateAllFrames = async (projectId) => {
-    const response = await fetch(`${API_BASE_URL}${ENDPOINTS.VIDEO_GENERATE_ALL(projectId)}`, {
-        method: 'POST',
-    });
-    if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.detail || response.statusText);
-    }
-    return response.json();
+    return callApi(
+        ENDPOINTS.VIDEO_GENERATE_ALL(projectId),
+        {},
+        TIMEOUTS.VIDEO_OPERATION
+    );
 };
 
 /**
@@ -150,16 +173,11 @@ export const startGenerateAllFrames = async (projectId) => {
  * @returns {Promise<object>}
  */
 export const startGenerateFrame = async (projectId, frameId) => {
-    const response = await fetch(`${API_BASE_URL}${ENDPOINTS.VIDEO_GENERATE_FRAME(projectId)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ frame_id: frameId }),
-    });
-    if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.detail || response.statusText);
-    }
-    return response.json();
+    return callApi(
+        ENDPOINTS.VIDEO_GENERATE_FRAME(projectId),
+        { frame_id: frameId },
+        TIMEOUTS.VIDEO_OPERATION
+    );
 };
 
 /**
@@ -168,14 +186,11 @@ export const startGenerateFrame = async (projectId, frameId) => {
  * @returns {Promise<object>}
  */
 export const combineVideoProject = async (projectId) => {
-    const response = await fetch(`${API_BASE_URL}${ENDPOINTS.VIDEO_COMBINE(projectId)}`, {
-        method: 'POST',
-    });
-    if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.detail || response.statusText);
-    }
-    return response.json();
+    return callApi(
+        ENDPOINTS.VIDEO_COMBINE(projectId),
+        {},
+        TIMEOUTS.VIDEO_OPERATION
+    );
 };
 
 // Export all services as default object

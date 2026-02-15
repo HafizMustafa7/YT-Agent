@@ -2,8 +2,12 @@
 API route handlers with versioning.
 All endpoints are prefixed with /api/v1
 """
+import asyncio
+import logging
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
+
+logger = logging.getLogger(__name__)
 
 from app.schemas.models import (
     TrendRequest,
@@ -84,9 +88,10 @@ async def fetch_trends(request: TrendRequest) -> Dict[str, Any]:
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Error fetching trends: %s", e)
         raise HTTPException(
             status_code=500, 
-            detail=f"Error fetching trends: {str(e)}"
+            detail="An error occurred while fetching trends. Please try again."
         )
 
 
@@ -110,9 +115,10 @@ async def validate_topic_endpoint(request: TopicValidationRequest) -> Dict[str, 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.error("Error validating topic: %s", e)
         raise HTTPException(
             status_code=500, 
-            detail=f"Error validating topic: {str(e)}"
+            detail="An error occurred during topic validation. Please try again."
         )
 
 
@@ -131,12 +137,16 @@ async def generate_story(request: GenerateStoryRequest) -> Dict[str, Any]:
         # Build creative brief from preferences
         creative_brief = build_creative_brief(request.creative_preferences.model_dump())
         
-        # Generate story with creative brief
-        story_result = await generate_story_and_frames(
-            selected_video=request.selected_video,
-            user_topic=request.topic,
-            creative_brief=creative_brief,
-            video_duration=creative_brief.get("duration_seconds", settings.DEFAULT_VIDEO_DURATION),
+        # Generate story with creative brief — timeout after 120s
+        # (makes 3 sequential LLM calls that can each take 10-20s)
+        story_result = await asyncio.wait_for(
+            generate_story_and_frames(
+                selected_video=request.selected_video,
+                user_topic=request.topic,
+                creative_brief=creative_brief,
+                video_duration=creative_brief.get("duration_seconds", settings.DEFAULT_VIDEO_DURATION),
+            ),
+            timeout=120.0,
         )
         
         return {
@@ -145,12 +155,19 @@ async def generate_story(request: GenerateStoryRequest) -> Dict[str, Any]:
             "creative_brief": creative_brief,
         }
         
+    except asyncio.TimeoutError:
+        logger.error("Story generation timed out after 120s for topic: %s", request.topic[:50])
+        raise HTTPException(
+            status_code=504,
+            detail="Story generation timed out. The AI service is taking too long. Please try again."
+        )
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Error generating story: %s", e)
         raise HTTPException(
             status_code=500, 
-            detail=f"Error generating story: {str(e)}"
+            detail="Story generation failed. Please try again later."
         )
 
 

@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import Header from './components/Header';
+import ErrorBoundary from './components/ErrorBoundary';
 import HomeScreen from './components/HomeScreen';
 import TrendsScreen from './components/TrendsScreen';
 import TopicValidationScreen from './components/TopicValidationScreen';
 import CreativeFormScreen from './components/CreativeFormScreen';
 import StoryResultsScreen from './components/StoryResultsScreen';
 import VideoGenerationScreen from './components/VideoGenerationScreen';
+import FinalVideoScreen from './components/FinalVideoScreen';
 import apiService from './services/apiService';
 import './styles/App.css';
 
@@ -145,90 +147,101 @@ function App() {
   };
 
   return (
-    <div className="App">
-      <Header />
+    <ErrorBoundary>
+      <div className="App">
+        <Header />
 
-      {error && (
-        <div className="global-error" role="alert">
-          <div className="error-content">
-            <span className="error-icon">⚠️</span>
-            <p>{error}</p>
+        {error && (
+          <div className="global-error" role="alert">
+            <div className="error-content">
+              <span className="error-icon">⚠️</span>
+              <p>{error}</p>
+            </div>
+            <button onClick={() => setError(null)} className="error-dismiss">×</button>
           </div>
-          <button onClick={() => setError(null)} className="error-dismiss">×</button>
-        </div>
-      )}
+        )}
 
-      {loading && currentScreen === 'generating' && (
-        <div className="global-loading-overlay">
-          <div className="loading-content">
-            <div className="loading-spinner-large"></div>
-            <p>Generating your story and frames...</p>
+        {loading && currentScreen === 'generating' && (
+          <div className="global-loading-overlay">
+            <div className="loading-content">
+              <div className="loading-spinner-large"></div>
+              <p>Generating your story and frames...</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {currentScreen === 'home' && (
-        <HomeScreen
-          onAnalyzeTrends={() => handleFetchTrends('search_trends')}
-          onSearchNiche={(niche) => handleFetchTrends('analyze_niche', niche)}
-          loading={loading}
-        />
-      )}
+        {currentScreen === 'home' && (
+          <HomeScreen
+            onAnalyzeTrends={() => handleFetchTrends('search_trends')}
+            onSearchNiche={(niche) => handleFetchTrends('analyze_niche', niche)}
+            loading={loading}
+          />
+        )}
 
-      {currentScreen === 'trends' && trendsData && (
-        <TrendsScreen
-          trendsData={trendsData}
-          onSelectVideo={handleSelectVideo}
-          onCustomTopic={(topic) => {
-            setTopicInput(topic);
-            setSelectedVideo(null);
-            setValidationResult(null);
-            setCurrentScreen('topic');
-          }}
-          onBack={resetApp}
-          loading={loading}
-        />
-      )}
+        {currentScreen === 'trends' && trendsData && (
+          <TrendsScreen
+            trendsData={trendsData}
+            onSelectVideo={handleSelectVideo}
+            onCustomTopic={(topic) => {
+              setTopicInput(topic);
+              setSelectedVideo(null);
+              setValidationResult(null);
+              setCurrentScreen('topic');
+            }}
+            onBack={resetApp}
+            loading={loading}
+          />
+        )}
 
-      {currentScreen === 'topic' && topicInput && (
-        <TopicValidationScreen
-          topic={topicInput}
-          onTopicChange={setTopicInput}
-          onValidate={handleValidateTopic}
-          validationResult={validationResult}
-          onBack={() => setCurrentScreen('trends')}
-          onProceed={handleProceedToCreative}
-          loading={loading}
-        />
-      )}
+        {currentScreen === 'topic' && topicInput && (
+          <TopicValidationScreen
+            topic={topicInput}
+            onTopicChange={setTopicInput}
+            onValidate={handleValidateTopic}
+            validationResult={validationResult}
+            onBack={() => setCurrentScreen('trends')}
+            onProceed={handleProceedToCreative}
+            loading={loading}
+          />
+        )}
 
-      {currentScreen === 'creative' && validationResult && (
-        <CreativeFormScreen
-          onSubmit={handleSubmitCreative}
-          onBack={() => setCurrentScreen('topic')}
-          loading={loading}
-        />
-      )}
+        {currentScreen === 'creative' && validationResult && (
+          <CreativeFormScreen
+            onSubmit={handleSubmitCreative}
+            onBack={() => setCurrentScreen('topic')}
+            loading={loading}
+          />
+        )}
 
-      {currentScreen === 'story' && storyResult && (
-        <StoryResultsScreen
-          storyResult={storyResult}
-          topic={validationResult?.normalized?.normalized || topicInput}
-          onBack={resetApp}
-          onGenerateVideo={handleGenerateVideo}
-        />
-      )}
+        {currentScreen === 'story' && storyResult && (
+          <StoryResultsScreen
+            storyResult={storyResult}
+            topic={validationResult?.normalized?.normalized || topicInput}
+            onBack={resetApp}
+            onGenerateVideo={handleGenerateVideo}
+          />
+        )}
 
-      {currentScreen === 'videoGen' && videoProjectId && (
-        <VideoGenerationScreen
-          projectId={videoProjectId}
-          onBack={() => {
-            setVideoProjectId(null);
-            setCurrentScreen('story');
-          }}
-        />
-      )}
-    </div>
+        {currentScreen === 'videoGen' && videoProjectId && (
+          <VideoGenerationScreen
+            projectId={videoProjectId}
+            onBack={() => {
+              setVideoProjectId(null);
+              setCurrentScreen('story');
+            }}
+            onViewFinalVideo={() => setCurrentScreen('finalVideo')}
+          />
+        )}
+
+        {currentScreen === 'finalVideo' && videoProjectId && (
+          <FinalVideoScreen
+            projectId={videoProjectId}
+            onBack={() => setCurrentScreen('videoGen')}
+            onStartNew={resetApp}
+          />
+        )}
+      </div>
+    </ErrorBoundary>
   );
 }
 

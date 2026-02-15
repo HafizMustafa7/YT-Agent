@@ -39,7 +39,7 @@ const TrendsScreen = ({ trendsData, onSelectVideo, onBack, loading, onCustomTopi
               onChange={(e) => setCustomTopic(e.target.value)}
               placeholder="Enter your custom topic idea..."
               className="custom-topic-input"
-              onKeyPress={(e) => {
+              onKeyDown={(e) => {
                 if (e.key === 'Enter' && customTopic.trim() && onCustomTopic) {
                   onCustomTopic(customTopic.trim());
                 }

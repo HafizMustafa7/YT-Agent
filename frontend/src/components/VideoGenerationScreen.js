@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import apiService from '../services/apiService';
 import '../styles/components/VideoGenerationScreen.css';
 
-const POLL_INTERVAL_MS = 6000;
+const POLL_BASE_MS = 4000;      // Start polling every 4s
+const POLL_MAX_MS = 15000;      // Slow down to 15s max
 
-const VideoGenerationScreen = ({ projectId, onBack }) => {
+const VideoGenerationScreen = ({ projectId, onBack, onViewFinalVideo }) => {
   const [project, setProject] = useState(null);
   const [progress, setProgress] = useState(null);
   const [finalVideoUrl, setFinalVideoUrl] = useState(null);
@@ -13,7 +14,16 @@ const VideoGenerationScreen = ({ projectId, onBack }) => {
   const [generatingAll, setGeneratingAll] = useState(false);
   const [generatingFrameId, setGeneratingFrameId] = useState(null);
   const [combining, setCombining] = useState(false);
-  const [copiedUrl, setCopiedUrl] = useState(false);
+  const pollCountRef = React.useRef(0);
+
+  // Adaptive poll interval: starts fast, slows over time
+  const getPollInterval = () => {
+    const count = pollCountRef.current;
+    if (count < 10) return POLL_BASE_MS;           // First ~40s: 4s
+    if (count < 30) return 8000;                    // Next ~2.5 min: 8s
+    if (count < 60) return 12000;                   // Next ~6 min: 12s
+    return POLL_MAX_MS;                             // After that: 15s
+  };
 
   const fetchProject = useCallback(async () => {
     if (!projectId) return;
@@ -34,16 +44,31 @@ const VideoGenerationScreen = ({ projectId, onBack }) => {
     fetchProject();
   }, [fetchProject]);
 
-  // Auto-poll while generating or combining
+  // Auto-poll while generating or combining — adaptive interval
   useEffect(() => {
     if (!projectId || !project) return;
     const status = project?.status;
-    const isActive = status === 'generating' || status === 'queued';
-    if (!isActive && !generatingAll && !combining) return;
+    const isActive = status === 'generating' || status === 'queued' || status === 'clips_ready';
+    // Also poll if ANY frame is still generating (handles single-frame retries)
+    const hasActiveFrames = (project?.frames || []).some((f) => f.status === 'generating');
+    if (!isActive && !hasActiveFrames && !generatingAll && !generatingFrameId && !combining) {
+      pollCountRef.current = 0;  // Reset when idle
+      return;
+    }
 
-    const interval = setInterval(fetchProject, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [projectId, project, fetchProject, generatingAll, combining]);
+    const tick = () => {
+      pollCountRef.current += 1;
+      fetchProject();
+    };
+
+    // Use recursive setTimeout so each tick recalculates the delay
+    let timeoutId = setTimeout(function poll() {
+      tick();
+      timeoutId = setTimeout(poll, getPollInterval());
+    }, getPollInterval());
+
+    return () => clearTimeout(timeoutId);
+  }, [projectId, project, fetchProject, generatingAll, generatingFrameId, combining]);
 
   const handleGenerateAll = async () => {
     setGeneratingAll(true);
@@ -68,9 +93,10 @@ const VideoGenerationScreen = ({ projectId, onBack }) => {
     try {
       await apiService.startGenerateFrame(projectId, frameId);
       await fetchProject();
+      // Don't reset generatingFrameId here — let polling continue
+      // It will be cleared by the useEffect below when frame status changes
     } catch (e) {
       setError(e.message || 'Failed to generate frame');
-    } finally {
       setGeneratingFrameId(null);
     }
   };
@@ -94,19 +120,9 @@ const VideoGenerationScreen = ({ projectId, onBack }) => {
     }
   };
 
-  const handleCopyUrl = () => {
-    if (!finalVideoUrl) return;
-    navigator.clipboard.writeText(finalVideoUrl).then(() => {
-      setCopiedUrl(true);
-      setTimeout(() => setCopiedUrl(false), 2500);
-    }).catch(() => {
-      setError('Failed to copy URL to clipboard');
-    });
-  };
-
   // Determine states
-  const frames = project?.frames || [];
-  const assets = project?.assets || [];
+  const frames = useMemo(() => project?.frames || [], [project?.frames]);
+  const assets = useMemo(() => project?.assets || [], [project?.assets]);
   const completedCount = frames.filter((f) => f.status === 'completed').length;
   const generatingCount = frames.filter((f) => f.status === 'generating').length;
   const failedCount = frames.filter((f) => f.status === 'failed').length;
@@ -119,13 +135,27 @@ const VideoGenerationScreen = ({ projectId, onBack }) => {
 
   // Reset generatingAll flag when project status changes from generating
   useEffect(() => {
-    if (project?.status && project.status !== 'generating' && project.status !== 'queued') {
+    if (project?.status && project.status !== 'generating' && project.status !== 'queued' && project.status !== 'clips_ready') {
       setGeneratingAll(false);
     }
     if (hasFinalAsset || finalVideoUrl) {
       setCombining(false);
     }
-  }, [project?.status, hasFinalAsset, finalVideoUrl]);
+    // Clear generatingFrameId when the frame is no longer generating
+    if (generatingFrameId) {
+      const targetFrame = frames.find((f) => f.id === generatingFrameId);
+      if (targetFrame && targetFrame.status !== 'generating') {
+        setGeneratingFrameId(null);
+      }
+    }
+  }, [project?.status, hasFinalAsset, finalVideoUrl, generatingFrameId, frames]);
+
+  // Auto-navigate to final video screen when combine completes
+  useEffect(() => {
+    if ((hasFinalAsset || finalVideoUrl) && onViewFinalVideo) {
+      onViewFinalVideo();
+    }
+  }, [hasFinalAsset, finalVideoUrl, onViewFinalVideo]);
 
   // Loading state
   if (loading && !project) {
@@ -230,57 +260,20 @@ const VideoGenerationScreen = ({ projectId, onBack }) => {
         )}
       </div>
 
-      {/* Final video section */}
+      {/* Final video ready — navigate to dedicated screen */}
       {(hasFinalAsset || finalVideoUrl) && (
         <div className="video-gen-final-section">
           <div className="final-section-header">
             <span className="final-badge">🎉 Final Video Ready</span>
-            <span className="final-subtitle">Your video has been compiled and uploaded to Cloudflare</span>
+            <span className="final-subtitle">Your video has been compiled and uploaded successfully</span>
           </div>
-
-          {finalVideoUrl && (
-            <div className="final-video-content">
-              <div className="video-player-wrapper">
-                <video
-                  controls
-                  preload="metadata"
-                  className="final-video-player"
-                  src={finalVideoUrl}
-                >
-                  Your browser does not support the video tag.
-                </video>
-              </div>
-
-              <div className="final-video-url-section">
-                <label className="url-label">Video URL (Cloudflare R2):</label>
-                <div className="url-copy-row">
-                  <input
-                    type="text"
-                    value={finalVideoUrl}
-                    readOnly
-                    className="url-input"
-                    onClick={(e) => e.target.select()}
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-copy-url"
-                    onClick={handleCopyUrl}
-                  >
-                    {copiedUrl ? '✓ Copied!' : '📋 Copy URL'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {!finalVideoUrl && (
-            <div className="final-no-url">
-              <p>Video is uploaded but the public URL is not available.</p>
-              <p className="final-no-url-hint">
-                Make sure <code>R2_FINAL_PUBLIC_URL</code> is set in your backend <code>.env</code> file.
-              </p>
-            </div>
-          )}
+          <button
+            type="button"
+            className="btn btn-view-final"
+            onClick={onViewFinalVideo}
+          >
+            ▶ View Final Video
+          </button>
         </div>
       )}
 

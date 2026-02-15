@@ -3,19 +3,14 @@ LLM-based topic validation using MegaLLM.
 Validates topics for YouTube Shorts content with AI-powered analysis.
 """
 import json
+import logging
 import re
 from typing import Dict, Any, Optional
-from openai import OpenAI
 
 from app.config.settings import settings
+from app.core.llm_client import get_megallm_client
 
-# Configure MegaLLM client
-client = None
-if settings.MEGALLM_API_KEY:
-    client = OpenAI(
-        api_key=settings.MEGALLM_API_KEY,
-        base_url=settings.MEGALLM_BASE_URL
-    )
+logger = logging.getLogger(__name__)
 
 
 def normalize_topic(topic: str) -> str:
@@ -62,6 +57,7 @@ async def validate_topic(topic: str, niche_hint: Optional[str] = None) -> Dict[s
     normalized = normalize_topic(topic)
     
     # If no API key, return basic validation
+    client = get_megallm_client()
     if not client:
         return {
             "valid": True,
@@ -108,7 +104,7 @@ IMPORTANT:
 Respond with JSON only:"""
 
     try:
-        print(f"[DEBUG] Validating topic with LLM: {topic[:50]}...")
+        logger.debug("Validating topic with LLM: %s...", topic[:50])
         
         response = client.chat.completions.create(
             model=settings.MEGALLM_MODEL,
@@ -124,7 +120,7 @@ Respond with JSON only:"""
         )
         
         response_text = response.choices[0].message.content.strip()
-        print(f"[DEBUG] LLM validation response: {response_text[:200]}...")
+        logger.debug("LLM validation response: %s...", response_text[:200])
         
         # Parse JSON response
         try:
@@ -152,14 +148,14 @@ Respond with JSON only:"""
         }
         
     except Exception as e:
-        print(f"[ERROR] LLM validation failed: {e}")
-        # Fallback to basic validation if LLM fails
+        logger.error("LLM validation failed: %s", e)
+        # Do NOT auto-approve — return invalid so user retries
         return {
-            "valid": True,
-            "score": 70,
-            "reason": f"Topic accepted (LLM validation error: {str(e)[:50]})",
-            "issues": [],
-            "suggestions": ["Consider making your topic more specific"],
+            "valid": False,
+            "score": 0,
+            "reason": "Topic validation is temporarily unavailable. Please try again in a moment.",
+            "issues": ["Validation service is currently unavailable"],
+            "suggestions": ["Wait a moment and click 'Validate' again"],
             "normalized": {
                 "original": topic,
                 "normalized": normalized

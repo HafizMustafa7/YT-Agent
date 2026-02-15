@@ -48,7 +48,7 @@ const HomeScreen = ({ onAnalyzeTrends, onSearchNiche, loading }) => {
                 onChange={(e) => setNicheInput(e.target.value)}
                 className="niche-input"
                 disabled={loading}
-                onKeyPress={(e) => e.key === 'Enter' && handleNicheSearch(e)}
+                onKeyDown={(e) => e.key === 'Enter' && handleNicheSearch(e)}
               />
             </div>
             <button
