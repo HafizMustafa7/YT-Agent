@@ -49,6 +49,20 @@ class Settings:
     # Story Generation Settings
     DEFAULT_VIDEO_DURATION: int = 60
     MAX_FRAMES: int = 5
+
+    # Video Generation (Sora 2 + R2)
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    SORA_MODEL: str = os.getenv("SORA_MODEL", "sora-2")
+    SORA_VIDEO_SIZE: str = os.getenv("SORA_VIDEO_SIZE", "1280x720")
+    SORA_MAX_DURATION_SECONDS: int = min(12, int(os.getenv("SORA_MAX_DURATION_SECONDS", "12")))
+    VIDEO_TEMP_DIR: str = os.getenv("VIDEO_TEMP_DIR", "temp_video_cache")
+    WORKER_URL: str = os.getenv("WORKER_URL", "")  # Cloudflare Worker for R2 upload
+    R2_UPLOAD_API_KEY: str = os.getenv("R2_UPLOAD_API_KEY", "")
+    R2_TRASH_PUBLIC_URL: str = os.getenv("R2_TRASH_PUBLIC_URL", "")  # TRASH_BUCKET public URL (clips)
+    R2_FINAL_PUBLIC_URL: str = os.getenv("R2_FINAL_PUBLIC_URL", "")  # FINAL_BUCKET public URL (combined video)
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_SERVICE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
+    VIDEO_DEFAULT_USER_ID: str = os.getenv("VIDEO_DEFAULT_USER_ID", "")  # UUID from profiles for unauthenticated flow
     
     # Redis Cache Settings
     REDIS_ENABLED: bool = os.getenv("REDIS_ENABLED", "True").lower() == "true"
@@ -62,8 +76,8 @@ class Settings:
     
     # Connection pool settings
     REDIS_MAX_CONNECTIONS: int = 10
-    REDIS_SOCKET_TIMEOUT: int = 5
-    REDIS_SOCKET_CONNECT_TIMEOUT: int = 5
+    REDIS_SOCKET_TIMEOUT: int = 10  # Increased from 5 to 10 seconds
+    REDIS_SOCKET_CONNECT_TIMEOUT: int = 10  # Increased from 5 to 10 seconds
     
     def validate(self) -> None:
         """Validate required settings."""

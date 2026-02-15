@@ -1,12 +1,23 @@
 import React, { useState } from 'react';
 import '../styles/components/StoryResultsScreen.css';
 
-const StoryResultsScreen = ({ storyResult, topic, onBack }) => {
+const StoryResultsScreen = ({ storyResult, topic, onBack, onGenerateVideo }) => {
   const [expandedFrame, setExpandedFrame] = useState(null);
   const [copiedFrame, setCopiedFrame] = useState(null);
+  const [videoCreating, setVideoCreating] = useState(false);
 
   const story = storyResult?.story || {};
   const frames = story?.frames || [];
+
+  const handleGenerateVideo = async () => {
+    if (!onGenerateVideo || frames.length === 0) return;
+    setVideoCreating(true);
+    try {
+      await onGenerateVideo(storyResult);
+    } finally {
+      setVideoCreating(false);
+    }
+  };
 
   const copyToClipboard = (text, frameNum) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -158,6 +169,22 @@ const StoryResultsScreen = ({ storyResult, topic, onBack }) => {
           );
         })}
       </div>
+
+      {frames.length > 0 && onGenerateVideo && (
+        <div className="generate-video-actions">
+          <button
+            type="button"
+            className="generate-video-btn"
+            onClick={handleGenerateVideo}
+            disabled={videoCreating}
+          >
+            {videoCreating ? 'Creating project…' : 'Generate Video → Open Video Gen Dashboard'}
+          </button>
+          <p className="generate-video-hint">
+            Creates a video project and opens the dashboard to generate clips per frame or all at once, then compile.
+          </p>
+        </div>
+      )}
     </div>
   );
 };

@@ -52,3 +52,25 @@ class GenerateStoryRequest(BaseModel):
         ..., 
         description="Creative direction preferences"
     )
+
+
+# ----- Video generation -----
+
+
+class FrameInput(BaseModel):
+    """One frame for video project creation."""
+    frame_num: int = Field(..., ge=1)
+    ai_video_prompt: str = Field(..., min_length=1)
+    scene_description: Optional[str] = None
+    duration_seconds: int = Field(8, ge=4, le=12)
+
+
+class CreateVideoProjectRequest(BaseModel):
+    """Request to create a video project from story frames."""
+    title: str = Field("Story Video", max_length=255)
+    frames: List[FrameInput] = Field(..., min_length=1)
+
+
+class GenerateFrameRequest(BaseModel):
+    """Request to generate a single frame (frame_id from project_frames)."""
+    frame_id: str = Field(..., description="UUID of project_frames row")

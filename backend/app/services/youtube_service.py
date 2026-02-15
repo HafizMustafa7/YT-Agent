@@ -169,6 +169,8 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
                     type="video",
                     videoDuration="short",
                     publishedAfter=fifteen_days_ago,
+                    regionCode="US",  # Set region to United States
+                    relevanceLanguage="en",  # Prioritize English content
                 ).execute()
 
                 items = search_response.get("items", [])

@@ -13,7 +13,7 @@ openai==1.58.1
 # Testing dependencies
 pytest==7.4.3
 pytest-asyncio==0.21.1
-httpx==0.25.2
+httpx>=0.25.0
 pytest-mock==3.12.0
 
 # Logging and utilities
@@ -23,3 +23,7 @@ tenacity==8.2.3
 # Redis caching
 redis==7.1.0
 hiredis==3.3.0
+
+# Video generation (Sora + Supabase + FFmpeg)
+supabase>=2.3.0
+ffmpeg-python==0.2.0

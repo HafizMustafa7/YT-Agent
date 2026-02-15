@@ -6,6 +6,9 @@ from .models import (
     TopicValidationRequest,
     CreativePreferencesRequest,
     GenerateStoryRequest,
+    FrameInput,
+    CreateVideoProjectRequest,
+    GenerateFrameRequest,
 )
 
 __all__ = [
@@ -13,4 +16,7 @@ __all__ = [
     "TopicValidationRequest",
     "CreativePreferencesRequest",
     "GenerateStoryRequest",
+    "FrameInput",
+    "CreateVideoProjectRequest",
+    "GenerateFrameRequest",
 ]

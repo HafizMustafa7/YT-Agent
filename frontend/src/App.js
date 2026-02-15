@@ -5,6 +5,7 @@ import TrendsScreen from './components/TrendsScreen';
 import TopicValidationScreen from './components/TopicValidationScreen';
 import CreativeFormScreen from './components/CreativeFormScreen';
 import StoryResultsScreen from './components/StoryResultsScreen';
+import VideoGenerationScreen from './components/VideoGenerationScreen';
 import apiService from './services/apiService';
 import './styles/App.css';
 
@@ -15,6 +16,7 @@ function App() {
   const [topicInput, setTopicInput] = useState('');
   const [validationResult, setValidationResult] = useState(null);
   const [storyResult, setStoryResult] = useState(null);
+  const [videoProjectId, setVideoProjectId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -110,7 +112,36 @@ function App() {
     setTopicInput('');
     setValidationResult(null);
     setStoryResult(null);
+    setVideoProjectId(null);
     setError(null);
+  };
+
+  const handleGenerateVideo = async (result) => {
+    setError(null);
+    const story = result?.story || {};
+    const frames = story?.frames || [];
+    if (!frames.length) {
+      setError('No frames to create video project.');
+      return;
+    }
+    const payload = {
+      title: story.title || 'Story Video',
+      frames: frames.map((f, idx) => ({
+        frame_num: f.frame_num || idx + 1,
+        ai_video_prompt: f.ai_video_prompt || '',
+        scene_description: f.scene_description || null,
+        duration_seconds: [4, 8, 12].reduce((prev, curr) =>
+          Math.abs(curr - (f.duration_seconds || 8)) < Math.abs(prev - (f.duration_seconds || 8)) ? curr : prev
+        ),
+      })),
+    };
+    try {
+      const res = await apiService.createVideoProject(payload.title, payload.frames);
+      setVideoProjectId(res.project_id);
+      setCurrentScreen('videoGen');
+    } catch (err) {
+      setError(err.message || 'Failed to create video project. Please try again.');
+    }
   };
 
   return (
@@ -184,6 +215,17 @@ function App() {
           storyResult={storyResult}
           topic={validationResult?.normalized?.normalized || topicInput}
           onBack={resetApp}
+          onGenerateVideo={handleGenerateVideo}
+        />
+      )}
+
+      {currentScreen === 'videoGen' && videoProjectId && (
+        <VideoGenerationScreen
+          projectId={videoProjectId}
+          onBack={() => {
+            setVideoProjectId(null);
+            setCurrentScreen('story');
+          }}
         />
       )}
     </div>

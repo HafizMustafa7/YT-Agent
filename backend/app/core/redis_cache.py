@@ -84,21 +84,39 @@ class RedisCache:
         
         try:
             cache_key = self._make_key(key)
-            data = self.client.get(cache_key)
+            try:
+                data = self.client.get(cache_key)
+            except (redis.TimeoutError, redis.ConnectionError, OSError) as timeout_error:
+                print(f"⚠️  Redis get timeout/connection error for {key}: {timeout_error}")
+                # Try to reconnect once
+                try:
+                    self.client.ping()
+                    # Retry once after ping
+                    data = self.client.get(cache_key)
+                except Exception as reconnect_error:
+                    print(f"⚠️  Redis reconnection failed: {reconnect_error}")
+                    return None
             
             if data:
-                # Increment hit counter
-                self.client.incr(f"{self.key_prefix}stats:hits")
+                # Increment hit counter (non-critical, don't fail if this fails)
+                try:
+                    self.client.incr(f"{self.key_prefix}stats:hits")
+                except:
+                    pass  # Stats are non-critical
                 print(f"✅ Cache HIT: {key}")
                 return json.loads(data)
             else:
-                # Increment miss counter
-                self.client.incr(f"{self.key_prefix}stats:misses")
+                # Increment miss counter (non-critical, don't fail if this fails)
+                try:
+                    self.client.incr(f"{self.key_prefix}stats:misses")
+                except:
+                    pass  # Stats are non-critical
                 print(f"❌ Cache MISS: {key}")
                 return None
                 
         except Exception as e:
             print(f"Redis get error: {e}")
+            # Don't fail the entire request if cache fails
             return None
     
     def set(self, key: str, data: Any, ttl: Optional[int] = None) -> bool:
@@ -120,27 +138,51 @@ class RedisCache:
             cache_key = self._make_key(key)
             ttl = ttl or self.ttl
             
-            # Store data with TTL
-            self.client.setex(
-                cache_key,
-                ttl,
-                json.dumps(data, default=str)
-            )
+            # Store data with TTL (with timeout handling)
+            try:
+                self.client.setex(
+                    cache_key,
+                    ttl,
+                    json.dumps(data, default=str)
+                )
+            except (redis.TimeoutError, redis.ConnectionError, OSError) as timeout_error:
+                print(f"⚠️  Redis set timeout/connection error for {key}: {timeout_error}")
+                # Try to reconnect once
+                try:
+                    self.client.ping()
+                except:
+                    print(f"⚠️  Redis reconnection failed, disabling cache for this operation")
+                    return False
+                # Retry once after ping
+                try:
+                    self.client.setex(
+                        cache_key,
+                        ttl,
+                        json.dumps(data, default=str)
+                    )
+                except Exception as retry_error:
+                    print(f"Redis set retry failed: {retry_error}")
+                    return False
             
-            # Track cache metadata
-            metadata_key = f"{cache_key}:metadata"
-            metadata = {
-                "created_at": datetime.now().isoformat(),
-                "ttl": ttl,
-                "expires_at": datetime.now().timestamp() + ttl
-            }
-            self.client.setex(metadata_key, ttl, json.dumps(metadata))
+            # Track cache metadata (non-critical, don't fail if this fails)
+            try:
+                metadata_key = f"{cache_key}:metadata"
+                metadata = {
+                    "created_at": datetime.now().isoformat(),
+                    "ttl": ttl,
+                    "expires_at": datetime.now().timestamp() + ttl
+                }
+                self.client.setex(metadata_key, ttl, json.dumps(metadata))
+            except Exception as metadata_error:
+                # Metadata is non-critical, just log and continue
+                print(f"⚠️  Redis metadata set failed (non-critical): {metadata_error}")
             
             print(f"💾 Cached: {key} (TTL: {ttl}s)")
             return True
             
         except Exception as e:
             print(f"Redis set error: {e}")
+            # Don't fail the entire request if caching fails
             return False
     
     def delete(self, key: str) -> bool:

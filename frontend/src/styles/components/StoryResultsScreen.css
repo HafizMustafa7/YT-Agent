@@ -314,3 +314,40 @@
   }
 }
 
+.generate-video-actions {
+  margin-top: 40px;
+  padding: 24px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 12px;
+}
+
+.generate-video-btn {
+  display: inline-block;
+  padding: 14px 28px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: white;
+  background: linear-gradient(135deg, #0ea5e9, #6366f1);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.generate-video-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4);
+}
+
+.generate-video-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.generate-video-hint {
+  margin-top: 12px;
+  font-size: 0.9rem;
+  color: #64748b;
+}
+

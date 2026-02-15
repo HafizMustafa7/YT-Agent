@@ -85,7 +85,7 @@ const CREATIVE_OPTIONS = {
     'cinematic',
   ],
   duration_seconds: [
-    20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120
+    10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120
   ],
 };
 
@@ -97,7 +97,7 @@ const CreativeFormScreen = ({ onSubmit, onBack, loading }) => {
     camera_movement: CREATIVE_OPTIONS.camera_movement[0],
     effects: CREATIVE_OPTIONS.effects[0],
     story_format: CREATIVE_OPTIONS.story_format[0],
-    duration_seconds: CREATIVE_OPTIONS.duration_seconds[4], // Default 60 seconds
+    duration_seconds: CREATIVE_OPTIONS.duration_seconds[5], // Default 60 seconds
     constraints: [],
   });
 

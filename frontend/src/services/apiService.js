@@ -94,12 +94,101 @@ export const checkHealth = async () => {
     return response.json();
 };
 
+/**
+ * Create video project from story frames (for Video Gen dashboard)
+ * @param {string} title - Project/story title
+ * @param {Array<{frame_num, ai_video_prompt, scene_description?, duration_seconds?}>} frames
+ * @returns {Promise<object>} - { project_id, total_frames }
+ */
+export const createVideoProject = async (title, frames) => {
+    const response = await fetch(`${API_BASE_URL}${ENDPOINTS.VIDEO_CREATE_PROJECT}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, frames }),
+    });
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || response.statusText);
+    }
+    return response.json();
+};
+
+/**
+ * Get video project with frames and assets
+ * @param {string} projectId - UUID
+ * @returns {Promise<object>} - { project }
+ */
+export const getVideoProject = async (projectId) => {
+    const response = await fetch(`${API_BASE_URL}${ENDPOINTS.VIDEO_GET_PROJECT(projectId)}`);
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || response.statusText);
+    }
+    return response.json();
+};
+
+/**
+ * Start generating all pending frames (Sora)
+ * @param {string} projectId
+ * @returns {Promise<object>}
+ */
+export const startGenerateAllFrames = async (projectId) => {
+    const response = await fetch(`${API_BASE_URL}${ENDPOINTS.VIDEO_GENERATE_ALL(projectId)}`, {
+        method: 'POST',
+    });
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || response.statusText);
+    }
+    return response.json();
+};
+
+/**
+ * Generate a single frame
+ * @param {string} projectId
+ * @param {string} frameId - UUID of project_frames row
+ * @returns {Promise<object>}
+ */
+export const startGenerateFrame = async (projectId, frameId) => {
+    const response = await fetch(`${API_BASE_URL}${ENDPOINTS.VIDEO_GENERATE_FRAME(projectId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frame_id: frameId }),
+    });
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || response.statusText);
+    }
+    return response.json();
+};
+
+/**
+ * Combine all completed clips into one video
+ * @param {string} projectId
+ * @returns {Promise<object>}
+ */
+export const combineVideoProject = async (projectId) => {
+    const response = await fetch(`${API_BASE_URL}${ENDPOINTS.VIDEO_COMBINE(projectId)}`, {
+        method: 'POST',
+    });
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || response.statusText);
+    }
+    return response.json();
+};
+
 // Export all services as default object
 const apiService = {
     fetchTrends,
     validateTopic,
     generateStory,
     checkHealth,
+    createVideoProject,
+    getVideoProject,
+    startGenerateAllFrames,
+    startGenerateFrame,
+    combineVideoProject,
 };
 
 export default apiService;

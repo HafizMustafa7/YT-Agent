@@ -380,14 +380,14 @@ async def generate_story_and_frames(
         - Total duration MUST match TARGET DURATION exactly ({creative_brief.get("duration_seconds") if creative_brief else target_duration} seconds)
 
         CRITICAL FRAME DURATION LIMIT (SORA 2 API CONSTRAINT):
-        - MAXIMUM frame duration: 12 seconds (this is a hard limit - never exceed!)
-        - MINIMUM frame duration: 5 seconds
-        - Calculate number of frames: TARGET_DURATION ÷ 10 (average frame length)
-        - For a 60s video: minimum 5 frames (12s each) to 12 frames (5s each)
-        - For a 120s video: minimum 10 frames (12s each) to 24 frames (5s each)
+        - duration_seconds MUST be EXACTLY one of: 4, 8, or 12 (NO other values allowed!)
+        - These are the ONLY values the Sora 2 API accepts: 4, 8, 12
+        - Use 4s for quick shots, 8s for standard scenes, 12s for key moments
+        - For a 60s video: e.g. 5 frames × 12s, or 4 frames × 12s + 1 frame × 8s + 1 frame × 4s
+        - For a 120s video: e.g. 10 frames × 12s, or mix of 8s and 12s frames
         
         FRAME REQUIREMENTS:
-        1. Each frame: 5-12 seconds of video content (NEVER exceed 12 seconds!)
+        1. Each frame: EXACTLY 4, 8, or 12 seconds (these are the ONLY allowed values!)
         2. Sequential storytelling: Frame 1 → Frame N covers complete narrative
         3. Character consistency: SAME characters throughout (if applicable)
         4. Optimal frame count based on story complexity and pacing
@@ -432,7 +432,7 @@ async def generate_story_and_frames(
         [
           {{
             "frame_num": 1,
-            "duration_seconds": 8,
+            "duration_seconds": 8,  // MUST be exactly 4, 8, or 12
             "scene_description": "One-sentence summary of what happens in this frame",
             "ai_video_prompt": "Highly detailed 200-300 word production-ready prompt for professional AI video generation. Start with 'A [duration]-second [shot type] of...' and MUST seamlessly integrate ALL creative modules: camera movement ({camera_movement_val}), visual style ({visual_style_val}), effects ({effects_val}), tone ({tone_val}). Create a visually stunning, consistent scene with: EXACT camera angle and movement, PRECISE lighting setup, DETAILED character appearance (if applicable) maintaining consistency, COMPLETE environment description, CLEAR action and movement, STRONG emotional impact, PROFESSIONAL cinematography style, CREATIVE visual elements. Ensure perfect scene composition, visual continuity, and maximum creative appeal. Be extremely specific about every visual element to ensure consistency and perfection.",
             "narration_text": "Optional: What the narrator/character says during this frame (if applicable)",
@@ -455,7 +455,7 @@ async def generate_story_and_frames(
         IMPORTANT:
         - Return ONLY valid JSON array, no extra text before or after
         - DYNAMICALLY determine the optimal number of frames based on story complexity (NOT hardcoded)
-        - CRITICAL: duration_seconds MUST be between 5 and 12 (NEVER exceed 12 seconds per frame!)
+        - CRITICAL: duration_seconds MUST be EXACTLY 4, 8, or 12 (NO other values are valid!)
         - Each frame MUST include creative_modules as a JSON object within the frame JSON
         - Each ai_video_prompt MUST incorporate ALL creative modules (tone, visual_style, camera_movement, effects)
         - Ensure character consistency if characters exist
@@ -475,20 +475,19 @@ async def generate_story_and_frames(
         
         print(f"Extracted frames: {frames[:2] if frames else 'None'}...")  # Debug the extracted frames
         
-        if not frames or len(frames) < 3:
-            print(f"Debug: Frames response length is {len(frames)}. Full response: {frames_text}")
-            raise ValueError(f"Generated only {len(frames)} frames, expected at least 3. Check the AI response for issues.")
+        if not frames or len(frames) < 1:
+            print(f"Debug: Frames response length is {len(frames) if frames else 0}. Full response: {frames_text}")
+            raise ValueError(f"Generated {len(frames) if frames else 0} frames, expected at least 1. Check the AI response for issues.")
 
-        # Post-process: Enforce max 12 seconds per frame (Sora 2 API limit)
-        MAX_FRAME_DURATION = 12
-        MIN_FRAME_DURATION = 5
+        # Post-process: Snap duration to Sora 2 allowed values (4, 8, 12)
+        ALLOWED_DURATIONS = [4, 8, 12]
         for frame in frames:
-            duration = frame.get('duration_seconds', 10)
-            if duration > MAX_FRAME_DURATION:
-                print(f"[WARNING] Frame {frame.get('frame_num')} exceeded {MAX_FRAME_DURATION}s limit ({duration}s), capping to {MAX_FRAME_DURATION}s")
-                frame['duration_seconds'] = MAX_FRAME_DURATION
-            elif duration < MIN_FRAME_DURATION:
-                frame['duration_seconds'] = MIN_FRAME_DURATION
+            duration = frame.get('duration_seconds', 8)
+            if duration not in ALLOWED_DURATIONS:
+                # Snap to nearest allowed value
+                snapped = min(ALLOWED_DURATIONS, key=lambda x: abs(x - duration))
+                print(f"[WARNING] Frame {frame.get('frame_num')} had duration {duration}s, snapped to {snapped}s (Sora allows only 4, 8, 12)")
+                frame['duration_seconds'] = snapped
 
         # Calculate estimated duration
         total_duration = sum(frame.get('duration_seconds', 10) for frame in frames)

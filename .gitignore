@@ -4,7 +4,10 @@ frontend/.env
 backend/.env
 *.env.local
 *.env.*.local
-
+Video Gen
+backend/supabase_migrations/
+backend/temp_video_cache/
+backend/.env.example
 # Python
 __pycache__/
 *.py[cod]
@@ -51,6 +54,7 @@ frontend/dist/
 
 # Project specific
 TODO.md
+VIDEO_GENERATION_IMPLEMENTATION_PLAN.md
 *.log
 .cache/
 
@@ -68,3 +72,4 @@ htmlcov/
 *.db
 *.sqlite
 *.sqlite3
+*.sql
