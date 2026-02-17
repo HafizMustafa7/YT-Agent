@@ -162,27 +162,60 @@ def get_current_user(authorization: str = Header(None)):
     try:
         user = _try_get_user_from_token(token)
         if not user:
+            logger.warning("[AUTH] Token verification returned no user")
             raise HTTPException(status_code=401, detail="Invalid token")
 
         user_id = user.get("id") if isinstance(user, dict) else getattr(user, "id", None)
         email = user.get("email") if isinstance(user, dict) else getattr(user, "email", None)
 
-        profile_resp = supabase.table("profiles").select("*").eq("id", user_id).execute()
-        profile_list = profile_resp.data if hasattr(profile_resp, "data") else profile_resp.get("data", [])
-        profile = profile_list[0] if profile_list else None
+        if not user_id:
+             logger.error("[AUTH] Extracted user has no ID: %s", user)
+             raise HTTPException(status_code=401, detail="Malformed token data")
+
+        # Fetch profile
+        profile = None
+        try:
+            profile_resp = supabase.table("profiles").select("*").eq("id", user_id).execute()
+            profile_data = getattr(profile_resp, "data", [])
+            if profile_data:
+                profile = profile_data[0]
+        except Exception as pe:
+            logger.warning("[AUTH] Failed to fetch profile for user %s: %s", user_id, pe)
 
         return {
             "id": user_id,
             "email": email,
-            "full_name": profile.get("full_name") if profile else (email.split("@")[0] if email else None),
+            "full_name": profile.get("full_name") if profile else (email.split("@")[0] if email else "User"),
             "oauth_provider": profile.get("oauth_provider") if profile else None,
             "profile": profile,
         }
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[AUTH ERROR] Token verification failed: {str(e)}")
-        raise HTTPException(status_code=401, detail="Invalid token")
+        logger.error(f"[AUTH ERROR] Unexpected error in get_current_user: {str(e)}")
+        raise HTTPException(status_code=401, detail="Authentication failed")
+
+
+def get_optional_user(authorization: str = Header(None)):
+    """Try to get user, but return None if not authenticated instead of raising 401."""
+    if not authorization:
+        return None
+
+    token = authorization.split(" ")[1] if " " in authorization else authorization
+    try:
+        user = _try_get_user_from_token(token)
+        if not user:
+            return None
+
+        user_id = user.get("id") if isinstance(user, dict) else getattr(user, "id", None)
+        if not user_id:
+            return None
+
+        # Fetch basic info without profile for speed/reliability in optional flow
+        email = user.get("email") if isinstance(user, dict) else getattr(user, "email", None)
+        return {"id": user_id, "email": email}
+    except Exception:
+        return None
 
 
 @router.get("/me")

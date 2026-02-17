@@ -138,6 +138,31 @@ def oauth_callback(request: Request, state: str = None, code: str = None):
         if not items:
             raise HTTPException(status_code=400, detail="No YouTube channel found for this Google account")
 
+        # Fetch user's email from Google
+        google_email = None
+        try:
+            userinfo_service = build("oauth2", "v2", credentials=credentials)
+            userinfo = userinfo_service.userinfo().get().execute()
+            google_email = userinfo.get("email")
+            print(f"[DEBUG] User email fetched: {google_email}")
+        except Exception as e:
+            logger.warning(f"[CHANNELS] Failed to fetch user email: {e}")
+            # Try alternative method using tokeninfo endpoint
+            try:
+                response = requests.get(
+                    "https://www.googleapis.com/oauth2/v2/userinfo",
+                    headers={"Authorization": f"Bearer {credentials.token}"}
+                )
+                if response.status_code == 200:
+                    userinfo = response.json()
+                    google_email = userinfo.get("email")
+                    print(f"[DEBUG] User email fetched (alt): {google_email}")
+            except Exception as e2:
+                logger.warning(f"[CHANNELS] Failed to fetch user email (alt): {e2}")
+
+        if not google_email:
+            raise HTTPException(status_code=400, detail="Could not fetch user email from Google")
+
         # pick the first channel (most users have one)
         channel = items[0]
         channel_id = channel.get("id")
@@ -162,8 +187,9 @@ def oauth_callback(request: Request, state: str = None, code: str = None):
         # Upsert channel linked to user_id
         supabase.table("channels").upsert({
             "user_id": user_id,
-            "youtube_channel_id": channel_id,
-            "youtube_channel_name": channel_name,
+            "channel_id": channel_id,
+            "channel_name": channel_name,
+            "google_email": google_email,
             "access_token": credentials.token,
             "refresh_token": getattr(credentials, "refresh_token", None),
             "token_expiry": token_expiry,
@@ -195,7 +221,7 @@ def list_channels(current_user: dict = Depends(get_current_user)):
 
     # Debug: Print YouTube tokens
     for channel in channels:
-        print(f"[DEBUG] YouTube Channel: {channel.get('youtube_channel_name')}, Access Token: {channel.get('access_token')[:20]}...")
+        print(f"[DEBUG] YouTube Channel: {channel.get('channel_name')}, Access Token: {channel.get('access_token')[:20]}...")
 
     # Add token_valid flag and fetch fresh thumbnails for each channel
     for channel in channels:
@@ -224,7 +250,7 @@ def list_channels(current_user: dict = Depends(get_current_user)):
                 )
 
                 youtube = build("youtube", "v3", credentials=creds)
-                request_youtube = youtube.channels().list(part="snippet", id=channel["youtube_channel_id"])
+                request_youtube = youtube.channels().list(part="snippet", id=channel["channel_id"])
                 response = request_youtube.execute()
 
                 items = response.get("items", [])
@@ -239,7 +265,7 @@ def list_channels(current_user: dict = Depends(get_current_user)):
                     )
                     channel["thumbnail_url"] = thumbnail_url
         except Exception as e:
-            logger.warning(f"[CHANNELS] Failed to fetch thumbnail for channel {channel['youtube_channel_id']}: {e}")
+            logger.warning(f"[CHANNELS] Failed to fetch thumbnail for channel {channel['channel_id']}: {e}")
             # Continue without thumbnail if fetch fails
 
     return channels
@@ -278,7 +304,7 @@ def _refresh_youtube_token(channel):
     import requests
 
     refresh_token = channel.get("refresh_token")
-    print(f"[DEBUG] Refreshing YouTube token for channel {channel.get('youtube_channel_name')}, refresh_token present: {refresh_token is not None}")
+    print(f"[DEBUG] Refreshing YouTube token for channel {channel.get('channel_name')}, refresh_token present: {refresh_token is not None}")
     if not refresh_token:
         logger.warning("[CHANNELS] No refresh token available")
         return False
@@ -296,8 +322,19 @@ def _refresh_youtube_token(channel):
 
     try:
         response = requests.post(token_url, data=payload)
-        response.raise_for_status()
         token_data = response.json()
+
+        print(f"[DEBUG] YouTube refresh response status: {response.status_code}")
+        print(f"[DEBUG] YouTube refresh response: {token_data}")
+
+        # Check for invalid refresh token
+        if response.status_code == 400 and token_data.get("error") == "invalid_grant":
+            logger.warning(f"[CHANNELS] Refresh token invalid for user {channel['user_id']} - disconnecting channel")
+            # Disconnect the channel since refresh token is invalid
+            supabase.table("channels").delete().eq("user_id", channel["user_id"]).execute()
+            return False
+
+        response.raise_for_status()
 
         access_token = token_data.get("access_token")
         expires_in = token_data.get("expires_in")
@@ -327,7 +364,7 @@ def get_channel_stats(channel_id: str, current_user: dict = Depends(get_current_
     """Fetch real-time channel stats from YouTube API using stored tokens."""
     try:
         # Get channel data
-        resp = supabase.table("channels").select("*").eq("user_id", current_user["id"]).eq("youtube_channel_id", channel_id).execute()
+        resp = supabase.table("channels").select("*").eq("user_id", current_user["id"]).eq("channel_id", channel_id).execute()
         data = resp.data if hasattr(resp, "data") else resp.get("data", [])
 
         if not data:
@@ -348,7 +385,7 @@ def get_channel_stats(channel_id: str, current_user: dict = Depends(get_current_
                     if not refreshed:
                         raise HTTPException(status_code=400, detail="Failed to refresh token for stats fetch")
                     # Re-fetch channel data after refresh
-                    resp = supabase.table("channels").select("*").eq("user_id", current_user["id"]).eq("youtube_channel_id", channel_id).execute()
+                    resp = supabase.table("channels").select("*").eq("user_id", current_user["id"]).eq("channel_id", channel_id).execute()
                     channel = (resp.data if hasattr(resp, "data") else resp.get("data", []))[0]
             except Exception as e:
                 logger.warning(f"[CHANNELS] Error checking token expiry: {e}")
