@@ -3,28 +3,100 @@ import '../styles/components/TrendsScreen.css';
 
 const TrendsScreen = ({ trendsData, onSelectVideo, onBack, loading, onCustomTopic }) => {
   const [customTopic, setCustomTopic] = useState('');
+  
   const formatNumber = (num) => {
+    if (!num) return '0';
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
     if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
     return num.toString();
+  };
+
+  const VideoGrid = ({ videos, title, icon }) => {
+    if (!videos || videos.length === 0) return null;
+    
+    return (
+      <div className="trends-section">
+        <h3 className="section-title">
+          <span className="icon">{icon}</span> {title}
+          <span className="count-badge">{videos.length} videos</span>
+        </h3>
+        <div className="trends-grid">
+          {videos.map((video) => (
+            <div
+              key={video.id}
+              className="video-card"
+              onClick={() => onSelectVideo(video)}
+            >
+              <div className="video-thumbnail-wrapper">
+                <img
+                  src={video.thumbnail}
+                  alt={video.title}
+                  className="video-thumbnail"
+                />
+                <span className="video-duration">{video.duration}</span>
+                {video.ai_confidence && (
+                  <span className="ai-badge">AI: {video.ai_confidence}%</span>
+                )}
+              </div>
+
+              <div className="video-content">
+                <h3 className="video-title">{video.title}</h3>
+
+                <div className="video-meta">
+                  <span className="channel-name">
+                    <span className="icon">📺</span>
+                    {video.channel}
+                  </span>
+                </div>
+
+                <div className="video-stats">
+                  <span className="stat">
+                    <span className="icon">👁️</span>
+                    {formatNumber(video.views)}
+                  </span>
+                  <span className="stat">
+                    <span className="icon">👍</span>
+                    {formatNumber(video.likes)}
+                  </span>
+                  <span className="stat">
+                    <span className="icon">💬</span>
+                    {formatNumber(video.comments)}
+                  </span>
+                </div>
+
+                {video.description && (
+                  <p className="video-description">
+                    {video.description.length > 100
+                      ? `${video.description.substring(0, 100)}...`
+                      : video.description}
+                  </p>
+                )}
+
+                <button className="select-btn">Select This Topic</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   };
 
   return (
     <div className="trends-screen">
       <div className="trends-header">
         <button className="back-btn" onClick={onBack}>← Back</button>
-        <h2>Trending Videos</h2>
+        <h2>Trending Content Analysis</h2>
         <p className="trends-subtitle">
           {trendsData?.mode === 'analyze_niche'
-            ? `Results for: ${trendsData.query_used}`
-            : 'Top trending YouTube Shorts'}
+            ? `Viral AI content for: ${trendsData.query_used}`
+            : 'Top trending AI content from USA'}
         </p>
       </div>
 
       {loading && (
         <div className="loading-overlay">
           <div className="spinner"></div>
-          <p>Loading trends...</p>
+          <p>Analyzing viral trends...</p>
         </div>
       )}
 
@@ -63,67 +135,22 @@ const TrendsScreen = ({ trendsData, onSelectVideo, onBack, loading, onCustomTopi
         </div>
       </div>
 
-      <div className="trends-grid">
-        {trendsData?.trends?.map((video) => (
-          <div
-            key={video.id}
-            className="video-card"
-            onClick={() => onSelectVideo(video)}
-          >
-            <div className="video-thumbnail-wrapper">
-              <img
-                src={video.thumbnail}
-                alt={video.title}
-                className="video-thumbnail"
-              />
-              <span className="video-duration">{video.duration}</span>
-              {video.ai_confidence && (
-                <span className="ai-badge">AI: {video.ai_confidence}%</span>
-              )}
-            </div>
-
-            <div className="video-content">
-              <h3 className="video-title">{video.title}</h3>
-
-              <div className="video-meta">
-                <span className="channel-name">
-                  <span className="icon">📺</span>
-                  {video.channel}
-                </span>
-              </div>
-
-              <div className="video-stats">
-                <span className="stat">
-                  <span className="icon">👁️</span>
-                  {formatNumber(video.views)}
-                </span>
-                <span className="stat">
-                  <span className="icon">👍</span>
-                  {formatNumber(video.likes)}
-                </span>
-                <span className="stat">
-                  <span className="icon">💬</span>
-                  {formatNumber(video.comments)}
-                </span>
-              </div>
-
-              {video.description && (
-                <p className="video-description">
-                  {video.description.length > 100
-                    ? `${video.description.substring(0, 100)}...`
-                    : video.description}
-                </p>
-              )}
-
-              <button className="select-btn">Select This Topic</button>
-            </div>
-          </div>
-        ))}
+      <div className="content-container">
+        {/* Support for both new split structure and legacy flat list */}
+        {trendsData?.shorts || trendsData?.long_videos ? (
+          <>
+            <VideoGrid videos={trendsData.shorts} title="Trending Shorts" icon="📱" />
+            <VideoGrid videos={trendsData.long_videos} title="Trending Videos" icon="🎬" />
+          </>
+        ) : (
+          <VideoGrid videos={trendsData?.trends} title="Trending Content" icon="🔥" />
+        )}
       </div>
 
-      {trendsData?.trends?.length === 0 && !loading && (
+      {((!trendsData?.shorts && !trendsData?.long_videos && !trendsData?.trends) || 
+        (trendsData?.total_results === 0)) && !loading && (
         <div className="empty-state">
-          <p>No trends found. Try a different search.</p>
+          <p>No trends found for this niche in the US. Try a different topic!</p>
         </div>
       )}
     </div>

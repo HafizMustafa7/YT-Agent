@@ -129,94 +129,123 @@ def is_ai_generated(title: str, description: str, tags: List[str], channel_title
     return score >= threshold
 
 
-def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 30, search_pages: int = 3) -> List[Dict]:
+def calculate_growth_score(video_data: Dict) -> float:
     """
-    Fetch trending YouTube Shorts videos for a given niche, focusing on AI-generated content.
-    Now with Redis caching support.
+    Calculate growth/virality score based on engagement metrics and velocity.
+    
+    Formula: (views * 0.4) + (likes * 0.3) + (comments * 0.2) + (velocity * 0.1)
     
     Args:
-        niche: The content niche to search for (e.g., "facts", "motivation", "tech tips")
-        max_results: Maximum number of AI-generated results to return
-        ai_threshold: AI confidence threshold (0-100). Default 30. Higher = stricter filtering.
-        search_pages: Number of search pages to fetch (max 50 results per page)
+        video_data: Dictionary containing video metrics and published_at timestamp
     
     Returns:
-        List of dictionaries containing AI-generated video information, sorted by views
+        Growth score (higher = more viral)
+    """
+    views = video_data.get("views", 0)
+    likes = video_data.get("likes", 0)
+    comments = video_data.get("comments", 0)
+    
+    # Calculate velocity (views per hour since publication)
+    published_at = video_data.get("published_at")
+    velocity = 0
+    if published_at:
+        try:
+            # Parse ISO 8601 timestamp
+            pub_time = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+            hours_since_pub = (datetime.now(pub_time.tzinfo) - pub_time).total_seconds() / 3600
+            if hours_since_pub > 0:
+                velocity = views / hours_since_pub
+        except Exception as e:
+            logger.warning("Could not calculate velocity: %s", e)
+    
+    # Apply formula
+    score = (views * 0.4) + (likes * 0.3) + (comments * 0.2) + (velocity * 0.1)
+    return score
+
+
+def get_us_trending_videos(
+    mode: str,
+    niche: str = None,
+    max_results: int = 20,
+    ai_threshold: int = 30,
+    category_id: str = None,
+    days_back: int = 3
+) -> Dict[str, List[Dict]]:
+    """
+    Fetch trending YouTube videos from the US, divided into Shorts and Long Videos.
+    
+    Args:
+        mode: "search_trends" (general) or "analyze_niche" (specific topic)
+        niche: The content niche to search for (required for analyze_niche mode)
+        max_results: Maximum number of AI-generated results to return per category
+        ai_threshold: AI confidence threshold (0-100). Default 30.
+        category_id: Optional YouTube category ID for filtering
+        days_back: Number of days to look back for trends (default 3)
+    
+    Returns:
+        Dictionary with "shorts" and "long_videos" keys containing sorted video lists
     """
     # Generate cache key
-    # Scoped cache keys (M-8) — using "public" for now as there's no auth yet
-    cache_key = f"public:trends_{niche}_{max_results}_{ai_threshold}"
+    cache_key = f"public:trends_v4_{mode}_{niche or 'general'}_{max_results}_{ai_threshold}_{category_id or 'all'}_{days_back}"
     
     # Try to get from cache first
     cached_data = redis_cache.get(cache_key)
     if cached_data:
+        logger.info("Cache HIT for trends: %s", cache_key)
         return cached_data
+    
+    logger.info("Cache MISS - fetching from YouTube API (mode=%s, niche=%s, days=%d)", mode, niche, days_back)
     
     # Cache miss - fetch from YouTube API
     try:
         youtube = get_youtube_service()
-        fifteen_days_ago = (datetime.now() - timedelta(days=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # Use UTC to avoid timezone issues with YouTube API
+        now_utc = datetime.utcnow()
+        time_window = (now_utc - timedelta(days=days_back)).strftime("%Y-%m-%dT%H:%M:%SZ")
         
-        all_trends = []
+        # Clean up category_id
+        if category_id and not category_id.strip():
+            category_id = None
         
-        # Focused search strategies — 2 queries instead of 4 to save API quota
-        # Each search.list costs 100 quota units; daily limit is 10,000
-        search_queries = [
-            f"{niche} AI generated shorts",
-            f"{niche} AI shorts trending",
-        ]
+        all_candidates = []
         
-        for query in search_queries:
-            if len(all_trends) >= max_results:
-                break
-                
+        # Dual-path strategy
+        if mode == "search_trends":
+            # Path 1: General trending videos using chart API
+            logger.info("Using chart API for general US trends (time window: %s)", time_window)
             try:
-                search_response = youtube.search().list(
-                    q=query,
-                    part="id,snippet",
-                    maxResults=50,  # Max allowed by API
-                    order="viewCount",
-                    type="video",
-                    videoDuration="short",
-                    publishedAfter=fifteen_days_ago,
-                    regionCode="US",  # Set region to United States
-                    relevanceLanguage="en",  # Prioritize English content
-                ).execute()
-
-                items = search_response.get("items", [])
-                if not items:
-                    continue
-
-                # Extract video IDs
-                video_ids = [item["id"]["videoId"] for item in items]
-
-                # Batch fetch detailed video information
-                videos_response = youtube.videos().list(
-                    part="snippet,statistics,contentDetails",
-                    id=",".join(video_ids)
-                ).execute()
-
-                video_dict = {v["id"]: v for v in videos_response.get("items", [])}
-
-                for item in items:
-                    video_id = item["id"]["videoId"]
-                    
-                    # Skip duplicates
-                    if any(t["id"] == video_id for t in all_trends):
-                        continue
-                    
-                    if video_id not in video_dict:
-                        continue
-
-                    video = video_dict[video_id]
+                # To get enough videos for both categories, we fetch more
+                chart_params = {
+                    "part": "snippet,statistics,contentDetails",
+                    "chart": "mostPopular",
+                    "regionCode": "US",
+                    "maxResults": 50,
+                }
+                if category_id:
+                    chart_params["videoCategoryId"] = category_id.strip()
+                
+                chart_response = youtube.videos().list(**chart_params).execute()
+                items = chart_response.get("items", [])
+                logger.info("Chart API returned %d items", len(items))
+                
+                pass_72h = 0
+                pass_ai = 0
+                
+                for video in items:
+                    video_id = video["id"]
                     snippet = video["snippet"]
                     stats = video["statistics"]
                     content_details = video.get("contentDetails", {})
-
-                    # Extract hashtags from description
+                    
+                    # Check if published within window
+                    published_at = snippet.get("publishedAt", "")
+                    if published_at < time_window:
+                        continue
+                    
+                    pass_72h += 1
+                    
+                    # AI-first filtering
                     tags = extract_hashtags(snippet.get("description", ""))
-
-                    # Calculate AI score and filter
                     ai_score = calculate_ai_score(
                         snippet["title"],
                         snippet.get("description", ""),
@@ -225,15 +254,17 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
                     )
                     
                     if ai_score < ai_threshold:
-                        continue  # Skip non-AI content
-
-                    # Parse and format duration
+                        continue
+                    
+                    pass_ai += 1
+                    
+                    # Parse duration
                     duration_iso = content_details.get("duration", "PT0S")
                     duration_secs = parse_iso_duration(duration_iso)
                     duration = format_duration(duration_secs)
-
-                    # Build trend dictionary with AI score
-                    trend = {
+                    
+                    # Build candidate object
+                    candidate = {
                         "id": video_id,
                         "title": snippet["title"],
                         "description": snippet.get("description", ""),
@@ -243,34 +274,167 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
                         "comments": int(stats.get("commentCount", 0)) if "commentCount" in stats else 0,
                         "thumbnail": snippet["thumbnails"]["medium"]["url"],
                         "duration": duration,
+                        "duration_seconds": duration_secs,
                         "channel": snippet["channelTitle"],
-                        "ai_confidence": ai_score,  # Added for debugging/analysis
-                        "url": f"https://youtube.com/shorts/{video_id}"  # Direct link
+                        "ai_confidence": ai_score,
+                        "published_at": published_at,
+                        "url": f"https://youtube.com/watch?v={video_id}"
                     }
-                    all_trends.append(trend)
-
-                    if len(all_trends) >= max_results:
-                        break
-
+                    all_candidates.append(candidate)
+                    
+                logger.info("Path summary (search_trends): 50 candidates -> %d pass time window -> %d pass AI filter", pass_72h, pass_ai)
+                    
             except HttpError as e:
-                logger.warning("Search query '%s' failed: %s", query, e)
-                continue
+                logger.error("Chart API failed: %s", e)
         
-        # Sort by views (highest first) and return
-        all_trends.sort(key=lambda x: x["views"], reverse=True)
-        result = all_trends[:max_results]
+        elif mode == "analyze_niche":
+            # Path 2: Niche-specific search
+            if not niche:
+                raise HTTPException(status_code=400, detail="Niche is required for analyze_niche mode")
+            
+            logger.info("Using search API for niche: %s", niche)
+            
+            # Focused search queries for AI content
+            search_queries = [
+                f"{niche} AI generated",
+                f"{niche} AI trending",
+            ]
+            
+            for query in search_queries:
+                try:
+                    search_params = {
+                        "q": query,
+                        "part": "id,snippet",
+                        "maxResults": 50,
+                        "order": "viewCount",
+                        "type": "video",
+                        "publishedAfter": time_window,
+                        "regionCode": "US",
+                        "relevanceLanguage": "en",
+                    }
+                    if category_id:
+                        search_params["videoCategoryId"] = category_id
+                    
+                    search_response = youtube.search().list(**search_params).execute()
+                    items = search_response.get("items", [])
+                    logger.info("Search API returned %d items for query: %s", len(items), query)
+                    
+                    if not items:
+                        continue
+                    
+                    # Extract video IDs
+                    video_ids = [item["id"]["videoId"] for item in items]
+                    
+                    # Batch fetch detailed info
+                    videos_response = youtube.videos().list(
+                        part="snippet,statistics,contentDetails",
+                        id=",".join(video_ids)
+                    ).execute()
+                    
+                    video_dict = {v["id"]: v for v in videos_response.get("items", [])}
+                    
+                    for item in items:
+                        video_id = item["id"]["videoId"]
+                        if any(t["id"] == video_id for t in all_candidates):
+                            continue
+                        
+                        if video_id not in video_dict:
+                            continue
+                        
+                        video = video_dict[video_id]
+                        snippet = video["snippet"]
+                        stats = video["statistics"]
+                        content_details = video.get("contentDetails", {})
+                        
+                        tags = extract_hashtags(snippet.get("description", ""))
+                        ai_score = calculate_ai_score(
+                            snippet["title"],
+                            snippet.get("description", ""),
+                            tags,
+                            snippet["channelTitle"]
+                        )
+                        
+                        if ai_score < ai_threshold:
+                            continue
+                        
+                        duration_iso = content_details.get("duration", "PT0S")
+                        duration_secs = parse_iso_duration(duration_iso)
+                        duration = format_duration(duration_secs)
+                        
+                        candidate = {
+                            "id": video_id,
+                            "title": snippet["title"],
+                            "description": snippet.get("description", ""),
+                            "tags": tags,
+                            "views": int(stats.get("viewCount", 0)),
+                            "likes": int(stats.get("likeCount", 0)) if "likeCount" in stats else 0,
+                            "comments": int(stats.get("commentCount", 0)) if "commentCount" in stats else 0,
+                            "thumbnail": snippet["thumbnails"]["medium"]["url"],
+                            "duration": duration,
+                            "duration_seconds": duration_secs,
+                            "channel": snippet["channelTitle"],
+                            "ai_confidence": ai_score,
+                            "published_at": snippet.get("publishedAt", ""),
+                            "url": f"https://youtube.com/watch?v={video_id}"
+                        }
+                        all_candidates.append(candidate)
+                        
+                except HttpError as e:
+                    logger.warning("Search query '%s' failed: %s", query, e)
+                    continue
+        else:
+            raise HTTPException(status_code=400, detail=f"Invalid mode: {mode}")
+        
+        # Categorize results
+        shorts = []
+        long_videos = []
+        
+        for candidate in all_candidates:
+            candidate["growth_score"] = calculate_growth_score(candidate)
+            if candidate["duration_seconds"] <= 60:
+                shorts.append(candidate)
+            else:
+                long_videos.append(candidate)
+        
+        # FALLBACK MECHANISM
+        if not shorts and not long_videos and days_back < 15:
+            new_days = 7 if days_back < 7 else 15
+            logger.info("No results found in last %d days. Retrying with %d days window...", days_back, new_days)
+            return get_us_trending_videos(
+                mode=mode,
+                niche=niche,
+                max_results=max_results,
+                ai_threshold=max(10, ai_threshold - 10),
+                category_id=category_id,
+                days_back=new_days
+            )
+        
+        # Sort and limit
+        shorts.sort(key=lambda x: x["growth_score"], reverse=True)
+        long_videos.sort(key=lambda x: x["growth_score"], reverse=True)
+        
+        result = {
+            "shorts": shorts[:max_results],
+            "long_videos": long_videos[:max_results]
+        }
+        
+        logger.info("Found %d shorts and %d long videos", len(result["shorts"]), len(result["long_videos"]))
         
         # Store in cache
-        if result:
+        if result["shorts"] or result["long_videos"]:
             redis_cache.set(cache_key, result)
         
         return result
-
+    
     except HttpError as e:
         logger.error("YouTube API error: %s", e)
         if e.resp.status == 403:
             raise HTTPException(status_code=403, detail="YouTube API quota exceeded or key invalid")
         raise HTTPException(status_code=502, detail="YouTube API error. Please try again later.")
     except Exception as e:
-        logger.error("Unexpected error in get_trending_shorts: %s", e)
+        logger.error("Unexpected error in get_us_trending_videos: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch trends. Please try again.")
+
+
+# Backward compatibility alias
+get_trending_shorts = get_us_trending_videos

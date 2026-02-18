@@ -46,7 +46,7 @@ class Settings:
     CORS_ALLOW_HEADERS: List[str] = ["*"]
     
     # YouTube API Settings
-    YOUTUBE_MAX_RESULTS: int = 20
+    YOUTUBE_MAX_RESULTS: int = 15
     YOUTUBE_SEARCH_PAGES: int = 3
     YOUTUBE_AI_THRESHOLD: int = 30
     

@@ -15,6 +15,10 @@ class TrendRequest(BaseModel):
         None, 
         description="Niche to analyze (required for analyze_niche mode)"
     )
+    category_id: Optional[str] = Field(
+        None,
+        description="YouTube category ID (e.g., '24' for Entertainment, '28' for Science & Tech)"
+    )
 
 
 class TopicValidationRequest(BaseModel):

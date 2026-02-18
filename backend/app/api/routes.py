@@ -46,28 +46,24 @@ async def fetch_trends(request: TrendRequest) -> Dict[str, Any]:
         Dictionary with trends data
     """
     try:
-        # Determine query based on mode
+        # Validate niche for analyze_niche mode
         if request.mode == "analyze_niche":
             if not request.niche or not request.niche.strip():
                 raise HTTPException(
                     status_code=400, 
-                    detail="Niche is required for analyze mode."
+                    detail="Niche is required for analyze_niche mode."
                 )
-            query = request.niche.strip()
-        elif request.mode == "search_trends":
-            query = "trending ai shorts"
-        else:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Invalid mode: {request.mode}"
-            )
         
-        # Fetch from YouTube API
+        # Fetch from YouTube API using new dual-path strategy
+        logger.info("Fetching trends: mode=%s, niche=%s, category=%s", 
+                   request.mode, request.niche, request.category_id)
+        
         trends = get_trending_shorts(
-            query, 
+            mode=request.mode,
+            niche=request.niche,
             max_results=settings.YOUTUBE_MAX_RESULTS,
             ai_threshold=settings.YOUTUBE_AI_THRESHOLD,
-            search_pages=settings.YOUTUBE_SEARCH_PAGES
+            category_id=request.category_id
         )
         
         if not trends:
@@ -76,13 +72,17 @@ async def fetch_trends(request: TrendRequest) -> Dict[str, Any]:
                 detail="Unable to fetch trends. Please check your YouTube API key and try again."
             )
         
-        # Format response
+        # Format response (with backward compatibility)
         return {
             "success": True,
             "mode": request.mode,
-            "query_used": query,
-            "total_results": len(trends),
-            "trends": trends,
+            "query_used": request.niche or "trending ai videos",  # Backward compatibility
+            "niche": request.niche,
+            "category_id": request.category_id,
+            "total_results": len(trends.get("shorts", [])) + len(trends.get("long_videos", [])),
+            "shorts": trends.get("shorts", []),
+            "long_videos": trends.get("long_videos", []),
+            "trends": trends.get("shorts", []) + trends.get("long_videos", []), # For legacy frontend support
         }
         
     except HTTPException:
