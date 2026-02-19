@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:alpine
+    container_name: yt_agent_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - yt_agent_network
+
+  backend:
+    build: ./backend
+    container_name: yt_agent_backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - FRONTEND_URL=http://localhost
+    volumes:
+      - ./backend/temp_video_cache:/app/temp_video_cache
+    depends_on:
+      - redis
+    networks:
+      - yt_agent_network
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        - VITE_API_URL=${VITE_API_URL}
+        - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+        - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
+    container_name: yt_agent_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - yt_agent_network
+
+networks:
+  yt_agent_network:
+    driver: bridge

@@ -5,7 +5,7 @@ import '../styles/components/VideoGenerationScreen.css';
 const POLL_BASE_MS = 4000;      // Start polling every 4s
 const POLL_MAX_MS = 15000;      // Slow down to 15s max
 
-const VideoGenerationScreen = ({ projectId, onBack, onViewFinalVideo }) => {
+const VideoGenerationScreen = ({ projectId, onViewFinalVideo }) => {
   const [project, setProject] = useState(null);
   const [progress, setProgress] = useState(null);
   const [finalVideoUrl, setFinalVideoUrl] = useState(null);
@@ -162,7 +162,6 @@ const VideoGenerationScreen = ({ projectId, onBack, onViewFinalVideo }) => {
     return (
       <div className="video-gen-screen">
         <div className="video-gen-header">
-          <button type="button" className="back-btn" onClick={onBack}>← Back</button>
           <h2>Video Generation Dashboard</h2>
         </div>
         <div className="video-gen-loading">
@@ -178,7 +177,6 @@ const VideoGenerationScreen = ({ projectId, onBack, onViewFinalVideo }) => {
     return (
       <div className="video-gen-screen">
         <div className="video-gen-header">
-          <button type="button" className="back-btn" onClick={onBack}>← Back</button>
           <h2>Video Generation Dashboard</h2>
         </div>
         <div className="video-gen-error-container">
@@ -194,7 +192,6 @@ const VideoGenerationScreen = ({ projectId, onBack, onViewFinalVideo }) => {
     <div className="video-gen-screen">
       {/* Header */}
       <div className="video-gen-header">
-        <button type="button" className="back-btn" onClick={onBack}>← Back</button>
         <h2>Video Generation Dashboard</h2>
         <p className="video-gen-subtitle">
           {project?.project_name || 'Video Project'} · {completedCount}/{frames.length} clips ready

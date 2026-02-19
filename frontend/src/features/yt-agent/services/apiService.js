@@ -146,12 +146,13 @@ export const checkHealth = async () => {
  * Create video project from story frames (for Video Gen dashboard)
  * @param {string} title - Project/story title
  * @param {Array<{frame_num, ai_video_prompt, scene_description?, duration_seconds?}>} frames
+ * @param {string} [channelId] - Optional YouTube channel ID
  * @returns {Promise<object>} - { project_id, total_frames }
  */
-export const createVideoProject = async (title, frames) => {
+export const createVideoProject = async (title, frames, channelId) => {
     return callApi(
         ENDPOINTS.VIDEO_CREATE_PROJECT,
-        { title, frames },
+        { title, frames, channel_id: channelId },
         TIMEOUTS.VIDEO_OPERATION
     );
 };
@@ -208,6 +209,57 @@ export const combineVideoProject = async (projectId) => {
     );
 };
 
+/**
+ * Fetch all channels for analysis
+ * @returns {Promise<object>} - { channels, count }
+ */
+export const getChannelsForAnalysis = async () => {
+    return callApiGet(ENDPOINTS.ANALYSIS_CHANNELS);
+};
+
+/**
+ * Fetch analytics for a specific channel
+ * @param {string} channelId
+ * @returns {Promise<object>} - Analytics data
+ */
+export const getChannelAnalytics = async (channelId) => {
+    return callApiGet(ENDPOINTS.ANALYSIS_ANALYTICS(channelId));
+};
+
+/**
+ * List all YouTube channels for the authenticated user
+ */
+export const listChannels = async () => {
+    return callApiGet(ENDPOINTS.CHANNELS_LIST);
+};
+
+/**
+ * Get stats for a specific channel
+ */
+export const getChannelStats = async (channelId) => {
+    return callApiGet(ENDPOINTS.CHANNELS_STATS(channelId));
+};
+
+/**
+ * Start YouTube OAuth flow
+ */
+export const startYouTubeOAuth = async () => {
+    return callApiGet(ENDPOINTS.CHANNELS_OAUTH);
+};
+
+/**
+ * Upload the combined video to the linked YouTube channel
+ * @param {string} projectId
+ * @returns {Promise<object>}
+ */
+export const uploadProjectToYoutube = async (projectId) => {
+    return callApi(
+        ENDPOINTS.VIDEO_UPLOAD(projectId),
+        {},
+        TIMEOUTS.VIDEO_OPERATION
+    );
+};
+
 // Export all services as default object
 const apiService = {
     fetchTrends,
@@ -219,6 +271,12 @@ const apiService = {
     startGenerateAllFrames,
     startGenerateFrame,
     combineVideoProject,
+    uploadProjectToYoutube,
+    getChannelsForAnalysis,
+    getChannelAnalytics,
+    listChannels,
+    getChannelStats,
+    startYouTubeOAuth,
 };
 
 export default apiService;

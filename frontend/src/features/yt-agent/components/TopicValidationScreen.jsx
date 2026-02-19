@@ -6,7 +6,6 @@ const TopicValidationScreen = ({
   onTopicChange,
   onValidate,
   validationResult,
-  onBack,
   onProceed,
   loading,
 }) => {
@@ -30,7 +29,6 @@ const TopicValidationScreen = ({
   return (
     <div className="topic-validation-screen">
       <div className="topic-header">
-        <button className="back-btn" onClick={onBack}>← Back</button>
         <h2>Topic Selection & Validation</h2>
         <p className="screen-subtitle">
           Enter your topic and our AI will validate it for YouTube Shorts.

@@ -20,6 +20,15 @@ export const ENDPOINTS = {
     VIDEO_GENERATE_ALL: (id) => `${API_PREFIX}/video/projects/${id}/generate`,
     VIDEO_GENERATE_FRAME: (id) => `${API_PREFIX}/video/projects/${id}/generate-frame`,
     VIDEO_COMBINE: (id) => `${API_PREFIX}/video/projects/${id}/combine`,
+    VIDEO_UPLOAD: (id) => `${API_PREFIX}/video/projects/${id}/upload`,
+    // Channel Endpoints (Legacy paths preserved for now, but routed through authenticated proxy if needed)
+    CHANNELS_LIST: '/api/channels/',
+    CHANNELS_STATS: (id) => `/api/channels/stats/${id}`,
+    CHANNELS_OAUTH: '/api/channels/oauth',
+    CHANNELS_REFRESH: '/api/channels/refresh',
+    // Analysis Endpoints
+    ANALYSIS_CHANNELS: '/api/analysis/channels',
+    ANALYSIS_ANALYTICS: (id) => `/api/analysis/analytics/${id}`,
 };
 
 // Application Settings

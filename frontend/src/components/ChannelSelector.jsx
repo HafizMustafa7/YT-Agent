@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from "react";
-import axios from "axios";
 import { supabase } from "../supabaseClient";
+import apiService from "../features/yt-agent/services/apiService";
 
 function ChannelSelector({ selectedChannel, setSelectedChannel }) {
   const [channels, setChannels] = useState([]);
@@ -27,10 +26,8 @@ function ChannelSelector({ selectedChannel, setSelectedChannel }) {
 
   const fetchChannels = async () => {
     try {
-      const res = await axios.get("http://localhost:8000/api/channels/", {
-        withCredentials: true,
-      });
-      setChannels(res.data || []);
+      const data = await apiService.listChannels();
+      setChannels(data || []);
     } catch (err) {
       console.error("Error fetching channels:", err);
     }
@@ -39,13 +36,9 @@ function ChannelSelector({ selectedChannel, setSelectedChannel }) {
   const handleAddChannel = async () => {
     try {
       setLoading(true);
-      const res = await axios.post(
-        "http://localhost:8000/api/channels/oauth/start",
-        {},
-        { withCredentials: true }
-      );
-      if (res.data?.url) {
-        window.location.href = res.data.url; // redirect to Google OAuth
+      const data = await apiService.startYouTubeOAuth();
+      if (data?.url) {
+        window.location.href = data.url; // redirect to Google OAuth
       }
     } catch (err) {
       console.error("Error starting OAuth:", err);
@@ -55,18 +48,18 @@ function ChannelSelector({ selectedChannel, setSelectedChannel }) {
 
   return (
     <div className="mb-4">
-      <label className="block font-semibold mb-2">Select Channel:</label>
+      <label className="block mb-2 font-semibold">Select Channel:</label>
       <select
         value={selectedChannel || ""}
         onChange={(e) => setSelectedChannel(e.target.value)}
-        className="border p-2 rounded w-full"
+        className="w-full p-2 border rounded"
       >
         <option value="" disabled>
           -- Select a channel --
         </option>
         {channels.map((ch) => (
-          <option key={ch.youtube_channel_id} value={ch.youtube_channel_id}>
-            {ch.youtube_channel_name}
+          <option key={ch.channel_id} value={ch.channel_id}>
+            {ch.channel_name}
           </option>
         ))}
       </select>
@@ -74,7 +67,7 @@ function ChannelSelector({ selectedChannel, setSelectedChannel }) {
       <button
         onClick={handleAddChannel}
         disabled={loading}
-        className="mt-2 px-4 py-2 bg-blue-600 text-white rounded"
+        className="px-4 py-2 mt-2 text-white bg-blue-600 rounded"
       >
         {loading ? "Redirecting..." : "Add Channel"}
       </button>

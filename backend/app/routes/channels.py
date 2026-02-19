@@ -3,14 +3,18 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from app.routes.auth import get_current_user
 from app.core.config import supabase, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI_CHANNELS, FRONTEND_URL
+from app.core_yt.redis_cache import redis_cache
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 import datetime
 import uuid
 import logging
-import requests
 import httpx
+
+# Cache TTLs
+_TTL_CHANNELS_LIST = 300   # 5 min — channel list changes rarely
+_TTL_STATS         = 900   # 15 min — subscriber/video counts
 
 router = APIRouter(tags=["Channels"])
 logger = logging.getLogger(__name__)
@@ -25,7 +29,6 @@ SCOPES = [
     "https://www.googleapis.com/auth/youtubepartner-channel-audit",
     "https://www.googleapis.com/auth/yt-analytics.readonly",
     "https://www.googleapis.com/auth/yt-analytics-monetary.readonly",
-    "https://www.googleapis.com/auth/drive.file",  # Added to prevent scope mismatch
 ]
 
 # TTL for state (seconds)
@@ -48,12 +51,12 @@ def _build_flow():
 
 
 @router.get("/oauth")
-def start_youtube_oauth_get(current_user: dict = Depends(get_current_user)):
+async def start_youtube_oauth_get(current_user: dict = Depends(get_current_user)):
     """GET endpoint to start OAuth flow, for frontend compatibility."""
-    return start_youtube_oauth(current_user)
+    return await start_youtube_oauth(current_user)
 
 @router.post("/oauth/start")
-def start_youtube_oauth(current_user: dict = Depends(get_current_user)):
+async def start_youtube_oauth(current_user: dict = Depends(get_current_user)):
     """
     Start OAuth: create state -> save mapping in DB -> return Google consent URL (with state).
     """
@@ -87,7 +90,7 @@ def start_youtube_oauth(current_user: dict = Depends(get_current_user)):
 
 
 @router.get("/oauth/callback")
-def oauth_callback(request: Request, state: str = None, code: str = None):
+async def oauth_callback(request: Request, state: str = None, code: str = None):
     """
     Callback: validate state -> exchange code -> fetch channel info -> store channel -> cleanup -> redirect.
     NOTE: This endpoint does NOT require user auth header. It links by state -> user_id mapping.
@@ -144,21 +147,20 @@ def oauth_callback(request: Request, state: str = None, code: str = None):
             userinfo_service = build("oauth2", "v2", credentials=credentials)
             userinfo = userinfo_service.userinfo().get().execute()
             google_email = userinfo.get("email")
-            print(f"[DEBUG] User email fetched: {google_email}")
+            logger.debug("[CHANNELS] User email fetched via userinfo service")
         except Exception as e:
-            logger.warning(f"[CHANNELS] Failed to fetch user email: {e}")
-            # Try alternative method using tokeninfo endpoint
+            logger.warning("[CHANNELS] Failed to fetch user email via service: %s", e)
             try:
-                response = requests.get(
-                    "https://www.googleapis.com/oauth2/v2/userinfo",
-                    headers={"Authorization": f"Bearer {credentials.token}"}
-                )
-                if response.status_code == 200:
-                    userinfo = response.json()
-                    google_email = userinfo.get("email")
-                    print(f"[DEBUG] User email fetched (alt): {google_email}")
+                async with httpx.AsyncClient(timeout=10.0) as hc:
+                    ui_resp = await hc.get(
+                        "https://www.googleapis.com/oauth2/v2/userinfo",
+                        headers={"Authorization": f"Bearer {credentials.token}"},
+                    )
+                if ui_resp.status_code == 200:
+                    google_email = ui_resp.json().get("email")
+                    logger.debug("[CHANNELS] User email fetched via fallback HTTP")
             except Exception as e2:
-                logger.warning(f"[CHANNELS] Failed to fetch user email (alt): {e2}")
+                logger.warning("[CHANNELS] Failed to fetch user email via fallback: %s", e2)
 
         if not google_email:
             raise HTTPException(status_code=400, detail="Could not fetch user email from Google")
@@ -214,27 +216,32 @@ def oauth_callback(request: Request, state: str = None, code: str = None):
 
 
 @router.get("/")
-def list_channels(current_user: dict = Depends(get_current_user)):
+async def list_channels(current_user: dict = Depends(get_current_user)):
     """List channels for the logged-in user with token validity check and fresh thumbnails."""
+    from datetime import datetime, timezone
+
+    # --- Cache check ---
+    cache_key = f"channels_list:{current_user['id']}"
+    cached = redis_cache.get(cache_key)
+    if cached:
+        logger.info("[CACHE HIT] channel list for user %s", current_user["id"])
+        return cached
+
     resp = supabase.table("channels").select("*").eq("user_id", current_user["id"]).order("created_at", desc=True).execute()
     channels = resp.data if hasattr(resp, "data") else resp.get("data", [])
 
-    # Debug: Print YouTube tokens
-    for channel in channels:
-        print(f"[DEBUG] YouTube Channel: {channel.get('channel_name')}, Access Token: {channel.get('access_token')[:20]}...")
+    logger.info("[CHANNELS] Listing %d channels for user %s", len(channels), current_user["id"])
 
-    # Add token_valid flag and fetch fresh thumbnails for each channel
     for channel in channels:
         token_expiry = channel.get("token_expiry")
         token_valid = False
         if token_expiry:
-            from datetime import datetime, timezone
             try:
                 expiry_dt = datetime.fromisoformat(token_expiry)
                 now = datetime.now(timezone.utc)
                 token_valid = expiry_dt > now
             except Exception as e:
-                logger.warning(f"[CHANNELS] Invalid token_expiry format: {token_expiry}")
+                logger.warning("[CHANNELS] Invalid token_expiry format for channel %s: %s", channel.get("channel_id"), e)
         channel["token_valid"] = token_valid
 
         # Fetch fresh channel thumbnails from YouTube API
@@ -246,33 +253,31 @@ def list_channels(current_user: dict = Depends(get_current_user)):
                     token_uri="https://oauth2.googleapis.com/token",
                     client_id=GOOGLE_CLIENT_ID,
                     client_secret=GOOGLE_CLIENT_SECRET,
-                    scopes=SCOPES
+                    scopes=SCOPES,
                 )
-
                 youtube = build("youtube", "v3", credentials=creds)
-                request_youtube = youtube.channels().list(part="snippet", id=channel["channel_id"])
-                response = request_youtube.execute()
-
+                response = youtube.channels().list(part="snippet", id=channel["channel_id"]).execute()
                 items = response.get("items", [])
                 if items:
-                    snippet = items[0].get("snippet", {})
-                    thumbnails = snippet.get("thumbnails", {})
-                    # Get the highest quality thumbnail available
-                    thumbnail_url = (
-                        thumbnails.get("high", {}).get("url") or
-                        thumbnails.get("medium", {}).get("url") or
-                        thumbnails.get("default", {}).get("url")
+                    thumbnails = items[0].get("snippet", {}).get("thumbnails", {})
+                    channel["thumbnail_url"] = (
+                        thumbnails.get("high", {}).get("url")
+                        or thumbnails.get("medium", {}).get("url")
+                        or thumbnails.get("default", {}).get("url")
                     )
-                    channel["thumbnail_url"] = thumbnail_url
         except Exception as e:
-            logger.warning(f"[CHANNELS] Failed to fetch thumbnail for channel {channel['channel_id']}: {e}")
-            # Continue without thumbnail if fetch fails
+            logger.warning("[CHANNELS] Failed to fetch thumbnail for channel %s: %s", channel.get("channel_id"), e)
+
+    # Cache the result — strip tokens for security before storing
+    safe = [{k: v for k, v in ch.items() if k not in ("access_token", "refresh_token")} for ch in channels]
+    redis_cache.set(cache_key, safe, ttl=_TTL_CHANNELS_LIST)
+    logger.info("[CACHE SET] channel list for user %s (TTL=%ds)", current_user["id"], _TTL_CHANNELS_LIST)
 
     return channels
 
 
 @router.post("/refresh")
-def refresh_youtube_token(current_user: dict = Depends(get_current_user)):
+async def refresh_youtube_token(current_user: dict = Depends(get_current_user)):
     """Refresh YouTube access token for the current user (assumes single channel per user)."""
     try:
         resp = supabase.table("channels").select("*").eq("user_id", current_user["id"]).execute()
@@ -281,13 +286,12 @@ def refresh_youtube_token(current_user: dict = Depends(get_current_user)):
         if not data:
             raise HTTPException(status_code=404, detail="No YouTube channel connected")
 
-        channel = data[0]  # Assume one channel
+        channel = data[0]
 
         if not channel.get("refresh_token"):
             raise HTTPException(status_code=400, detail="No refresh token available")
 
-        # Refresh token using Google OAuth endpoint
-        refreshed = _refresh_youtube_token(channel)
+        refreshed = await _refresh_youtube_token(channel)
         if not refreshed:
             raise HTTPException(status_code=400, detail="Failed to refresh YouTube token")
 
@@ -299,38 +303,35 @@ def refresh_youtube_token(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-def _refresh_youtube_token(channel):
-    """Refresh YouTube access token using refresh token."""
-    import requests
+async def _refresh_youtube_token(channel) -> bool:
+    """Refresh YouTube access token using httpx (non-blocking)."""
+    from datetime import datetime, timezone, timedelta
 
     refresh_token = channel.get("refresh_token")
-    print(f"[DEBUG] Refreshing YouTube token for channel {channel.get('channel_name')}, refresh_token present: {refresh_token is not None}")
+    logger.info("[CHANNELS] Refreshing token for channel '%s'", channel.get("channel_name"))
     if not refresh_token:
-        logger.warning("[CHANNELS] No refresh token available")
+        logger.warning("[CHANNELS] No refresh token available for channel %s", channel.get("channel_id"))
         return False
 
-    token_url = "https://oauth2.googleapis.com/token"
-    client_id = GOOGLE_CLIENT_ID
-    client_secret = GOOGLE_CLIENT_SECRET
-
-    payload = {
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "refresh_token": refresh_token,
-        "grant_type": "refresh_token",
-    }
-
     try:
-        response = requests.post(token_url, data=payload)
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": GOOGLE_CLIENT_ID,
+                    "client_secret": GOOGLE_CLIENT_SECRET,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+            )
         token_data = response.json()
+        logger.debug("[CHANNELS] Token refresh response status: %d", response.status_code)
 
-        print(f"[DEBUG] YouTube refresh response status: {response.status_code}")
-        print(f"[DEBUG] YouTube refresh response: {token_data}")
-
-        # Check for invalid refresh token
         if response.status_code == 400 and token_data.get("error") == "invalid_grant":
-            logger.warning(f"[CHANNELS] Refresh token invalid for user {channel['user_id']} - disconnecting channel")
-            # Disconnect the channel since refresh token is invalid
+            logger.warning(
+                "[CHANNELS] Refresh token invalid for user %s — disconnecting channel",
+                channel.get("user_id"),
+            )
             supabase.table("channels").delete().eq("user_id", channel["user_id"]).execute()
             return False
 
@@ -343,26 +344,30 @@ def _refresh_youtube_token(channel):
             logger.error("[CHANNELS] Token refresh response missing access_token or expires_in")
             return False
 
-        from datetime import datetime, timezone, timedelta
         new_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-
-        # Update tokens in database
         supabase.table("channels").update({
             "access_token": access_token,
-            "token_expiry": new_expiry.isoformat()
+            "token_expiry": new_expiry.isoformat(),
         }).eq("user_id", channel["user_id"]).execute()
 
-        logger.info(f"[CHANNELS] Successfully refreshed access token for user {channel['user_id']}")
+        logger.info("[CHANNELS] Token refreshed for user %s", channel.get("user_id"))
         return True
     except Exception as e:
-        logger.error(f"[CHANNELS] Failed to refresh token: {str(e)}")
+        logger.error("[CHANNELS] Failed to refresh token: %s", e)
         return False
 
 
 @router.get("/stats/{channel_id}")
-def get_channel_stats(channel_id: str, current_user: dict = Depends(get_current_user)):
+async def get_channel_stats(channel_id: str, current_user: dict = Depends(get_current_user)):
     """Fetch real-time channel stats from YouTube API using stored tokens."""
     try:
+        # --- Cache check ---
+        cache_key = f"stats:{channel_id}:{current_user['id']}"
+        cached = redis_cache.get(cache_key)
+        if cached:
+            logger.info("[CACHE HIT] stats for channel %s", channel_id)
+            return cached
+
         # Get channel data
         resp = supabase.table("channels").select("*").eq("user_id", current_user["id"]).eq("channel_id", channel_id).execute()
         data = resp.data if hasattr(resp, "data") else resp.get("data", [])
@@ -380,15 +385,15 @@ def get_channel_stats(channel_id: str, current_user: dict = Depends(get_current_
                 expiry_dt = datetime.fromisoformat(token_expiry)
                 now = datetime.now(timezone.utc)
                 if expiry_dt <= now:
-                    # Auto-refresh token
-                    refreshed = _refresh_youtube_token(channel)
+                    refreshed = await _refresh_youtube_token(channel)
                     if not refreshed:
                         raise HTTPException(status_code=400, detail="Failed to refresh token for stats fetch")
-                    # Re-fetch channel data after refresh
                     resp = supabase.table("channels").select("*").eq("user_id", current_user["id"]).eq("channel_id", channel_id).execute()
                     channel = (resp.data if hasattr(resp, "data") else resp.get("data", []))[0]
+            except HTTPException:
+                raise
             except Exception as e:
-                logger.warning(f"[CHANNELS] Error checking token expiry: {e}")
+                logger.warning("[CHANNELS] Error checking token expiry: %s", e)
 
         # Build YouTube client
         creds = Credentials(
@@ -412,10 +417,10 @@ def get_channel_stats(channel_id: str, current_user: dict = Depends(get_current_
         subscriber_count = int(stats.get("subscriberCount", 0))
         video_count = int(stats.get("videoCount", 0))
 
-        return {
-            "subscriber_count": subscriber_count,
-            "video_count": video_count
-        }
+        result = {"subscriber_count": subscriber_count, "video_count": video_count}
+        redis_cache.set(cache_key, result, ttl=_TTL_STATS)
+        logger.info("[CACHE SET] stats for channel %s (TTL=%ds)", channel_id, _TTL_STATS)
+        return result
     except HTTPException:
         raise
     except Exception as e:

@@ -1,99 +1,39 @@
-// src/components/Dashboard/Dashboard.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { RefreshCw, Settings, Plus, PlayCircle, BarChart3, Shield, Bot, Zap, HardDrive, Youtube, Users, Video, ChevronDown, Check } from 'lucide-react';
+import { RefreshCw, Plus, PlayCircle, BarChart3, Youtube, Users, Video, ChevronDown, Check } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
+import apiService from "../features/yt-agent/services/apiService";
 import { showErrorToast } from '../lib/errorUtils';
 import { tokenService } from '../services/tokenService';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-
-import { Switch } from '../components/ui/switch';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
-
-// Starfield Background Component
-const Starfield = () => {
-  return (
-    <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
-      {[...Array(100)].map((_, i) => (
-        <motion.div
-          key={i}
-          className="absolute w-1 h-1 bg-white rounded-full opacity-20"
-          style={{
-            left: `${Math.random() * 100}%`,
-            top: `${Math.random() * 100}%`,
-          }}
-          animate={{
-            y: [0, -100, 0],
-            opacity: [0.2, 0.8, 0.2],
-          }}
-          transition={{
-            duration: Math.random() * 10 + 10,
-            repeat: Infinity,
-            delay: Math.random() * 5,
-          }}
-        />
-      ))}
-    </div>
-  );
-};
+import { useTheme } from '../contexts/ThemeContext';
+import PageLayout from '../components/PageLayout';
+import Header from '../features/yt-agent/components/Header';
+import { useSelectedChannel } from '../contexts/SelectedChannelContext';
 
 const Dashboard = () => {
-  const [selectedChannel, setSelectedChannel] = useState("Select Channel");
-  const [channels, setChannels] = useState([]);
+  const {
+    channels,
+    selectedChannelId,
+    setSelectedChannelId,
+    refreshChannels,
+    loading: channelsLoading
+  } = useSelectedChannel();
+
   const [channelStats, setChannelStats] = useState({});
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
-  const [driveStatus, setDriveStatus] = useState({ drive_connected: false, token_valid: false, drive_email: null });
   const [username, setUsername] = useState('User');
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isDarkTheme, setIsDarkTheme] = useState(true);
+  const { isDarkTheme } = useTheme();
   const [sessionReady, setSessionReady] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
   const dropdownRef = useRef(null);
 
-  // Cache keys and TTL (only for channels)
-  const CACHE_KEYS = {
-    CHANNELS: 'dashboard_channels',
-    CACHE_TIMESTAMP: 'dashboard_cache_timestamp'
-  };
-  const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-  // Cache management functions (only for channels)
-  const setChannelsCache = (channels) => {
-    localStorage.setItem(CACHE_KEYS.CHANNELS, JSON.stringify(channels));
-    localStorage.setItem(CACHE_KEYS.CACHE_TIMESTAMP, Date.now().toString());
-    console.log('[Dashboard] Channels cache updated');
-  };
-
-  const getChannelsCache = () => {
-    try {
-      const timestamp = localStorage.getItem(CACHE_KEYS.CACHE_TIMESTAMP);
-      if (!timestamp) return null;
-
-      const cacheAge = Date.now() - parseInt(timestamp);
-      if (cacheAge > CACHE_TTL) {
-        console.log('[Dashboard] Cache expired, clearing...');
-        clearChannelsCache();
-        return null;
-      }
-
-      const channels = JSON.parse(localStorage.getItem(CACHE_KEYS.CHANNELS) || '[]');
-      console.log('[Dashboard] Using cached channels data');
-      return channels;
-    } catch (error) {
-      console.warn('[Dashboard] Cache read error:', error);
-      clearChannelsCache();
-      return null;
-    }
-  };
-
-  const clearChannelsCache = () => {
-    localStorage.removeItem(CACHE_KEYS.CHANNELS);
-    localStorage.removeItem(CACHE_KEYS.CACHE_TIMESTAMP);
-  };
+  // Derived state: find the selected channel object to get its name
+  const activeChannel = channels.find(c => c.channel_id === selectedChannelId || c.id === selectedChannelId);
+  const selectedChannelName = activeChannel?.channel_name || activeChannel?.snippet?.title || "Select Channel";
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -109,7 +49,7 @@ const Dashboard = () => {
     };
   }, []);
 
-  // ✅ Initialize session and verify token before making API calls
+  // Initialize session
   useEffect(() => {
     const initializeSession = async () => {
       try {
@@ -118,280 +58,48 @@ const Dashboard = () => {
           navigate("/");
           return;
         }
-
-        // Set username from session
         setUsername(session.user.email?.split('@')[0] || 'User');
-
-        // Mark session as ready
         setSessionReady(true);
-        console.log('[Dashboard] Session verified, ready to make API calls');
       } catch (err) {
-        console.error('[Dashboard] Session verification failed:', err);
         navigate("/");
       }
     };
-
     initializeSession();
   }, [navigate]);
 
-  // ✅ Fetch channels from backend with caching and auto-refresh if expired
+  // No longer fatching channels here, SelectiveChannelContext handles it.
+  // We can still trigger a refresh on mount if we want to ensure freshness
   useEffect(() => {
-    if (!sessionReady) return;
+    if (sessionReady && channels.length === 0) {
+      refreshChannels();
+    }
+  }, [sessionReady, channels.length, refreshChannels]);
 
-    const fetchChannels = async () => {
-      try {
-        // Check cache first
-        const cachedChannels = getChannelsCache();
-        if (cachedChannels) {
-          console.log('[Dashboard] Using cached channels data');
-          setChannels(cachedChannels);
-          setIsLoading(false);
-
-          // Set default selected channel if available
-          if (cachedChannels.length > 0 && selectedChannel === "Select Channel") {
-            setSelectedChannel(cachedChannels[0].youtube_channel_name);
-          }
-          return;
-        }
-
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session || !session.user) {
-          navigate("/");
-          return;
-        }
-
-        const res = await fetch("http://localhost:8000/api/channels/", {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        });
-        if (!res.ok) throw new Error("Failed to fetch channels");
-        const data = await res.json();
-        console.log('[Dashboard] Channels data:', data);
-        setChannels(data || []);
-
-        // Auto-refresh YouTube tokens if any are expired
-        const expiredChannels = data.filter(ch => !ch.token_valid);
-        if (expiredChannels.length > 0) {
-          console.log('[Dashboard] YouTube tokens expired, attempting refresh...');
-          tokenService.refreshYouTubeToken().then(() => {
-            // Re-fetch channels after successful refresh
-            fetch("http://localhost:8000/api/channels/", {
-              headers: {
-                Authorization: `Bearer ${session.access_token}`,
-              },
-            }).then(res => res.ok ? res.json() : null).then(refreshData => {
-              if (refreshData) {
-                setChannels(refreshData);
-                // Update cache with refreshed data
-                setChannelsCache(refreshData);
-              }
-            }).catch(err => console.warn('[Dashboard] Failed to re-fetch channels after refresh:', err));
-          }).catch(refreshError => {
-            console.error('[Dashboard] YouTube token refresh failed:', refreshError);
-            // Don't show error toast here to avoid spamming user on every load
-            // User can manually reconnect via UI
-          });
-        }
-
-        // Fetch real-time stats for each channel
-        const updatedChannels = await Promise.all(
-          data.map(async (channel) => {
-            try {
-              const statsRes = await fetch(`http://localhost:8000/api/channels/stats/${channel.youtube_channel_id}`, {
-                headers: {
-                  Authorization: `Bearer ${session.access_token}`,
-                },
-              });
-              if (statsRes.ok) {
-                const stats = await statsRes.json();
-                return { ...channel, subscriber_count: stats.subscriber_count, video_count: stats.video_count };
-              }
-            } catch (err) {
-              console.warn(`[Dashboard] Failed to fetch stats for channel ${channel.youtube_channel_id}:`, err);
-            }
-            return channel; // Return original if stats fetch fails
-          })
-        );
-
-        setChannels(updatedChannels);
-        setIsLoading(false);
-
-        // Cache the channels data
-        setChannelsCache(updatedChannels);
-
-        // Set default selected channel if available
-        if (updatedChannels.length > 0 && selectedChannel === "Select Channel") {
-          setSelectedChannel(updatedChannels[0].youtube_channel_name);
-        }
-      } catch (err) {
-        showErrorToast(err);
-        setIsLoading(false);
-      }
-    };
-
-    fetchChannels();
-  }, [navigate, sessionReady]);
-
-  // ✅ Fetch Drive connection status (always fresh, no caching)
-  useEffect(() => {
-    if (!sessionReady) return;
-
-    const fetchDriveStatus = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session || !session.user) {
-          return;
-        }
-
-        const res = await fetch("http://localhost:8000/api/drive/status", {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        });
-        if (!res.ok) throw new Error("Failed to fetch drive status");
-        const data = await res.json();
-        setDriveStatus(data);
-
-        // Auto-refresh Drive token if expired (non-blocking)
-        if (data.drive_connected && !data.token_valid) {
-          console.log('[Dashboard] Drive token expired, attempting refresh...');
-          tokenService.refreshDriveToken().then(() => {
-            // Re-fetch status after successful refresh
-            fetch("http://localhost:8000/api/drive/status", {
-              headers: {
-                Authorization: `Bearer ${session.access_token}`,
-              },
-            }).then(res => res.ok ? res.json() : null).then(refreshData => {
-              if (refreshData) {
-                setDriveStatus(refreshData);
-              }
-            }).catch(err => console.warn('[Dashboard] Failed to re-fetch drive status after refresh:', err));
-          }).catch(refreshError => {
-            console.error('[Dashboard] Drive token refresh failed:', refreshError);
-            // Don't show error toast here to avoid spamming user on every load
-            // User can manually reconnect via UI
-          });
-        }
-      } catch (err) {
-        showErrorToast(err);
-      }
-    };
-
-    fetchDriveStatus();
-  }, [sessionReady]);
-
-  const handleLogout = async () => {
-    await tokenService.logout();
-  };
-
-  // ✅ Start OAuth flow
   const handleAddChannel = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      navigate("/");
-      return;
-    }
-
     try {
-      const res = await fetch("http://localhost:8000/api/channels/oauth", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-      if (!res.ok) throw new Error("Failed to start OAuth");
-      const data = await res.json();
-      window.location.href = data.url; // Redirect to Google OAuth
-    } catch (err) {
-      showErrorToast(err);
-    }
-  };
-
-  // ✅ Disconnect Drive
-  const handleDisconnectDrive = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      navigate("/");
-      return;
-    }
-
-    try {
-      const res = await fetch("http://localhost:8000/api/drive/disconnect", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-      if (!res.ok) throw new Error("Failed to disconnect Drive");
-      // Refresh drive status
-      const statusRes = await fetch("http://localhost:8000/api/drive/status", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-      if (statusRes.ok) {
-        const data = await statusRes.json();
-        setDriveStatus(data);
-      }
+      const data = await apiService.startYouTubeOAuth();
+      window.location.href = data.url;
     } catch (err) {
       showErrorToast(err);
     }
   };
 
   const handleRefresh = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session || !session.user) return;
-
     try {
-      // Fetch channels
-      const channelsRes = await fetch("http://localhost:8000/api/channels/", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-      if (!channelsRes.ok) throw new Error("Failed to fetch channels");
-      const channelsData = await channelsRes.json();
-
-      // Fetch real-time stats for each channel
-      const updatedChannels = await Promise.all(
-        channelsData.map(async (channel) => {
-          try {
-            const statsRes = await fetch(`http://localhost:8000/api/channels/stats/${channel.youtube_channel_id}`, {
-              headers: {
-                Authorization: `Bearer ${session.access_token}`,
-              },
-            });
-            if (statsRes.ok) {
-              const stats = await statsRes.json();
-              return { ...channel, subscriber_count: stats.subscriber_count, video_count: stats.video_count };
-            }
-          } catch (err) {
-            console.warn(`[Dashboard] Failed to fetch stats for channel ${channel.youtube_channel_id}:`, err);
-          }
-          return channel; // Return original if stats fetch fails
-        })
-      );
-
-      setChannels(updatedChannels);
+      await refreshChannels();
     } catch (err) {
       showErrorToast(err);
     }
   };
 
   const handleGenerateVideo = () => {
-    // Navigate to Niche Input Page
-    navigate('/generate-video'); // Adjust route as needed
+    navigate('/generate-video');
   };
+  const handleShowAnalytics = () => navigate('/analytics');
 
-  const handleShowAnalytics = () => {
-    // Navigate to Analytics page
-    navigate('/analytics');
-  };
-
-  // Map channels to display format for grid
   const displayChannels = channels.map(ch => ({
-    id: ch.youtube_channel_id,
-    name: ch.youtube_channel_name,
+    id: ch.channel_id,
+    name: ch.channel_name,
     status: 'active',
     subscriberCount: ch.subscriber_count || 0,
     videoCount: ch.video_count || 0,
@@ -399,138 +107,8 @@ const Dashboard = () => {
   }));
 
   return (
-    <div className={`min-h-screen relative bg-gradient-to-br from-slate-900 via-blue-900 to-purple-900 text-white overflow-hidden ${isDarkTheme ? '' : 'bg-white text-black'}`}>
-      <Starfield />
-      
-      {/* Header */}
-      <motion.header
-        initial={{ y: -100, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.6, ease: 'easeOut' }}
-        className="relative z-10 flex items-center justify-between px-8 py-6 border-b border-white/10 bg-slate-900/20 backdrop-blur-sm"
-      >
-        <motion.h1
-          className="text-3xl font-bold text-cyan-400 drop-shadow-lg"
-          initial={{ scale: 0.9 }}
-          animate={{ scale: 1 }}
-          transition={{ delay: 0.2, duration: 0.3 }}
-        >
-          YT Agent
-        </motion.h1>
-
-        <div className="flex items-center space-x-6">
-          <motion.span
-            className="hidden text-sm opacity-80 md:block"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-          >
-            Welcome, {username}
-          </motion.span>
-
-          {/* Drive Status Indicator */}
-          <div
-            className="relative cursor-pointer group"
-            title={driveStatus.drive_connected ? `Connected to ${driveStatus.drive_email}` : 'Google Drive not connected'}
-          >
-            <HardDrive
-              className={`w-5 h-5 transition-colors ${
-                driveStatus.drive_connected
-                  ? driveStatus.token_valid
-                    ? 'text-green-400'
-                    : 'text-yellow-400'
-                  : 'text-red-400 opacity-60'
-              }`}
-            />
-            {driveStatus.drive_connected && (
-              <div className="absolute w-2 h-2 bg-green-400 rounded-full -top-1 -right-1"></div>
-            )}
-          </div>
-
-          {/* Theme Toggle */}
-          <Switch
-            checked={isDarkTheme}
-            onCheckedChange={setIsDarkTheme}
-            className="data-[state=checked]:bg-cyan-500"
-          />
-
-          {/* Settings Dialog */}
-          <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-            <DialogTrigger asChild>
-              <Button variant="ghost" size="icon" className="text-white hover:text-cyan-400 hover:bg-white/10">
-                <Settings className="w-5 h-5" />
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md bg-gradient-to-br from-slate-900 to-blue-900 border-cyan-500/50 backdrop-blur-sm">
-              <DialogHeader>
-                <DialogTitle className="text-white">General Settings</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-6">
-                {/* Theme Section */}
-                <div className="space-y-2">
-                  <h3 className="text-lg font-semibold text-white">Appearance</h3>
-                  <div className="flex items-center justify-between">
-                    <span className="text-white">Dark Theme</span>
-                    <Switch checked={isDarkTheme} onCheckedChange={setIsDarkTheme} />
-                  </div>
-                </div>
-
-                {/* Drive Section */}
-                <div className="space-y-3">
-                  <h3 className="flex items-center gap-2 text-lg font-semibold text-white">
-                    <HardDrive className="w-4 h-4" />
-                    Google Drive
-                  </h3>
-                  
-                  {driveStatus.drive_connected ? (
-                    <>
-                      <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
-                        <div className={`w-2 h-2 rounded-full ${
-                          driveStatus.token_valid ? 'bg-green-400' : 'bg-yellow-400'
-                        }`}></div>
-                        <span className="text-sm text-white">Connected as: {driveStatus.drive_email}</span>
-                      </div>
-                      {driveStatus.token_valid ? (
-                        <p className="text-xs text-green-400">✓ Access token is valid</p>
-                      ) : (
-                        <p className="text-xs text-yellow-400">⚠ Token expired - will auto-refresh</p>
-                      )}
-                      <Button
-                        onClick={handleDisconnectDrive}
-                        variant="destructive"
-                        className="w-full text-white"
-                      >
-                        Disconnect Drive
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
-                        <div className="w-2 h-2 bg-red-400 rounded-full"></div>
-                        <span className="text-sm text-red-400">Not connected to Google Drive</span>
-                      </div>
-                      <Button
-                        onClick={() => navigate("/connect-drive")}
-                        className="w-full text-white bg-blue-500 hover:bg-blue-600"
-                      >
-                        Connect Drive
-                      </Button>
-                    </>
-                  )}
-                </div>
-
-                {/* Account Section */}
-                <div className="pt-4 space-y-3 border-t border-white/20">
-                  <h3 className="text-lg font-semibold text-white">Account</h3>
-                  <Button variant="destructive" className="w-full text-white" onClick={handleLogout}>
-                    Logout
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </motion.header>
+    <PageLayout>
+      <Header />
 
       <main className="relative z-10 px-8 py-12 mx-auto max-w-7xl">
         {/* Top Right Channel Selector */}
@@ -541,14 +119,14 @@ const Dashboard = () => {
           className="flex justify-end mb-8"
         >
           <div className="flex items-center gap-3">
-            <label className="font-medium text-white">Active Channel:</label>
+            <label className={`font-medium ${isDarkTheme ? 'text-white' : 'text-slate-700'}`}>Active Channel:</label>
             <div className="relative" ref={dropdownRef}>
               <button
                 onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                className="flex items-center justify-between text-white bg-gradient-to-r from-slate-800/90 to-slate-700/90 border border-cyan-500/30 rounded-xl px-5 py-3 min-w-[280px] focus:outline-none focus:ring-2 focus:ring-cyan-400/50 hover:border-cyan-400/50 hover:shadow-lg hover:shadow-cyan-500/20 transition-all duration-300 backdrop-blur-sm"
+                className={`flex items-center justify-between border rounded-xl px-5 py-3 min-w-[280px] focus:outline-none focus:ring-2 transition-all duration-300 backdrop-blur-sm ${isDarkTheme ? 'bg-slate-800/90 border-cyan-500/30 text-white focus:ring-cyan-400/50 hover:border-cyan-400/50' : 'bg-white/90 border-slate-200 text-slate-800 focus:ring-indigo-400/50 hover:border-indigo-400/50'}`}
               >
-                <span className="font-medium truncate">{selectedChannel}</span>
-                <ChevronDown className={`w-5 h-5 text-cyan-400 transition-transform duration-300 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                <span className="font-medium truncate">{selectedChannelName}</span>
+                <ChevronDown className={`w-5 h-5 transition-transform duration-300 ${isDarkTheme ? 'text-cyan-400' : 'text-indigo-600'} ${isDropdownOpen ? 'rotate-180' : ''}`} />
               </button>
               {isDropdownOpen && (
                 <motion.div
@@ -556,67 +134,45 @@ const Dashboard = () => {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -15, scale: 0.95 }}
                   transition={{ duration: 0.2, ease: 'easeOut' }}
-                  className="absolute z-50 w-full mt-2 overflow-y-auto border shadow-2xl top-full bg-gradient-to-b from-slate-800/95 to-slate-900/95 backdrop-blur-md border-cyan-500/30 rounded-xl shadow-cyan-500/10 max-h-64"
+                  className={`absolute z-50 w-full mt-2 overflow-y-auto border shadow-2xl top-full backdrop-blur-md rounded-xl max-h-64 ${isDarkTheme ? 'bg-slate-800/95 border-cyan-500/30' : 'bg-white/95 border-slate-200'}`}
                 >
                   <div className="py-2">
                     {channels.map((ch, index) => (
-                      <motion.button
-                        key={ch.youtube_channel_id}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.05 }}
+                      <button
+                        key={ch.channel_id}
                         onClick={() => {
-                          setSelectedChannel(ch.youtube_channel_name);
+                          setSelectedChannelId(ch.channel_id || ch.id);
                           setIsDropdownOpen(false);
                         }}
-                        className="relative flex items-center justify-between w-full px-5 py-3 text-left text-white transition-all duration-200 hover:bg-gradient-to-r hover:from-cyan-500/20 hover:to-purple-500/20 group"
+                        className={`relative flex items-center justify-between w-full px-5 py-3 text-left transition-all duration-200 group ${isDarkTheme ? 'text-white hover:bg-cyan-500/10' : 'text-slate-800 hover:bg-indigo-50'}`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className="flex items-center justify-center w-8 h-8 overflow-hidden transition-colors rounded-full bg-red-500/20 group-hover:bg-red-500/30">
+                          <div className={`flex items-center justify-center w-8 h-8 overflow-hidden rounded-full ${isDarkTheme ? 'bg-red-500/20' : 'bg-red-50'}`}>
                             {ch.thumbnail_url ? (
-                              <img
-                                src={ch.thumbnail_url}
-                                alt={`${ch.youtube_channel_name} logo`}
-                                className="object-cover w-full h-full"
-                                onError={(e) => {
-                                  console.error(`[Dashboard] Failed to load thumbnail for ${ch.youtube_channel_name}:`, ch.thumbnail_url, e);
-                                  e.target.style.display = 'none';
-                                  e.target.nextSibling.style.display = 'flex';
-                                }}
-                                onLoad={() => console.log(`[Dashboard] Thumbnail loaded for ${ch.youtube_channel_name}:`, ch.thumbnail_url)}
-                              />
-                            ) : null}
-                            <Youtube className="w-4 h-4 text-red-400" style={{ display: ch.thumbnail_url ? 'none' : 'flex' }} />
+                              <img src={ch.thumbnail_url} alt={ch.channel_name} className="object-cover w-full h-full" />
+                            ) : (
+                              <Youtube className="w-4 h-4 text-red-500" />
+                            )}
                           </div>
-                          <span className="font-medium truncate transition-colors group-hover:text-cyan-300">{ch.youtube_channel_name}</span>
+                          <span className={`font-medium truncate ${isDarkTheme ? 'group-hover:text-cyan-300' : 'group-hover:text-indigo-600'}`}>{ch.channel_name || ch.snippet?.title}</span>
                         </div>
-                        {selectedChannel === ch.youtube_channel_name && (
-                          <motion.div
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                            className="flex items-center justify-center w-5 h-5 rounded-full bg-cyan-500"
-                          >
+                        {selectedChannelId === (ch.channel_id || ch.id) && (
+                          <div className={`w-5 h-5 rounded-full flex items-center justify-center ${isDarkTheme ? 'bg-cyan-500' : 'bg-indigo-600'}`}>
                             <Check className="w-3 h-3 text-white" />
-                          </motion.div>
+                          </div>
                         )}
-                      </motion.button>
+                      </button>
                     ))}
-                    <div className="mx-3 my-2 border-t border-cyan-500/20"></div>
-                    <motion.button
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: channels.length * 0.05 }}
-                      onClick={() => {
-                        handleAddChannel();
-                        setIsDropdownOpen(false);
-                      }}
-                      className="flex items-center w-full gap-3 px-5 py-3 text-left transition-all duration-200 text-cyan-300 hover:bg-gradient-to-r hover:from-cyan-500/10 hover:to-purple-500/10 group"
+                    <div className={`mx-3 my-2 border-t ${isDarkTheme ? 'border-cyan-500/20' : 'border-slate-100'}`}></div>
+                    <button
+                      onClick={() => { handleAddChannel(); setIsDropdownOpen(false); }}
+                      className={`flex items-center w-full gap-3 px-5 py-3 text-left transition-all duration-200 group ${isDarkTheme ? 'text-cyan-300 hover:bg-cyan-500/10' : 'text-indigo-600 hover:bg-indigo-50'}`}
                     >
-                      <div className="flex items-center justify-center w-8 h-8 transition-colors rounded-full bg-cyan-500/20 group-hover:bg-cyan-500/30">
-                        <Plus className="w-4 h-4 text-cyan-400" />
+                      <div className={`flex items-center justify-center w-8 h-8 rounded-full ${isDarkTheme ? 'bg-cyan-500/20' : 'bg-indigo-600/10'}`}>
+                        <Plus className="w-4 h-4" />
                       </div>
-                      <span className="font-medium transition-colors group-hover:text-cyan-200">Add New Channel</span>
-                    </motion.button>
+                      <span className="font-medium">Add New Channel</span>
+                    </button>
                   </div>
                 </motion.div>
               )}
@@ -625,176 +181,100 @@ const Dashboard = () => {
         </motion.div>
 
         {/* Hero Section */}
-        <motion.section
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.2 }}
-          className="mt-16 mb-16 text-center"
-        >
-          <motion.h2
-            className="mb-4 text-4xl font-bold text-white md:text-5xl"
-            initial={{ scale: 0.9 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: 0.4, duration: 0.5 }}
-          >
-            Welcome to <span className="text-cyan-400">YT Agent</span>
-          </motion.h2>
-          <motion.p
-            className="max-w-2xl mx-auto text-xl text-gray-300"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.6, duration: 0.5 }}
-          >
+        <section className="mt-16 mb-16 text-center">
+          <h2 className={`mb-4 text-4xl font-bold md:text-5xl ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+            Welcome to <span className={isDarkTheme ? 'text-cyan-400' : 'text-indigo-600'}>YT Agent</span>
+          </h2>
+          <p className={`max-w-2xl mx-auto text-xl ${isDarkTheme ? 'text-gray-300' : 'text-slate-600'}`}>
             Your AI-powered YouTube content creation assistant. Manage channels, generate videos, and analyze performance all in one place.
-          </motion.p>
-        </motion.section>
+          </p>
+        </section>
 
         {/* Quick Actions */}
-        <motion.section
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.4 }}
-          className="flex flex-col justify-center gap-6 mb-16 sm:flex-row"
-        >
-          {/* <motion.div
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+        <section className="flex flex-col justify-center gap-6 mb-16 sm:flex-row">
+          <Button
+            onClick={handleGenerateVideo}
+            className={`flex items-center gap-4 px-10 py-6 text-xl font-semibold transition-all duration-300 shadow-xl ${isDarkTheme ? 'bg-gradient-to-r from-cyan-500 to-purple-600 hover:shadow-cyan-500/25' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
           >
-            <Button
-              onClick={handleGenerateVideo}
-              className="flex items-center gap-4 px-10 py-6 text-xl font-semibold transition-all duration-300 transform shadow-xl bg-gradient-to-r from-cyan-500 to-purple-600 hover:from-cyan-400 hover:to-purple-500 hover:shadow-cyan-500/25 hover:scale-105"
-            >
-              <PlayCircle className="w-6 h-6" />
-              Generate Video
-            </Button>
-          </motion.div> */}
+            <PlayCircle className="w-6 h-6" />
+            Generate Video
+          </Button>
 
-          <motion.div
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+          <Button
+            onClick={handleShowAnalytics}
+            variant="outline"
+            className={`flex items-center gap-4 px-10 py-6 text-xl border-2 transition-all ${isDarkTheme ? 'text-white border-white/30 hover:bg-white/10 hover:border-cyan-500/50' : 'text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-indigo-500/50'}`}
           >
+            <BarChart3 className="w-6 h-6" />
+            Show Analytics
+          </Button>
+        </section>
+
+        {/* Channel Grid */}
+        <section className="mb-16">
+          <div className="flex items-center justify-between mb-8">
+            <h3 className={`text-3xl font-semibold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>Your YouTube Channels</h3>
             <Button
-              onClick={handleShowAnalytics}
               variant="outline"
-              className="flex items-center gap-4 px-10 py-6 text-xl text-white border-2 border-white/30 hover:bg-white/10 hover:border-cyan-500/50"
+              size="sm"
+              onClick={handleRefresh}
+              className={isDarkTheme ? 'text-white border-white/20 hover:bg-white/10' : 'text-slate-600 border-slate-200'}
             >
-              <BarChart3 className="w-6 h-6" />
-              Show Analytics
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh
             </Button>
-          </motion.div>
-        </motion.section>
+          </div>
 
-        {/* Channel Section */}
-        <motion.section
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.6 }}
-          className="mb-16"
-        >
-          <motion.div
-            className="flex items-center justify-between mb-8"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.8 }}
-          >
-            <h3 className="text-3xl font-semibold text-white">Your YouTube Channels</h3>
-
-            <div className="flex items-center space-x-3">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRefresh}
-                className="text-white border-white/20 hover:bg-white/10"
-              >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Refresh
-              </Button>
-            </div>
-          </motion.div>
-
-
-
-          {/* Channel Grid */}
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            <AnimatePresence>
-              {displayChannels.map((channel, index) => (
-                <motion.div
-                  key={channel.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.5, delay: index * 0.1 }}
-                >
-                  <Card className="transition-all duration-300 bg-slate-800/60 border-white/20 backdrop-blur-sm hover:border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/10 hover:scale-105">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center justify-center w-12 h-12 overflow-hidden bg-red-500 rounded-full">
-                          {channel.thumbnailUrl ? (
-                            <img
-                              src={channel.thumbnailUrl}
-                              alt={`${channel.name} thumbnail`}
-                              className="object-cover w-full h-full"
-                              onError={(e) => {
-                                e.target.style.display = 'none';
-                                e.target.nextSibling.style.display = 'flex';
-                              }}
-                            />
-                          ) : null}
-                          <Youtube className="w-6 h-6 text-white" style={{ display: channel.thumbnailUrl ? 'none' : 'flex' }} />
-                        </div>
-                        <CardTitle className="text-lg text-white truncate">
-                          {channel.name}
-                        </CardTitle>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1 text-sm text-gray-300">
-                          <Users className="w-4 h-4" />
-                          {channel.subscriberCount.toLocaleString()} subscribers
-                        </div>
-                        <div className="flex items-center gap-1 text-sm text-gray-300">
-                          <Video className="w-4 h-4" />
-                          {channel.videoCount} videos
-                        </div>
-                      </div>
-                      <span className="px-3 py-1 text-sm font-medium text-green-400 rounded-full bg-green-500/20">
-                        {channel.status}
-                      </span>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              ))}
-            </AnimatePresence>
+            {displayChannels.map((channel) => (
+              <Card key={channel.id} className={`transition-all duration-300 border backdrop-blur-sm hover:scale-105 ${isDarkTheme ? 'bg-slate-800/60 border-white/10 hover:border-cyan-500/50' : 'bg-white/90 border-slate-200 hover:border-indigo-500/50'}`}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`flex items-center justify-center w-12 h-12 overflow-hidden rounded-full ${isDarkTheme ? 'bg-red-500/20' : 'bg-red-50'}`}>
+                      {channel.thumbnailUrl ? (
+                        <img src={channel.thumbnailUrl} alt={channel.name} className="object-cover w-full h-full" />
+                      ) : (
+                        <Youtube className={`w-6 h-6 ${isDarkTheme ? 'text-white' : 'text-red-500'}`} />
+                      )}
+                    </div>
+                    <CardTitle className={`text-lg truncate ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                      {channel.name}
+                    </CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-1 text-slate-500">
+                      <Users className="w-4 h-4" />
+                      {channel.subscriberCount.toLocaleString()} subs
+                    </div>
+                    <div className="flex items-center gap-1 text-slate-500">
+                      <Video className="w-4 h-4" />
+                      {channel.videoCount} videos
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${channel.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {channel.status}
+                    </span>
+                    <Button variant="ghost" size="sm" onClick={() => navigate('/analytics')} className="text-xs hover:text-indigo-600">
+                      View Stats
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+            {displayChannels.length === 0 && (
+              <div className={`col-span-full py-20 text-center border-2 border-dashed rounded-3xl ${isDarkTheme ? 'border-white/10 text-slate-500' : 'border-slate-200 text-slate-400'}`}>
+                <Youtube className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                <p className="text-xl">No channels connected yet</p>
+                <Button onClick={handleAddChannel} variant="link" className="mt-2 text-indigo-500">Connect your first channel</Button>
+              </div>
+            )}
           </div>
-        </motion.section>
-
-
+        </section>
       </main>
-
-            {/* Footer (integrated from old, adapted to theme) */}
-      <motion.footer
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 1 }}
-        className="relative z-10 px-6 py-4 text-white border-t bg-gradient-to-r from-slate-900 to-blue-900 border-white/20"
-      >
-        <div className="flex items-center justify-between w-full max-w-5xl mx-auto text-sm">
-          <div className="flex items-center gap-2">
-            <Bot className="w-5 h-5 text-white" />
-            <span className="text-white">AI Powered</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-white" />
-            <span className="text-white">Secure</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Zap className="w-5 h-5 text-white" />
-            <span className="text-white">Fast Performance</span>
-          </div>
-        </div>
-      </motion.footer>
-    </div>
+    </PageLayout>
   );
 };
 

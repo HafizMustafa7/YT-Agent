@@ -6,6 +6,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import Starfield from '@/components/Starfield';
+import apiService from '../features/yt-agent/services/apiService';
 import './ResultsScreen.css';
 
 const ResultsScreen = () => {
@@ -109,24 +110,18 @@ const ResultsScreen = () => {
     try {
       const selectedVideo = data.trends.find(v => v.id === selectedVideoId);
 
-      // Call the story generation API
-      const response = await fetch('http://localhost:8000/api/generatestory/generate-story', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          selected_video: selectedVideo,
-          user_topic: topic.trim(),
-          max_frames: 7
-        }),
-      });
+      // Call the story generation API via central service
+      const creativePreferences = {
+        duration_seconds: 60, // Default for shorts
+        target_audience: 'general',
+        tone: 'engaging'
+      };
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
+      const result = await apiService.generateStory(
+        topic.trim(),
+        selectedVideo,
+        creativePreferences
+      );
 
       if (result.success) {
         toast({
@@ -135,7 +130,8 @@ const ResultsScreen = () => {
         });
 
         // Navigate to the FrameResults page with the generated data
-        navigate('/frame-results', { state: { data: result.data } });
+        // Note: The backend returns 'story' object, we pass it as 'data' for compatibility
+        navigate('/frame-results', { state: { data: result.story } });
       } else {
         throw new Error('Story generation failed');
       }
@@ -143,7 +139,7 @@ const ResultsScreen = () => {
       console.error('Story generation failed:', err);
       toast({
         title: "Error",
-        description: "Failed to generate story. Please try again.",
+        description: err.message || "Failed to generate story. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -274,9 +270,8 @@ const ResultsScreen = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: index * 0.1 }}
-                className={`bg-slate-800/60 backdrop-blur-sm border rounded-xl overflow-hidden transition-all duration-300 hover:scale-105 ${
-                  isSelected ? 'border-cyan-500 shadow-lg shadow-cyan-500/25' : 'border-white/20 hover:border-cyan-500/50'
-                }`}
+                className={`bg-slate-800/60 backdrop-blur-sm border rounded-xl overflow-hidden transition-all duration-300 hover:scale-105 ${isSelected ? 'border-cyan-500 shadow-lg shadow-cyan-500/25' : 'border-white/20 hover:border-cyan-500/50'
+                  }`}
               >
                 <div className="relative bg-black aspect-video">
                   <img

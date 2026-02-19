@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import '../styles/components/TrendsScreen.css';
 
-const TrendsScreen = ({ trendsData, onSelectVideo, onBack, loading, onCustomTopic }) => {
+const TrendsScreen = ({ trendsData, onSelectVideo, loading, onCustomTopic }) => {
   const [customTopic, setCustomTopic] = useState('');
   const formatNumber = (num) => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
@@ -12,7 +12,6 @@ const TrendsScreen = ({ trendsData, onSelectVideo, onBack, loading, onCustomTopi
   return (
     <div className="trends-screen">
       <div className="trends-header">
-        <button className="back-btn" onClick={onBack}>← Back</button>
         <h2>Trending Videos</h2>
         <p className="trends-subtitle">
           {trendsData?.mode === 'analyze_niche'

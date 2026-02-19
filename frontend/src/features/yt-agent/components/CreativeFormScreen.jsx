@@ -89,7 +89,7 @@ const CREATIVE_OPTIONS = {
   ],
 };
 
-const CreativeFormScreen = ({ onSubmit, onBack, loading }) => {
+const CreativeFormScreen = ({ onSubmit, loading }) => {
   const [formData, setFormData] = useState({
     tone: CREATIVE_OPTIONS.tone[0],
     target_audience: CREATIVE_OPTIONS.target_audience[0],
@@ -116,7 +116,6 @@ const CreativeFormScreen = ({ onSubmit, onBack, loading }) => {
   return (
     <div className="creative-form-screen">
       <div className="creative-header">
-        <button className="back-btn" onClick={onBack}>← Back</button>
         <h2>Creative Direction</h2>
         <p className="screen-subtitle">
           Configure your video's creative style and direction using the dropdowns below.
@@ -239,9 +238,6 @@ const CreativeFormScreen = ({ onSubmit, onBack, loading }) => {
         </div>
 
         <div className="form-actions">
-          <button type="button" className="cancel-btn" onClick={onBack}>
-            Cancel
-          </button>
           <button type="submit" className="submit-btn" disabled={loading}>
             {loading ? 'Generating Story...' : 'Generate Story & Frames'}
           </button>

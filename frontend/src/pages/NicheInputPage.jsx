@@ -8,14 +8,15 @@ import { Switch } from '@/components/ui/switch'; // From shadcn/ui
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'; // From shadcn/ui
 import { supabase } from '../supabaseClient'; // For session management
 import Starfield from '@/components/Starfield'; // Consistent starfield component
+import apiService from '../features/yt-agent/services/apiService';
 import './NicheInput.css'; // Import the CSS for the NicheInput component
-import api from '../api/auth'; // Import the configured API instance
 
-// API function to fetch trending videos
+// API function to fetch trending videos via central service
 const fetchTrendingVideos = async (niche) => {
   try {
-    const response = await api.post('/api/trends/analyze-trends', { niche });
-    return response.data; // Returns { niche, trends, averageViews, averageLikes, total_trends }
+    // Mode is 'analyze_niche' for this page
+    const result = await apiService.fetchTrends('analyze_niche', niche);
+    return result; // Returns { success, mode, query_used, total_results, trends }
   } catch (error) {
     console.error('[NicheInputPage] Error fetching trends:', error);
     throw error;

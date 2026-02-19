@@ -46,7 +46,7 @@
 
 .fvs-header h2 {
     font-size: 2rem;
-    background: linear-gradient(135deg, #7c82ff 0%, #b46bff 50%, #ff6bcc 100%);
+    background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -54,24 +54,22 @@
 }
 
 .fvs-subtitle {
-    color: #8ea0cc;
+    color: var(--text-secondary);
     font-size: 0.95rem;
 }
 
 .fvs-project-name {
-    color: #c8cfff;
+    color: var(--accent-primary);
     font-weight: 600;
 }
 
 /* ───── Video Player Card ───── */
 .fvs-player-card {
-    background: rgba(8, 16, 34, 0.85);
-    border: 1px solid rgba(124, 130, 255, 0.2);
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
     border-radius: 20px;
     overflow: hidden;
-    box-shadow:
-        0 4px 30px rgba(124, 130, 255, 0.08),
-        0 20px 60px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-color);
     margin-bottom: 24px;
 }
 
@@ -110,8 +108,8 @@
     display: flex;
     gap: 12px;
     padding: 16px 20px;
-    background: rgba(255, 255, 255, 0.02);
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--input-bg);
+    border-top: 1px solid var(--border-color);
 }
 
 .fvs-stat-chip {
@@ -120,10 +118,10 @@
     gap: 8px;
     padding: 8px 14px;
     border-radius: 10px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
     font-size: 0.85rem;
-    color: #b0b8d9;
+    color: var(--text-secondary);
 }
 
 .fvs-stat-icon {
@@ -131,14 +129,14 @@
 }
 
 .fvs-stat-value {
-    color: #e0e4ff;
+    color: var(--text-primary);
     font-weight: 600;
 }
 
 /* ───── URL Section ───── */
 .fvs-url-card {
-    background: rgba(8, 16, 34, 0.7);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
     border-radius: 16px;
     padding: 20px;
     margin-bottom: 24px;
@@ -148,7 +146,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    color: #8ea0cc;
+    color: var(--text-muted);
     font-size: 0.85rem;
     margin-bottom: 10px;
     text-transform: uppercase;
@@ -165,9 +163,9 @@
     flex: 1;
     padding: 12px 16px;
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(4, 10, 22, 0.8);
-    color: #c8cfff;
+    border: 1px solid var(--border-color);
+    background: var(--input-bg);
+    color: var(--text-primary);
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
     font-size: 0.85rem;
     cursor: text;
@@ -178,7 +176,7 @@
 
 .fvs-url-input:focus {
     outline: none;
-    border-color: rgba(124, 130, 255, 0.4);
+    border-color: var(--accent-primary);
 }
 
 .fvs-copy-btn {
@@ -187,9 +185,9 @@
     gap: 6px;
     padding: 12px 20px;
     border-radius: 12px;
-    border: 1px solid rgba(124, 130, 255, 0.3);
-    background: rgba(124, 130, 255, 0.1);
-    color: #c8cfff;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    color: var(--text-primary);
     font-weight: 600;
     font-size: 0.9rem;
     cursor: pointer;
@@ -198,8 +196,7 @@
 }
 
 .fvs-copy-btn:hover {
-    background: rgba(124, 130, 255, 0.2);
-    border-color: rgba(124, 130, 255, 0.5);
+    background: var(--input-bg);
 }
 
 .fvs-copy-btn.copied {
@@ -212,18 +209,18 @@
 .fvs-no-url {
     text-align: center;
     padding: 24px;
-    color: #8ea0cc;
-    border: 1px dashed rgba(255, 255, 255, 0.12);
+    color: var(--text-secondary);
+    border: 1px dashed var(--border-color);
     border-radius: 16px;
     margin-bottom: 24px;
 }
 
 .fvs-no-url code {
-    background: rgba(124, 130, 255, 0.12);
+    background: var(--input-bg);
     padding: 3px 8px;
     border-radius: 6px;
     font-size: 0.85rem;
-    color: #b0b8ff;
+    color: var(--accent-primary);
 }
 
 /* ───── Actions Bar ───── */
@@ -248,7 +245,7 @@
 }
 
 .fvs-btn-primary {
-    background: linear-gradient(135deg, #7c82ff, #b46bff);
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
     color: white;
     box-shadow: 0 4px 20px rgba(124, 130, 255, 0.25);
 }
@@ -259,14 +256,13 @@
 }
 
 .fvs-btn-secondary {
-    background: rgba(255, 255, 255, 0.05);
-    color: #c8cfff;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
 }
 
 .fvs-btn-secondary:hover {
-    background: rgba(255, 255, 255, 0.09);
-    border-color: rgba(255, 255, 255, 0.2);
+    background: var(--input-bg);
 }
 
 .fvs-btn-success {

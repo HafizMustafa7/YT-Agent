@@ -2,11 +2,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import apiService from '../services/apiService';
 import '../styles/components/FinalVideoScreen.css';
 
-const FinalVideoScreen = ({ projectId, onBack, onStartNew }) => {
+const FinalVideoScreen = ({ projectId, onStartNew }) => {
     const [project, setProject] = useState(null);
     const [finalVideoUrl, setFinalVideoUrl] = useState(null);
     const [loading, setLoading] = useState(true);
     const [copiedUrl, setCopiedUrl] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
+    const [uploadMessage, setUploadMessage] = useState(null);
+    const [uploadError, setUploadError] = useState(null);
 
     const fetchProject = useCallback(async () => {
         if (!projectId) return;
@@ -52,6 +55,27 @@ const FinalVideoScreen = ({ projectId, onBack, onStartNew }) => {
         document.body.removeChild(link);
     };
 
+    const handleUpload = async () => {
+        if (!projectId) return;
+        setIsUploading(true);
+        setUploadMessage(null);
+        setUploadError(null);
+
+        try {
+            const res = await apiService.uploadProjectToYoutube(projectId);
+            if (res.success) {
+                setUploadMessage('Upload started! Refreshing to link your video...');
+                // Refresh project after a short delay to see if metadata is updated
+                setTimeout(() => fetchProject(), 3000);
+            }
+        } catch (e) {
+            console.error('Upload failed:', e);
+            setUploadError(e.message || 'Failed to start upload.');
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
     // Compute stats
     const frames = project?.frames || [];
     const totalFrames = frames.length;
@@ -62,6 +86,8 @@ const FinalVideoScreen = ({ projectId, onBack, onStartNew }) => {
     const fileSizeMB = finalAsset?.file_size
         ? (finalAsset.file_size / (1024 * 1024)).toFixed(1)
         : null;
+
+    const youtubeUrl = project?.metadata?.youtube_url;
 
     if (loading) {
         return (
@@ -82,7 +108,7 @@ const FinalVideoScreen = ({ projectId, onBack, onStartNew }) => {
                 <h2>Your Video is Ready!</h2>
                 <p className="fvs-subtitle">
                     <span className="fvs-project-name">{project?.project_name || 'Video Project'}</span>
-                    {' '} has been compiled and uploaded successfully
+                    {' '} {youtubeUrl ? 'is live on YouTube!' : 'has been compiled and is ready for upload'}
                 </p>
             </div>
 
@@ -127,10 +153,10 @@ const FinalVideoScreen = ({ projectId, onBack, onStartNew }) => {
             )}
 
             {/* URL Section */}
-            {finalVideoUrl ? (
+            {finalVideoUrl && (
                 <div className="fvs-url-card">
                     <div className="fvs-url-label">
-                        <span>🔗</span> Video URL
+                        <span>🔗</span> Project Video URL (R2)
                     </div>
                     <div className="fvs-url-row">
                         <input
@@ -149,12 +175,51 @@ const FinalVideoScreen = ({ projectId, onBack, onStartNew }) => {
                         </button>
                     </div>
                 </div>
-            ) : (
+            )}
+
+            {/* YouTube Link Section */}
+            {youtubeUrl && (
+                <div className="fvs-url-card youtube-link-card">
+                    <div className="fvs-url-label">
+                        <span>📺</span> YouTube Video Link
+                    </div>
+                    <div className="fvs-url-row">
+                        <input
+                            type="text"
+                            value={youtubeUrl}
+                            readOnly
+                            className="fvs-url-input"
+                        />
+                        <a
+                            href={youtubeUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="fvs-view-youtube-btn"
+                        >
+                            View on YouTube
+                        </a>
+                    </div>
+                </div>
+            )}
+
+            {!finalVideoUrl && (
                 <div className="fvs-no-url">
                     <p>Video compiled but public URL is not available.</p>
                     <p>
                         Set <code>R2_FINAL_PUBLIC_URL</code> in your backend <code>.env</code> file.
                     </p>
+                </div>
+            )}
+
+            {/* Upload Status Messages */}
+            {uploadMessage && (
+                <div className="fvs-upload-status success">
+                    <span>✅ {uploadMessage}</span>
+                </div>
+            )}
+            {uploadError && (
+                <div className="fvs-upload-status error">
+                    <span>⚠️ {uploadError}</span>
                 </div>
             )}
 
@@ -165,9 +230,16 @@ const FinalVideoScreen = ({ projectId, onBack, onStartNew }) => {
                         ⬇️ Download Video
                     </button>
                 )}
-                <button type="button" className="fvs-btn fvs-btn-secondary" onClick={onBack}>
-                    ← Back to Generation
-                </button>
+                {finalVideoUrl && !youtubeUrl && (
+                    <button
+                        type="button"
+                        className="fvs-btn fvs-btn-youtube"
+                        onClick={handleUpload}
+                        disabled={isUploading}
+                    >
+                        {isUploading ? '⏳ Uploading...' : '📺 Upload to YouTube'}
+                    </button>
+                )}
                 <button type="button" className="fvs-btn fvs-btn-success" onClick={onStartNew}>
                     🎬 Create New Video
                 </button>

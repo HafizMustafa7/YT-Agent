@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import { useSelectedChannel } from '../../../contexts/SelectedChannelContext';
 import '../styles/components/StoryResultsScreen.css';
-
-const StoryResultsScreen = ({ storyResult, topic, onBack, onGenerateVideo }) => {
+const StoryResultsScreen = ({ storyResult, topic, onGenerateVideo }) => {
+  const { channels, selectedChannelId: selectedChannel, loading: loadingChannels } = useSelectedChannel();
   const [expandedFrame, setExpandedFrame] = useState(null);
   const [copiedFrame, setCopiedFrame] = useState(null);
   const [videoCreating, setVideoCreating] = useState(false);
@@ -11,9 +12,13 @@ const StoryResultsScreen = ({ storyResult, topic, onBack, onGenerateVideo }) => 
 
   const handleGenerateVideo = async () => {
     if (!onGenerateVideo || frames.length === 0) return;
+    if (!selectedChannel) {
+      alert("Please select a YouTube channel first.");
+      return;
+    }
     setVideoCreating(true);
     try {
-      await onGenerateVideo(storyResult);
+      await onGenerateVideo(storyResult, selectedChannel);
     } finally {
       setVideoCreating(false);
     }
@@ -36,7 +41,6 @@ const StoryResultsScreen = ({ storyResult, topic, onBack, onGenerateVideo }) => 
   return (
     <div className="story-results-screen">
       <div className="story-header">
-        <button className="back-btn" onClick={onBack}>← Back to Home</button>
         <h2>Generated Story & Frames</h2>
         <p className="screen-subtitle">Your complete storyboard with AI video generation prompts</p>
       </div>
@@ -175,11 +179,30 @@ const StoryResultsScreen = ({ storyResult, topic, onBack, onGenerateVideo }) => 
 
       {frames.length > 0 && onGenerateVideo && (
         <div className="generate-video-actions">
+          {/* Selected Channel Display (read-only — selected on Dashboard) */}
+          <div className="channel-selector-container">
+            <label>Uploading to YouTube Channel:</label>
+            {loadingChannels ? (
+              <span className="loading-text">Loading channel info...</span>
+            ) : selectedChannel ? (
+              <div className="selected-channel-badge">
+                {channels.find(c => c.channel_id === selectedChannel || c.id === selectedChannel)?.channel_name ||
+                  channels.find(c => c.channel_id === selectedChannel || c.id === selectedChannel)?.snippet?.title ||
+                  selectedChannel}
+                <span className="channel-badge-check">✓</span>
+              </div>
+            ) : (
+              <p className="no-channels-hint">
+                No channel selected. Please <a href="/dashboard">go to Dashboard</a> and select a channel first.
+              </p>
+            )}
+          </div>
+
           <button
             type="button"
             className="generate-video-btn"
             onClick={handleGenerateVideo}
-            disabled={videoCreating}
+            disabled={videoCreating || !selectedChannel}
           >
             {videoCreating ? 'Creating project…' : 'Generate Video → Open Video Gen Dashboard'}
           </button>

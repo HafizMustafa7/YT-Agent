@@ -1,11 +1,11 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import api, { getCurrentUser } from "../api/auth";
+import apiService from "../features/yt-agent/services/apiService";
 
 const SelectedChannelContext = createContext({
   channels: [],
   selectedChannelId: null,
-  setSelectedChannelId: async (id) => {},
-  refreshChannels: async () => {},
+  setSelectedChannelId: (id) => { },
+  refreshChannels: async () => { },
   loading: false,
 });
 
@@ -16,93 +16,109 @@ export function SelectedChannelProvider({ children }) {
 
   const LOCAL_KEY = "selectedChannelId";
 
+  // Helper to fetch stats for all channels
+  const enrichChannelsWithStats = async (list) => {
+    try {
+      const enriched = await Promise.all(
+        list.map(async (channel) => {
+          try {
+            const stats = await apiService.getChannelStats(channel.channel_id || channel.id);
+            return {
+              ...channel,
+              subscriber_count: stats.subscriber_count,
+              video_count: stats.video_count
+            };
+          } catch (err) {
+            console.error(`Failed to fetch stats for ${channel.channel_id || channel.id}`, err);
+            return channel;
+          }
+        })
+      );
+      return enriched;
+    } catch (err) {
+      console.error("[SelectedChannelContext] enrichment failed", err);
+      return list;
+    }
+  };
+
+  // Initial load
   useEffect(() => {
-    (async () => {
+    const init = async () => {
       setLoading(true);
       try {
-        const [channelsResp, meResp] = await Promise.allSettled([
-          api.get("/api/channels"),
-          getCurrentUser(),
-        ]);
+        const res = await apiService.listChannels();
+        const list = Array.isArray(res) ? res : (res?.items || []);
 
-        let channelsList = [];
-        if (channelsResp.status === "fulfilled") {
-          channelsList = channelsResp.value.data?.channels || [];
-        }
-        setChannels(channelsList);
+        // Set basic list immediately for UI responsiveness
+        setChannels(list);
 
-        let serverDefault = null;
-        if (meResp.status === "fulfilled") {
-          const meData = meResp.value;
-          serverDefault = meData?.user?.default_channel_id ?? null;
-        }
-
+        // Pre-select logic
         const localSaved = localStorage.getItem(LOCAL_KEY);
-
         if (localSaved) {
-          const found = channelsList.find((c) => c.id === localSaved);
+          const found = list.find((c) => c.channel_id === localSaved || c.id === localSaved);
           if (found) {
-            setSelectedChannelIdState(localSaved);
-          } else if (serverDefault) {
-            setSelectedChannelIdState(serverDefault);
-            localStorage.setItem(LOCAL_KEY, serverDefault);
-          } else {
-            setSelectedChannelIdState(null);
-            localStorage.removeItem(LOCAL_KEY);
+            setSelectedChannelIdState(found.channel_id || found.id);
+          } else if (list.length > 0) {
+            const firstId = list[0].channel_id || list[0].id;
+            setSelectedChannelIdState(firstId);
+            localStorage.setItem(LOCAL_KEY, firstId);
           }
-        } else if (serverDefault) {
-          setSelectedChannelIdState(serverDefault);
-          localStorage.setItem(LOCAL_KEY, serverDefault);
-        } else {
-          setSelectedChannelIdState(null);
+        } else if (list.length > 0) {
+          const firstId = list[0].channel_id || list[0].id;
+          setSelectedChannelIdState(firstId);
+          localStorage.setItem(LOCAL_KEY, firstId);
         }
+
+        // Now enrich with stats in the background
+        const enriched = await enrichChannelsWithStats(list);
+        setChannels(enriched);
       } catch (err) {
-        console.error("[SelectedChannelContext] init failed", err);
+        console.error("[SelectedChannelContext] Init failed", err);
       } finally {
         setLoading(false);
       }
-    })();
+    };
+    init();
   }, []);
 
   const refreshChannels = async () => {
     setLoading(true);
     try {
-      const resp = await api.get("/api/channels");
-      const list = resp.data?.channels || [];
+      const res = await apiService.listChannels();
+      const list = Array.isArray(res) ? res : (res?.items || []);
+
+      // Update with basic list first
       setChannels(list);
 
-      const currentSelected = localStorage.getItem(LOCAL_KEY);
-      const found = list.find((c) => c.id === currentSelected);
-      if (!found) {
-        const me = await getCurrentUser();
-        const serverDefault = me?.user?.default_channel_id ?? null;
-        if (serverDefault) {
-          setSelectedChannelIdState(serverDefault);
-          localStorage.setItem(LOCAL_KEY, serverDefault);
-        } else {
-          setSelectedChannelIdState(null);
-          localStorage.removeItem(LOCAL_KEY);
+      // Verify current selection still exists
+      if (selectedChannelId) {
+        const found = list.find((c) => c.channel_id === selectedChannelId || c.id === selectedChannelId);
+        if (!found && list.length > 0) {
+          const firstId = list[0].channel_id || list[0].id;
+          setSelectedChannelId(firstId);
+        } else if (!found) {
+          setSelectedChannelId(null);
         }
+      } else if (list.length > 0) {
+        setSelectedChannelId(list[0].channel_id || list[0].id);
       }
+
+      // Enrich with stats
+      const enriched = await enrichChannelsWithStats(list);
+      setChannels(enriched);
     } catch (err) {
-      console.error("[SelectedChannelContext] refreshChannels failed", err);
+      console.error("[SelectedChannelContext] Refresh failed", err);
     } finally {
       setLoading(false);
     }
   };
 
-  const setSelectedChannelId = async (channelId) => {
+  const setSelectedChannelId = (channelId) => {
     setSelectedChannelIdState(channelId);
     if (channelId) {
       localStorage.setItem(LOCAL_KEY, channelId);
     } else {
       localStorage.removeItem(LOCAL_KEY);
-    }
-
-    try {
-      await api.post(`/api/channels/${channelId}/select`);
-    } catch (err) {
-      console.error("[SelectedChannelContext] Failed to persist selected channel", err);
     }
   };
 

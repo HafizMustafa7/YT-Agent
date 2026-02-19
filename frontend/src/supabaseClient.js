@@ -1,13 +1,15 @@
 // src/supabaseClient.js
 import { createClient } from "@supabase/supabase-js";
 
-// ✅ Replace with your Supabase project values
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-console.log("[DEBUG] Supabase Client Configuration:");
-console.log("[DEBUG] SUPABASE_URL:", SUPABASE_URL);
-console.log("[DEBUG] SUPABASE_ANON_KEY:", SUPABASE_ANON_KEY ? "Present" : "Missing");
+const isDev = import.meta.env.DEV;
+
+if (isDev) {
+  console.log("[DEBUG] Supabase URL:", SUPABASE_URL);
+  console.log("[DEBUG] Supabase Key:", SUPABASE_ANON_KEY ? "Present" : "Missing");
+}
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
@@ -19,17 +21,9 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   }
 });
 
-// Add debugging for auth state changes
-supabase.auth.onAuthStateChange((event, session) => {
-  console.log("[DEBUG] Supabase auth state change:", event, session?.user?.email);
-  if (session) {
-    console.log("[DEBUG] Session access_token present:", !!session.access_token);
-  } else {
-    console.log("[DEBUG] No session available");
-  }
-});
-
-// Debug current session on load
-supabase.auth.getSession().then(({ data: { session } }) => {
-  console.log("[DEBUG] Initial session check:", session ? "Session exists" : "No session");
-});
+// Debug auth state changes — only in development
+if (isDev) {
+  supabase.auth.onAuthStateChange((event, session) => {
+    console.log("[DEBUG] Auth state change:", event, session?.user?.email);
+  });
+}

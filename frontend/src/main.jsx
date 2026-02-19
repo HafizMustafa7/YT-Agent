@@ -7,25 +7,14 @@ import axios from "axios";
 
 axios.defaults.withCredentials = true;
 
-// ✅ Create a global context for auth/session and selected channel
-export const AppContext = createContext(null);
-
-function AppProvider({ children }) {
-  const [selectedChannel, setSelectedChannel] = useState(null);
-
-  return (
-    <AppContext.Provider value={{ selectedChannel, setSelectedChannel }}>
-      {children}
-    </AppContext.Provider>
-  );
-}
+import { SelectedChannelProvider } from "./contexts/SelectedChannelContext";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <BrowserRouter>
-      <AppProvider>
+      <SelectedChannelProvider>
         <App />
-      </AppProvider>
+      </SelectedChannelProvider>
     </BrowserRouter>
   </React.StrictMode>
 );

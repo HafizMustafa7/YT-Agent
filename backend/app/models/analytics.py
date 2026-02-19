@@ -15,8 +15,8 @@ class VideoAnalytics(BaseModel):
 class ChannelInfo(BaseModel):
     id: str
     user_id: Optional[str] = None
-    youtube_channel_id: str
-    youtube_channel_name: str
+    channel_id: str
+    channel_name: str
     access_token: str
     refresh_token: str
     token_expiry: Optional[str] = None

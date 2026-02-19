@@ -11,8 +11,11 @@ import logging
 from typing import List, Dict, Any, Optional
 import httpx
 from supabase import create_client, Client
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 
-from app.core.config import settings
+from app.core.config import settings, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 
 logger = logging.getLogger(__name__)
 
@@ -803,12 +806,229 @@ async def combine_project(project_id: str) -> Dict[str, Any]:
         # Do NOT re-raise: this runs as a BackgroundTask
         return {"error": str(e)}
 
+
+# ---------------------------------------------------------------------------
+# YouTube Upload
+# ---------------------------------------------------------------------------
+
+
+async def _refresh_access_token(channel: Dict[str, Any]) -> Optional[str]:
+    """
+    Refresh YouTube access token using refresh_token.
+    Updates the database with the new token and expiry.
+    Returns the new access_token or None if failed.
+    """
+    refresh_token = channel.get("refresh_token")
+    if not refresh_token:
+        logger.error("No refresh token for channel %s", channel.get("channel_id"))
+        return None
+
+    try:
+        client = get_http_client()
+        response = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+            },
+            timeout=20.0,
+        )
+        
+        if response.status_code != 200:
+            logger.error("Token refresh failed: %s", response.text)
+            return None
+
+        token_data = response.json()
+        access_token = token_data.get("access_token")
+        expires_in = token_data.get("expires_in")
+        
+        if not access_token:
+            return None
+
+        # Update DB
+        if expires_in:
+            from datetime import timedelta
+            new_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+            sb = get_supabase()
+            sb.table("channels").update({
+                "access_token": access_token,
+                "token_expiry": new_expiry.isoformat(),
+            }).eq("channel_id", channel["channel_id"]).execute()
+        
+        return access_token
+    except Exception as e:
+        logger.error("Error refreshing token: %s", e)
+        return None
+
+
+def upload_video_file_to_youtube(
+    local_path: str,
+    title: str,
+    description: str,
+    channel: Dict[str, Any]
+) -> str:
+    """
+    Upload a local video file to YouTube using the channel's credentials.
+    RETURNS: The YouTube Video ID (str).
+    Blocking (synchronous) function - run in executor.
+    """
+    # 1. Build Credentials
+    creds = Credentials(
+        token=channel["access_token"],
+        refresh_token=channel.get("refresh_token"),
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+    )
+
+    # 2. Build Service
+    youtube = build("youtube", "v3", credentials=creds)
+
+    # 3. Prepare Metadata
+    body = {
+        "snippet": {
+            "title": title[:100],  # Max 100 chars
+            "description": description[:5000],
+            "tags": ["AI Video", "Shorts"],
+            "categoryId": "22"  # People & Blogs
+        },
+        "status": {
+            "privacyStatus": "public",
+            "selfDeclaredMadeForKids": False
+        }
+    }
+
+    # 4. Upload
+    logger.info("Starting YouTube upload: %s", title)
+    media = MediaFileUpload(local_path, chunksize=-1, resumable=True)
+    request = youtube.videos().insert(
+        part="snippet,status",
+        body=body,
+        media_body=media
+    )
+    
+    response = None
+    while response is None:
+        status, response = request.next_chunk()
+        if status:
+            logger.info("Upload progress: %d%%", int(status.progress() * 100))
+
+    if "id" in response:
+        logger.info("Upload complete! Video ID: %s", response["id"])
+        return response["id"]
+    else:
+        raise RuntimeError(f"Upload failed, no ID returned: {response}")
+
+
+async def upload_project_to_youtube(project_id: str):
+    """
+    Full workflow:
+    1. Fetch project & verify status.
+    2. Fetch channel credentials (refresh if needed).
+    3. Download 'final.mp4' from R2 to temp.
+    4. Upload to YouTube.
+    5. Update project metadata.
+    """
+    temp_file = None
+    try:
+        ensure_temp_dir()
+        
+        # 1. Get Project
+        project = get_project_with_frames_and_assets(project_id)
+        if not project:
+            raise ValueError("Project not found")
+
+        # Check status — only allow upload when video has been combined
+        project_status = project.get("status")
+        if project_status != "completed":
+            raise ValueError(
+                f"Project must be in 'completed' status to upload (current: '{project_status}'). "
+                f"Run 'combine' first if status is 'clips_ready'."
+            )
+
+        video_url = project.get("video_url")
+        if not video_url:
+            raise ValueError("Project has no video_url. Run 'combine' first.")
+
+        channel_id = project.get("channel_id")
+        user_id = project.get("user_id")
+        if not channel_id:
+             raise ValueError("No channel_id associated with this project.")
+
+        # 2. Get Channel & Token
+        sb = get_supabase()
+        res = sb.table("channels").select("*").eq("channel_id", channel_id).eq("user_id", user_id).execute()
+        if not res.data:
+            raise ValueError("Channel not found or does not belong to user.")
+        channel = res.data[0]
+
+        # Check expiry
+        import dateutil.parser
+        token_valid = False
+        if channel.get("token_expiry"):
+            expiry = dateutil.parser.isoparse(channel["token_expiry"])
+            if expiry > datetime.now(timezone.utc):
+                token_valid = True
+        
+        if not token_valid:
+            logger.info("Token expired/missing, refreshing for upload...")
+            new_token = await _refresh_access_token(channel)
+            if not new_token:
+                raise ValueError("Failed to refresh YouTube access token.")
+            channel["access_token"] = new_token  # Start using new token
+
+        # 3. Download from R2
+        temp_file = os.path.join(TEMP_DIR, f"upload_{project_id}.mp4")
+        logger.info("Downloading final video for upload: %s", video_url)
+        if not await download_clip_from_r2(video_url, temp_file):
+            raise ValueError("Failed to download video from R2 for upload.")
+
+        # 4. Upload to YouTube (in executor)
+        loop = asyncio.get_running_loop()
+        title = project.get("project_name", "AI Generated Video")
+        description = f"Generated by AI Agent.\n\n{project.get('input_value', '')}"
+        
+        youtube_id = await loop.run_in_executor(
+            None, 
+            upload_video_file_to_youtube, 
+            temp_file, 
+            title, 
+            description, 
+            channel
+        )
+
+        # 5. Update Project
+        # We use 'metadata' to store the ID and 'uploaded_at' from the schema
+        current_metadata = project.get("metadata") or {}
+        current_metadata["youtube_video_id"] = youtube_id
+        current_metadata["youtube_url"] = f"https://www.youtube.com/watch?v={youtube_id}"
+
+        sb.table("projects").update({
+            "metadata": current_metadata,
+            "uploaded_at": datetime.now(timezone.utc).isoformat()
+        }).eq("id", project_id).execute()
+        
+        logger.info("Project %s uploaded to YouTube successfully (ID: %s)", project_id, youtube_id)
+        return {"success": True, "youtube_id": youtube_id}
+
+    except Exception as e:
+        logger.error("Upload failed for project %s: %s", project_id, e)
+        # Update status to indicate upload failure? Or just log?
+        # Maybe don't change main status if it was 'completed', to avoid locking it.
+        # But we could have a separate 'upload_status' column if we wanted.
+        return {"error": str(e)}
+    finally:
+        if temp_file:
+            cleanup_temp_file(temp_file)
+
 def verify_channel_ownership(user_id: str, channel_id: str) -> bool:
     """Verify that a YouTube channel belongs to a specific user (profiles.id)."""
     try:
-        from app.core.config import supabase
-        result = supabase.table('channels').select('id').eq('id', channel_id).eq('user_id', user_id).execute()
+        sb = get_supabase()
+        result = sb.table('channels').select('id').eq('channel_id', channel_id).eq('user_id', user_id).execute()
         return len(result.data) > 0
     except Exception as e:
-        print(f"Error verifying channel ownership: {e}")
+        logger.error("Error verifying channel ownership: %s", e)
         return False

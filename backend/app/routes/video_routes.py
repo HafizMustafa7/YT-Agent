@@ -108,17 +108,20 @@ async def create_video_project(
 
 
 @router.get("/projects/{project_id}", response_model=Dict[str, Any])
-async def get_video_project(project_id: str):
-    """Get project with frames, assets, and status for the dashboard."""
+async def get_video_project(
+    project_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get project with frames, assets, and status with ownership check."""
     _validate_uuid(project_id, "project_id")
     try:
         project = video_service.get_project_with_frames_and_assets(project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
-        # TODO (M-9): Validate ownership when auth is added
-        # if project.get("user_id") != current_user.id:
-        #     raise HTTPException(status_code=403, detail="Not authorized")
+        # Verify ownership
+        if project.get("user_id") != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Not authorized to access this project")
 
         # Calculate progress for frontend
         frames = project.get("frames") or []
@@ -156,8 +159,12 @@ async def get_video_project(project_id: str):
 
 
 @router.post("/projects/{project_id}/generate")
-async def start_generate_all(project_id: str, background_tasks: BackgroundTasks):
-    """Start background task to generate all pending frames (Sora)."""
+async def start_generate_all(
+    project_id: str, 
+    background_tasks: BackgroundTasks,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Start background task to generate all pending frames with ownership check."""
     _validate_uuid(project_id, "project_id")
     _check_video_config()
     _check_sora_config()
@@ -167,9 +174,9 @@ async def start_generate_all(project_id: str, background_tasks: BackgroundTasks)
         if not proj:
             raise HTTPException(status_code=404, detail="Project not found")
 
-        # TODO (M-9): Validate ownership when auth is added
-        # if proj.get("user_id") != current_user.id:
-        #     raise HTTPException(status_code=403, detail="Not authorized")
+        # Verify ownership
+        if proj.get("user_id") != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Not authorized to access this project")
 
         pending = [f for f in (proj.get("frames") or []) if f.get("status") in ("pending", "failed")]
         if not pending:
@@ -191,8 +198,13 @@ async def start_generate_all(project_id: str, background_tasks: BackgroundTasks)
 
 
 @router.post("/projects/{project_id}/generate-frame")
-async def generate_one_frame(project_id: str, body: GenerateFrameRequest, background_tasks: BackgroundTasks):
-    """Generate a single frame by frame_id (UUID of project_frames row)."""
+async def generate_one_frame(
+    project_id: str, 
+    body: GenerateFrameRequest, 
+    background_tasks: BackgroundTasks,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Generate a single frame by frame_id with ownership check."""
     _validate_uuid(project_id, "project_id")
     _validate_uuid(body.frame_id, "frame_id")
     _check_video_config()
@@ -202,6 +214,10 @@ async def generate_one_frame(project_id: str, body: GenerateFrameRequest, backgr
         proj = video_service.get_project_with_frames_and_assets(project_id)
         if not proj:
             raise HTTPException(status_code=404, detail="Project not found")
+
+        # Verify ownership
+        if proj.get("user_id") != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Not authorized to access this project")
 
         frame = next(
             (f for f in (proj.get("frames") or []) if str(f.get("id")) == body.frame_id),
@@ -232,8 +248,12 @@ async def generate_one_frame(project_id: str, body: GenerateFrameRequest, backgr
 
 
 @router.post("/projects/{project_id}/combine")
-async def combine_videos(project_id: str, background_tasks: BackgroundTasks):
-    """Combine all completed clips into one video (FFmpeg) and upload to Cloudflare R2."""
+async def combine_videos(
+    project_id: str, 
+    background_tasks: BackgroundTasks,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Combine all completed clips into one video with ownership check."""
     _validate_uuid(project_id, "project_id")
     _check_video_config()
     _check_sora_config()
@@ -242,6 +262,10 @@ async def combine_videos(project_id: str, background_tasks: BackgroundTasks):
         proj = video_service.get_project_with_frames_and_assets(project_id)
         if not proj:
             raise HTTPException(status_code=404, detail="Project not found")
+
+        # Verify ownership
+        if proj.get("user_id") != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Not authorized to access this project")
 
         completed = [f for f in (proj.get("frames") or []) if f.get("status") == "completed"]
         if not completed:
@@ -266,8 +290,46 @@ async def combine_videos(project_id: str, background_tasks: BackgroundTasks):
             "message": f"Combining {len(completed)} clips. Check back shortly.",
             "clips_count": len(completed),
         }
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error("Error starting combine for project %s: %s", project_id, e)
         raise HTTPException(status_code=500, detail=f"Failed to start combine: {str(e)}")
+
+
+@router.post("/projects/{project_id}/upload")
+async def upload_to_youtube(
+    project_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Upload the combined video to the linked YouTube channel.
+    Requires project to have 'video_url' and 'channel_id'.
+    """
+    _validate_uuid(project_id, "project_id")
+    try:
+        proj = video_service.get_project_with_frames_and_assets(project_id)
+        if not proj:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Verify ownership
+        if proj.get("user_id") != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Not authorized to access this project")
+
+        if not proj.get("channel_id"):
+            raise HTTPException(status_code=400, detail="No YouTube channel linked to this project.")
+
+        if not proj.get("video_url"):
+            raise HTTPException(status_code=400, detail="No video generated yet. Run combine first.")
+
+        background_tasks.add_task(video_service.upload_project_to_youtube, project_id)
+        logger.info("Started YouTube upload for project %s", project_id)
+
+        return {
+            "success": True,
+            "message": "YouTube upload started in background.",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error starting upload for project %s: %s", project_id, e)
+        raise HTTPException(status_code=500, detail=f"Failed to start upload: {str(e)}")

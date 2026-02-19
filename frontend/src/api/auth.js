@@ -4,8 +4,6 @@ import { showErrorToast, showSuccessToast, getFriendlyErrorMessage } from "../li
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
-console.log("[DEBUG] API Base URL:", API_BASE_URL);
-
 // Create axios instance with base configuration
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -14,72 +12,33 @@ const api = axios.create({
 
 // 🔹 Attach Supabase access token on every request
 api.interceptors.request.use(async (config) => {
-  console.log(`[API REQUEST] ${config.method?.toUpperCase()} ${config.url}`);
-
-  // Get session from Supabase (async)
-  let session = null;
   try {
-    const { data: { session: supabaseSession }, error } = await supabase.auth.getSession();
-    if (!error && supabaseSession) {
-      session = supabaseSession;
+    const { data: { session }, error } = await supabase.auth.getSession();
+
+    if (session?.access_token) {
+      config.headers.Authorization = `Bearer ${session.access_token}`;
     }
   } catch (err) {
-    console.log("[API REQUEST] Could not get session from Supabase:", err.message);
+    console.error("[API REQUEST] Auth interceptor error:", err.message);
   }
-
-  // If no session from Supabase, try localStorage as fallback
-  if (!session) {
-    const sessionData = localStorage.getItem('supabase.auth.token');
-    if (sessionData) {
-      try {
-        const parsedSession = JSON.parse(sessionData);
-        // Check if session is still valid
-        if (parsedSession?.expires_at && Date.now() / 1000 < parsedSession.expires_at) {
-          session = parsedSession;
-        } else {
-          console.log("[API REQUEST] Stored session expired, removing");
-          localStorage.removeItem('supabase.auth.token');
-        }
-      } catch (err) {
-        console.error("[FRONTEND ERROR] Failed to parse session data:", err);
-        localStorage.removeItem('supabase.auth.token');
-      }
-    }
-  }
-
-  if (session?.access_token) {
-    config.headers.Authorization = `Bearer ${session.access_token}`;
-    console.log("[API REQUEST] Authorization header attached");
-  } else {
-    console.warn("[API REQUEST] No access token found");
-  }
-
   return config;
 });
 
 // 🔹 Handle response errors globally
 api.interceptors.response.use(
   (response) => {
-    console.log(`[API RESPONSE] ${response.status} ${response.config.url}`);
     return response;
   },
-  (error) => {
-    console.error(`[API ERROR] ${error.config?.method?.toUpperCase()} ${error.config?.url}:`, error.response?.status, error.response?.data || error.message);
+  async (error) => {
+    const status = error.response?.status;
+    const url = error.config?.url || '';
 
-    // Handle 401 Unauthorized - but be more careful about clearing session
-    if (error.response?.status === 401) {
-      console.warn("[API ERROR] 401 Unauthorized");
+    if (status === 401) {
+      console.warn("[API ERROR] 401 Unauthorized at", url);
 
-      // Only clear session if it's not an OAuth-related request that might be retried
-      const url = error.config?.url || '';
-      if (!url.includes('/sync') && !url.includes('/me') && !url.includes('/login')) {
-        console.warn("[API ERROR] Clearing session due to 401");
-        localStorage.removeItem('supabase.auth.token');
-        // Optionally redirect to login page
-        // window.location.href = '/login';
-      } else {
-        console.warn("[API ERROR] Not clearing session for OAuth-related or login request");
-      }
+      // If it's a 401, the session might be truly invalid
+      // We don't sign out automatically here to avoid clearing state on transient 401s
+      // but we log it for debugging.
     }
 
     return Promise.reject(error);
@@ -176,29 +135,6 @@ export const getCurrentUser = async () => {
     return response.data;
   } catch (err) {
     console.error("[FRONTEND ERROR] Fetching current user failed:", err.response?.data || err.message);
-    throw err;
-  }
-};
-
-/**
- * Start Drive OAuth flow
- */
-export const startDriveOAuth = async () => {
-  try {
-    // Manually attach token to ensure it works
-    const { data: { session }, error } = await supabase.auth.getSession();
-    if (error || !session?.user) {
-      throw new Error("No active session found");
-    }
-
-    const response = await api.post("/api/drive/oauth/start", {}, {
-      headers: {
-        Authorization: `Bearer ${session.access_token}`
-      }
-    });
-    return response.data;
-  } catch (err) {
-    console.error("[FRONTEND ERROR] Starting Drive OAuth failed:", err.response?.data || err.message);
     throw err;
   }
 };
