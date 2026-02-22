@@ -67,41 +67,86 @@ def extract_json_from_text(text: str) -> List[Dict]:
 
 
 def extract_json_object_from_text(text: str) -> Dict[str, Any]:
-    """Extract a JSON object from AI response text."""
+    """Extract a JSON object from AI response text.
+    
+    If LLM returns an array of scene objects (e.g. [{"scene_number": 1, "frames": [...]}]),
+    this function will flatten them into {"frames": [all frames merged]} so downstream
+    code expecting {"frames": [...]} still works.
+    """
     logger.debug("Attempting to extract JSON object from text of length: %d", len(text))
+
+    def _normalize_to_dict(parsed: Any) -> Dict[str, Any]:
+        """Convert parsed JSON to dict, handling array-of-scenes format."""
+        if isinstance(parsed, dict):
+            return parsed
+        if isinstance(parsed, list) and parsed:
+            # Check if it's an array of scene objects with nested "frames"
+            all_frames = []
+            for item in parsed:
+                if isinstance(item, dict):
+                    if "frames" in item and isinstance(item["frames"], list):
+                        # Add scene_number to each frame if present
+                        scene_num = item.get("scene_number")
+                        for frame in item["frames"]:
+                            if isinstance(frame, dict):
+                                if scene_num is not None and "scene_number" not in frame:
+                                    frame["scene_number"] = scene_num
+                                all_frames.append(frame)
+                    else:
+                        # Item itself might be a frame
+                        all_frames.append(item)
+            if all_frames:
+                return {"frames": all_frames}
+        return {}
 
     # First try to parse entire text as object
     try:
         result = json.loads(text.strip())
-        if isinstance(result, dict):
-            return result
+        normalized = _normalize_to_dict(result)
+        if normalized:
+            return normalized
     except json.JSONDecodeError as e:
         logger.debug("Could not parse entire text as object: %s", e)
 
-    # Try code block object
+    # Try code block (object or array)
     try:
-        code_block_match = re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', text, re.IGNORECASE)
+        code_block_match = re.search(r'```(?:json)?\s*([\{\[][\s\S]*?[\}\]])\s*```', text, re.IGNORECASE)
         if code_block_match:
             result = json.loads(code_block_match.group(1))
-            if isinstance(result, dict):
-                return result
+            normalized = _normalize_to_dict(result)
+            if normalized:
+                return normalized
     except json.JSONDecodeError as e:
-        logger.debug("Could not parse code block object JSON: %s", e)
+        logger.debug("Could not parse code block JSON: %s", e)
 
-    # Try outermost object
+    # Try outermost object or array
     try:
-        start = text.find('{')
-        end = text.rfind('}') + 1
+        # Find first { or [ and matching last } or ]
+        obj_start = text.find('{')
+        arr_start = text.find('[')
+        
+        if obj_start != -1 and (arr_start == -1 or obj_start < arr_start):
+            # Object comes first
+            start = obj_start
+            end = text.rfind('}') + 1
+        elif arr_start != -1:
+            # Array comes first
+            start = arr_start
+            end = text.rfind(']') + 1
+        else:
+            start, end = -1, 0
+            
         if start != -1 and end > start:
             json_str = text[start:end]
             json_str = re.sub(r',\s*}', '}', json_str)
             json_str = re.sub(r',\s*]', ']', json_str)
             json_str = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', json_str)
             result = json.loads(json_str)
-            if isinstance(result, dict):
-                return result
+            normalized = _normalize_to_dict(result)
+            if normalized:
+                return normalized
     except json.JSONDecodeError as e:
-        logger.debug("Could not parse extracted JSON object: %s", e)
+        logger.debug("Could not parse extracted JSON: %s", e)
 
     logger.warning("All JSON object extraction methods failed. First 500 chars: %s", text[:500])
     return {}
