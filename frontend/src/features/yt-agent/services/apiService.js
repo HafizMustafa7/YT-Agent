@@ -36,7 +36,18 @@ const callApi = async (endpoint, payload, timeout = TIMEOUTS.DEFAULT) => {
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.detail || `Request failed with status ${response.status}`);
+            let message = `Request failed with status ${response.status}`;
+
+            if (Array.isArray(errorData.detail)) {
+                // FastAPI/Pydantic validation errors (422) arrive as an array.
+                message = errorData.detail
+                    .map((d) => `${(d.loc || []).join('.')} - ${d.msg}`)
+                    .join(' | ');
+            } else if (typeof errorData.detail === 'string' && errorData.detail.trim()) {
+                message = errorData.detail;
+            }
+
+            throw new Error(message);
         }
 
         return response.json();

@@ -138,8 +138,8 @@ async def generate_story(request: GenerateStoryRequest, current_user: dict = Dep
         # Build creative brief from preferences
         creative_brief = build_creative_brief(request.creative_preferences.model_dump())
         
-        # Generate story with creative brief — timeout after 120s
-        # (makes 3 sequential LLM calls that can each take 10-20s)
+        # Generate story with creative brief — timeout after 300s
+        # (multi-stage LLM pipeline; needs higher ceiling to avoid mid-run cutoff)
         story_result = await asyncio.wait_for(
             generate_story_and_frames(
                 selected_video=request.selected_video,
@@ -147,7 +147,7 @@ async def generate_story(request: GenerateStoryRequest, current_user: dict = Dep
                 creative_brief=creative_brief,
                 video_duration=creative_brief.get("duration_seconds", settings.DEFAULT_VIDEO_DURATION),
             ),
-            timeout=120.0,
+            timeout=300.0,
         )
         
         return {
@@ -157,7 +157,7 @@ async def generate_story(request: GenerateStoryRequest, current_user: dict = Dep
         }
         
     except asyncio.TimeoutError:
-        logger.error("Story generation timed out after 120s for topic: %s", request.topic[:50])
+        logger.error("Story generation timed out after 300s for topic: %s", request.topic[:50])
         raise HTTPException(
             status_code=504,
             detail="Story generation timed out. The AI service is taking too long. Please try again."

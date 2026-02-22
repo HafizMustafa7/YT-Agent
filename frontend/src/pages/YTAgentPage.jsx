@@ -117,21 +117,52 @@ function YTAgentPage() {
     const handleGenerateVideo = async (result, channelId) => {
         setError(null);
         const story = result?.story || {};
-        const frames = story?.frames || [];
-        if (!frames.length) {
+        const frames = Array.isArray(story?.frames) ? story.frames : [];
+        if (frames.length === 0) {
             setError('No frames to create video project.');
             return;
         }
+
+        const normalizeFrameNumber = (value, fallback) => {
+            const n = Number.parseInt(value, 10);
+            return Number.isFinite(n) && n >= 1 ? n : fallback;
+        };
+
+        const normalizeDuration = (value) => {
+            const allowed = [4, 8, 12];
+            const raw = Number(value);
+            if (!Number.isFinite(raw)) return 8;
+            return allowed.reduce((prev, curr) =>
+                Math.abs(curr - raw) < Math.abs(prev - raw) ? curr : prev
+            );
+        };
+
+        const normalizedFrames = frames
+            .map((f, idx) => {
+                const aiVideoPrompt = String(
+                    f?.ai_video_prompt ?? f?.video_prompt ?? f?.prompt ?? ''
+                ).trim().slice(0, 5000);
+
+                return {
+                    frame_num: normalizeFrameNumber(f?.frame_num, idx + 1),
+                    ai_video_prompt: aiVideoPrompt,
+                    scene_description: f?.scene_description ? String(f.scene_description) : null,
+                    duration_seconds: normalizeDuration(f?.duration_seconds),
+                };
+            })
+            // Backend requires ai_video_prompt min_length=1
+            .filter((f) => f.ai_video_prompt.length > 0);
+
+        if (normalizedFrames.length === 0) {
+            setError('Generated frames are missing ai_video_prompt. Please regenerate the story.');
+            return;
+        }
+
+        const normalizedTitle = String(story?.title || 'Story Video').trim();
         const payload = {
-            title: story.title || 'Story Video',
-            frames: frames.map((f, idx) => ({
-                frame_num: f.frame_num || idx + 1,
-                ai_video_prompt: f.ai_video_prompt || '',
-                scene_description: f.scene_description || null,
-                duration_seconds: [4, 8, 12].reduce((prev, curr) =>
-                    Math.abs(curr - (f.duration_seconds || 8)) < Math.abs(prev - (f.duration_seconds || 8)) ? curr : prev
-                ),
-            })),
+            // Backend schema: title max_length=255
+            title: (normalizedTitle || 'Story Video').slice(0, 255),
+            frames: normalizedFrames,
         };
         try {
             const res = await apiService.createVideoProject(payload.title, payload.frames, channelId);

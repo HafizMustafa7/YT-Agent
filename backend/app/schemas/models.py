@@ -35,7 +35,13 @@ class CreativePreferencesRequest(BaseModel):
     camera_movement: str = Field(..., description="Camera movement style")
     effects: str = Field(..., description="Visual effects preference")
     story_format: str = Field(..., description="Story format (e.g., narrative, documentary)")
-    duration_seconds: int = Field(..., description="Video duration in seconds")
+    duration_seconds: int = Field(
+        ...,
+        description="Video duration in seconds (10-180, step 10)",
+        ge=10,
+        le=180,
+        multiple_of=10,
+    )
     constraints: List[str] = Field(
         default_factory=list, 
         description="Additional constraints or requirements"
