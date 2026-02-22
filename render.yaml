@@ -4,7 +4,7 @@ services:
     name: yt-agent-backend
     env: docker
     dockerContext: ./backend
-    dockerfile: Dockerfile
+    dockerfilePath: Dockerfile
     plan: free # or your preferred plan
     autoDeploy: true
     envVars:
