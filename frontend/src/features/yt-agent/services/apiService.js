@@ -6,6 +6,12 @@
 import { API_BASE_URL, ENDPOINTS, TIMEOUTS } from '../config/constants';
 import { supabase } from '../../../supabaseClient';
 
+const buildApiUrl = (endpoint) => {
+    const safeBase = (API_BASE_URL || '').replace(/\/+$/, '');
+    const safeEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    return safeBase ? `${safeBase}${safeEndpoint}` : safeEndpoint;
+};
+
 /**
  * Generic API POST call function
  * @param {string} endpoint - API endpoint path
@@ -22,7 +28,7 @@ const callApi = async (endpoint, payload, timeout = TIMEOUTS.DEFAULT) => {
     const token = session?.access_token;
 
     try {
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        const response = await fetch(buildApiUrl(endpoint), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -77,7 +83,7 @@ const callApiGet = async (endpoint, timeout = TIMEOUTS.DEFAULT) => {
     const token = session?.access_token;
 
     try {
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        const response = await fetch(buildApiUrl(endpoint), {
             headers: {
                 ...(token && { 'Authorization': `Bearer ${token}` })
             },

@@ -2,7 +2,7 @@ import axios from "axios";
 import { supabase } from "../supabaseClient";
 import { showErrorToast, showSuccessToast, getFriendlyErrorMessage } from "../lib/errorUtils";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "";
+const API_BASE_URL = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
 // Create axios instance with base configuration
 const api = axios.create({

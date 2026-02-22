@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import apiService from "../features/yt-agent/services/apiService";
+import { supabase } from "../supabaseClient";
 
 const SelectedChannelContext = createContext({
   channels: [],
@@ -46,6 +47,13 @@ export function SelectedChannelProvider({ children }) {
     const init = async () => {
       setLoading(true);
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          setChannels([]);
+          setSelectedChannelIdState(null);
+          return;
+        }
+
         const res = await apiService.listChannels();
         const list = Array.isArray(res) ? res : (res?.items || []);
 
@@ -84,6 +92,13 @@ export function SelectedChannelProvider({ children }) {
   const refreshChannels = async () => {
     setLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setChannels([]);
+        setSelectedChannelId(null);
+        return;
+      }
+
       const res = await apiService.listChannels();
       const list = Array.isArray(res) ? res : (res?.items || []);
 

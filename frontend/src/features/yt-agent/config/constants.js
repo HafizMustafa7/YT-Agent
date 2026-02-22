@@ -5,7 +5,7 @@
 
 // API Configuration
 // Vite uses import.meta.env for environment variables
-export const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+export const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
 export const API_VERSION = 'v1';
 export const API_PREFIX = `/api/${API_VERSION}`;
 

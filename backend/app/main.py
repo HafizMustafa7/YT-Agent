@@ -68,13 +68,20 @@ async def global_exception_handler(request: Request, exc: Exception):
 # ---------------------------------------------------------------------------
 # CORS
 # ---------------------------------------------------------------------------
-# Allow all for local dev, or use specific FRONTEND_URL
-origins = ["*"]
+# For credentialed requests, wildcard origin cannot be used.
+# FRONTEND_URL supports either a single URL or comma-separated URLs.
+origins = []
 if FRONTEND_URL:
-    origins.append(FRONTEND_URL)
-    # Also add standard docker/dev origins for safety
-    if "localhost" in FRONTEND_URL:
-        origins.extend(["http://localhost", "http://127.0.0.1"])
+    origins = [o.strip().rstrip("/") for o in FRONTEND_URL.split(",") if o.strip()]
+
+# Local development safety defaults if no explicit frontend origin was set.
+if not origins:
+    origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost",
+        "http://127.0.0.1",
+    ]
 
 app.add_middleware(
     CORSMiddleware,
