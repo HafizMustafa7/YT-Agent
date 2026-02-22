@@ -23,41 +23,42 @@ class RedisCache:
         
         if self.enabled:
             try:
-                # Redis Cloud connection with SSL support
-                connection_params = {
-                    "host": settings.REDIS_HOST,
-                    "port": settings.REDIS_PORT,
-                    "password": settings.REDIS_PASSWORD if settings.REDIS_PASSWORD else None,
-                    "db": settings.REDIS_DB,
+                # Common connection params
+                common_params = {
                     "decode_responses": True,
                     "max_connections": settings.REDIS_MAX_CONNECTIONS,
                     "socket_timeout": settings.REDIS_SOCKET_TIMEOUT,
                     "socket_connect_timeout": settings.REDIS_SOCKET_CONNECT_TIMEOUT,
                 }
-                
-                # Try with SSL first if enabled
-                if settings.REDIS_SSL:
-                    try:
+
+                if settings.REDIS_URL:
+                    # Initialize from URL (e.g., Render)
+                    self.client = redis.Redis.from_url(settings.REDIS_URL, **common_params)
+                    self.client.ping()
+                    logger.info("Redis connected successfully via REDIS_URL")
+                else:
+                    # Fallback to host/port (e.g., local or Redis Cloud)
+                    connection_params = {
+                        "host": settings.REDIS_HOST,
+                        "port": settings.REDIS_PORT,
+                        "password": settings.REDIS_PASSWORD if settings.REDIS_PASSWORD else None,
+                        "db": settings.REDIS_DB,
+                        **common_params
+                    }
+                    
+                    # Try with SSL first if enabled
+                    if settings.REDIS_SSL:
                         import ssl
                         connection_params["ssl"] = True
                         connection_params["ssl_cert_reqs"] = ssl.CERT_NONE
                         self.client = redis.Redis(**connection_params)
                         self.client.ping()
                         logger.info("Redis connected successfully (SSL) to %s:%s", settings.REDIS_HOST, settings.REDIS_PORT)
-                    except Exception as ssl_error:
-                        logger.warning("SSL connection failed: %s", ssl_error)
-                        logger.info("Retrying without SSL...")
-                        # Retry without SSL
-                        connection_params.pop("ssl", None)
-                        connection_params.pop("ssl_cert_reqs", None)
+                    else:
+                        # Connect without SSL
                         self.client = redis.Redis(**connection_params)
                         self.client.ping()
-                        logger.info("Redis connected successfully (non-SSL) to %s:%s", settings.REDIS_HOST, settings.REDIS_PORT)
-                else:
-                    # Connect without SSL
-                    self.client = redis.Redis(**connection_params)
-                    self.client.ping()
-                    logger.info("Redis connected successfully to %s:%s", settings.REDIS_HOST, settings.REDIS_PORT)
+                        logger.info("Redis connected successfully to %s:%s", settings.REDIS_HOST, settings.REDIS_PORT)
                 
                 logger.info("Cache TTL: %ds (%.1f hours)", self.ttl, self.ttl / 3600)
             except redis.ConnectionError as e:
