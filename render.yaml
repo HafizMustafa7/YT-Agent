@@ -1,0 +1,47 @@
+services:
+  # Backend Web Service
+  - type: web
+    name: yt-agent-backend
+    env: docker
+    dockerContext: ./backend
+    dockerfile: Dockerfile
+    plan: free # or your preferred plan
+    autoDeploy: true
+    envVars:
+      - key: REDIS_ENABLED
+        value: "true"
+      - key: REDIS_HOST
+        fromService:
+          type: redis
+          name: yt-agent-redis
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          type: redis
+          name: yt-agent-redis
+          property: port
+      - key: REDIS_PASSWORD
+        fromService:
+          type: redis
+          name: yt-agent-redis
+          property: password
+      - key: REDIS_DB
+        value: "0"
+      - key: REDIS_SSL
+        value: "false"
+
+      # Core Keys (Must be manually set in dashboard or added here if public)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+
+  # Redis Instance
+  - type: redis
+    name: yt-agent-redis
+    plan: free
+    ipAllowList: [] # Only allow internal access from services
