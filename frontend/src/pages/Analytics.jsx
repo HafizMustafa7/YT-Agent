@@ -37,9 +37,9 @@ const Analytics = () => {
 
   const loadChannels = async () => {
     try {
-      const data = await apiService.getChannelsForAnalysis();
-      setChannels(data.channels || []);
-      if (data.channels.length === 0) {
+      const data = await apiService.listChannels();
+      setChannels(data || []);
+      if (!data || data.length === 0) {
         setError('No channels found in database. Please add some channels first.');
       }
     } catch (err) {
@@ -55,11 +55,20 @@ const Analytics = () => {
     setError('');
 
     try {
+      // Clear previous video data to avoid confusion during long loads
+      setVideosData([]);
+      setShowStats(false);
+
       const data = await apiService.getChannelAnalytics(selectedChannel);
+
+      if (!data || !data.videos) {
+        throw new Error('No data received from YouTube API.');
+      }
+
       setVideosData(data.videos || []);
 
       const avgEngagement = data.videos.length > 0
-        ? data.videos.reduce((sum, video) => sum + video.engagement_rate, 0) / data.videos.length
+        ? data.videos.reduce((sum, video) => sum + (video.engagement_rate || 0), 0) / data.videos.length
         : 0;
 
       setStatsData({
@@ -72,7 +81,13 @@ const Analytics = () => {
       setShowStats(true);
     } catch (err) {
       console.error('Error loading analytics:', err);
-      setError(`Failed to load channel analytics: ${err.message}`);
+      const isTimeout = err.message?.toLowerCase().includes('timeout') || err.code === 'ECONNABORTED';
+
+      if (isTimeout) {
+        setError('Request timed out while fetching large channel data. YouTube is taking too long to respond.');
+      } else {
+        setError(`Failed to load channel analytics: ${err.message || 'Unknown error'}`);
+      }
       setShowStats(false);
     } finally {
       setLoading(false);
@@ -346,7 +361,15 @@ const Analytics = () => {
           <div className={`rounded-3xl p-6 shadow-2xl max-h-[80vh] overflow-y-auto backdrop-blur-sm transition-colors duration-500 ${isDarkTheme ? 'bg-white bg-opacity-10 border border-white/10 text-white' : 'bg-white bg-opacity-95 text-gray-800'}`}>
             <h2 className="mb-5 text-2xl font-bold">Channel Videos</h2>
             {error && (
-              <div className="p-4 mb-4 text-red-800 bg-red-100 border-l-4 border-red-500 rounded-xl">{error}</div>
+              <div className="p-4 mb-4 text-red-800 bg-red-100 border-l-4 border-red-500 rounded-xl">
+                <p className="mb-2 font-medium">{error}</p>
+                <button
+                  onClick={loadChannelAnalytics}
+                  className="px-3 py-1 text-xs font-bold text-white uppercase transition-colors bg-red-600 rounded-lg hover:bg-red-700"
+                >
+                  Retry Load
+                </button>
+              </div>
             )}
             {loading && <div className="py-8 text-center text-gray-500">Loading videos...</div>}
             {!loading && videosData.length === 0 && !error && (

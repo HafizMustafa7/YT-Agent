@@ -16,6 +16,8 @@ import httpx
 _TTL_CHANNELS_LIST = 300   # 5 min — channel list changes rarely
 _TTL_STATS         = 900   # 15 min — subscriber/video counts
 
+from app.core_yt.google_service import get_google_http_client, refresh_youtube_token, fetch_channel_thumbnail
+
 router = APIRouter(tags=["Channels"])
 logger = logging.getLogger(__name__)
 
@@ -244,27 +246,12 @@ async def list_channels(current_user: dict = Depends(get_current_user)):
                 logger.warning("[CHANNELS] Invalid token_expiry format for channel %s: %s", channel.get("channel_id"), e)
         channel["token_valid"] = token_valid
 
-        # Fetch fresh channel thumbnails from YouTube API
+        # Fetch fresh channel thumbnails using optimized google_service
         try:
             if token_valid:
-                creds = Credentials(
-                    token=channel["access_token"],
-                    refresh_token=channel.get("refresh_token"),
-                    token_uri="https://oauth2.googleapis.com/token",
-                    client_id=GOOGLE_CLIENT_ID,
-                    client_secret=GOOGLE_CLIENT_SECRET,
-                    scopes=SCOPES,
-                )
-                youtube = build("youtube", "v3", credentials=creds)
-                response = youtube.channels().list(part="snippet", id=channel["channel_id"]).execute()
-                items = response.get("items", [])
-                if items:
-                    thumbnails = items[0].get("snippet", {}).get("thumbnails", {})
-                    channel["thumbnail_url"] = (
-                        thumbnails.get("high", {}).get("url")
-                        or thumbnails.get("medium", {}).get("url")
-                        or thumbnails.get("default", {}).get("url")
-                    )
+                thumb_url = await fetch_channel_thumbnail(channel["channel_id"], channel["access_token"])
+                if thumb_url:
+                    channel["thumbnail_url"] = thumb_url
         except Exception as e:
             logger.warning("[CHANNELS] Failed to fetch thumbnail for channel %s: %s", channel.get("channel_id"), e)
 
@@ -291,7 +278,7 @@ async def refresh_youtube_token(current_user: dict = Depends(get_current_user)):
         if not channel.get("refresh_token"):
             raise HTTPException(status_code=400, detail="No refresh token available")
 
-        refreshed = await _refresh_youtube_token(channel)
+        refreshed = await refresh_youtube_token(channel)
         if not refreshed:
             raise HTTPException(status_code=400, detail="Failed to refresh YouTube token")
 
@@ -303,58 +290,7 @@ async def refresh_youtube_token(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-async def _refresh_youtube_token(channel) -> bool:
-    """Refresh YouTube access token using httpx (non-blocking)."""
-    from datetime import datetime, timezone, timedelta
-
-    refresh_token = channel.get("refresh_token")
-    logger.info("[CHANNELS] Refreshing token for channel '%s'", channel.get("channel_name"))
-    if not refresh_token:
-        logger.warning("[CHANNELS] No refresh token available for channel %s", channel.get("channel_id"))
-        return False
-
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(
-                "https://oauth2.googleapis.com/token",
-                data={
-                    "client_id": GOOGLE_CLIENT_ID,
-                    "client_secret": GOOGLE_CLIENT_SECRET,
-                    "refresh_token": refresh_token,
-                    "grant_type": "refresh_token",
-                },
-            )
-        token_data = response.json()
-        logger.debug("[CHANNELS] Token refresh response status: %d", response.status_code)
-
-        if response.status_code == 400 and token_data.get("error") == "invalid_grant":
-            logger.warning(
-                "[CHANNELS] Refresh token invalid for user %s — disconnecting channel",
-                channel.get("user_id"),
-            )
-            supabase.table("channels").delete().eq("user_id", channel["user_id"]).execute()
-            return False
-
-        response.raise_for_status()
-
-        access_token = token_data.get("access_token")
-        expires_in = token_data.get("expires_in")
-
-        if not access_token or not expires_in:
-            logger.error("[CHANNELS] Token refresh response missing access_token or expires_in")
-            return False
-
-        new_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-        supabase.table("channels").update({
-            "access_token": access_token,
-            "token_expiry": new_expiry.isoformat(),
-        }).eq("user_id", channel["user_id"]).execute()
-
-        logger.info("[CHANNELS] Token refreshed for user %s", channel.get("user_id"))
-        return True
-    except Exception as e:
-        logger.error("[CHANNELS] Failed to refresh token: %s", e)
-        return False
+# Note: _refresh_youtube_token is now handled by google_service.py
 
 
 @router.get("/stats/{channel_id}")

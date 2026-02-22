@@ -1,5 +1,5 @@
 # Build stage
-FROM node:18-alpine AS build
+FROM node:20-alpine AS build
 
 # Add build arguments for Vite
 ARG VITE_API_URL

@@ -147,7 +147,7 @@ async def generate_story(request: GenerateStoryRequest, current_user: dict = Dep
                 creative_brief=creative_brief,
                 video_duration=creative_brief.get("duration_seconds", settings.DEFAULT_VIDEO_DURATION),
             ),
-            timeout=300.0,
+            timeout=settings.STORY_GENERATION_TIMEOUT,
         )
         
         return {
@@ -157,7 +157,7 @@ async def generate_story(request: GenerateStoryRequest, current_user: dict = Dep
         }
         
     except asyncio.TimeoutError:
-        logger.error("Story generation timed out after 300s for topic: %s", request.topic[:50])
+        logger.error("Story generation timed out after %ds for topic: %s", settings.STORY_GENERATION_TIMEOUT, request.topic[:50])
         raise HTTPException(
             status_code=504,
             detail="Story generation timed out. The AI service is taking too long. Please try again."

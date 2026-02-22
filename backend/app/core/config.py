@@ -46,6 +46,7 @@ class Settings:
     # Story Generation Settings
     DEFAULT_VIDEO_DURATION: int = 60
     MAX_FRAMES: int = 5
+    STORY_GENERATION_TIMEOUT: int = 600  # 10 minutes
 
     # Video Generation (Sora 2 + R2)
     SORA_MODEL: str = os.getenv("SORA_MODEL", "sora-2")

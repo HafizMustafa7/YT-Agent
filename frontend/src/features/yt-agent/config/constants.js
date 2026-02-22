@@ -37,7 +37,7 @@ export const APP_VERSION = '1.0.0';
 
 // Request Timeouts (in milliseconds)
 export const TIMEOUTS = {
-    DEFAULT: 30000,  // 30 seconds
-    STORY_GENERATION: 300000,  // 5 minutes for AI generation
+    DEFAULT: 60000,  // 60 seconds
+    STORY_GENERATION: 600000,  // 10 minutes for AI generation
     VIDEO_OPERATION: 60000,    // 1 minute for video API calls
 };

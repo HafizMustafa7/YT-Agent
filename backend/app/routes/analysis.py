@@ -16,158 +16,66 @@ from app.core_yt.redis_cache import redis_cache
 # Cache TTLs
 _TTL_ANALYTICS = 3600  # 1 hour — expensive multi-page YouTube API call
 
+from app.core_yt.google_service import get_google_http_client, refresh_youtube_token
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-# ---------------------------------------------------------------------------
-# Shared HTTP client helper — reused across calls to avoid connection churn
-# ---------------------------------------------------------------------------
-
-def _make_client(timeout: float = 30.0) -> httpx.AsyncClient:
-    """Create a short-lived async client for YouTube API calls."""
-    return httpx.AsyncClient(timeout=timeout)
-
-
-# ---------------------------------------------------------------------------
-# Helper: refresh YouTube access token
-# ---------------------------------------------------------------------------
-
-async def refresh_access_token(refresh_token: str) -> str:
-    """Refresh YouTube API access token using stored OAuth credentials."""
-    logger.info("Starting token refresh process...")
-
-    client_id = os.getenv("GOOGLE_CLIENT_ID") or os.getenv("YOUTUBE_CLIENT_ID")
-    client_secret = os.getenv("GOOGLE_CLIENT_SECRET") or os.getenv("YOUTUBE_CLIENT_SECRET")
-
-    logger.debug(
-        "Credential check — GOOGLE_CLIENT_ID: %s, GOOGLE_CLIENT_SECRET: %s",
-        "set" if client_id else "missing",
-        "set" if client_secret else "missing",
-    )
-
-    if not client_id:
-        raise HTTPException(
-            status_code=500,
-            detail="No CLIENT_ID found. Set GOOGLE_CLIENT_ID or YOUTUBE_CLIENT_ID.",
-        )
-    if not client_secret:
-        raise HTTPException(
-            status_code=500,
-            detail="No CLIENT_SECRET found. Set GOOGLE_CLIENT_SECRET or YOUTUBE_CLIENT_SECRET.",
-        )
-
-    try:
-        async with _make_client() as http_client:
-            response = await http_client.post(
-                "https://oauth2.googleapis.com/token",
-                data={
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                    "refresh_token": refresh_token,
-                    "grant_type": "refresh_token",
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
-
-        logger.debug("Token refresh response status: %d", response.status_code)
-
-        if response.status_code == 200:
-            response_data = response.json()
-            new_token = response_data.get("access_token")
-            if new_token:
-                logger.info("Token refresh successful.")
-                return new_token
-            raise HTTPException(
-                status_code=401,
-                detail=f"Token refresh returned no access_token: {response_data}",
-            )
-
-        if response.status_code == 400:
-            try:
-                error_data = response.json()
-                error_type = error_data.get("error", "unknown_error")
-                error_description = error_data.get("error_description", "Unknown error")
-            except Exception:
-                error_type = "parse_error"
-                error_description = response.text
-
-            if "invalid_grant" in error_description.lower() or error_type == "invalid_grant":
-                raise HTTPException(
-                    status_code=401,
-                    detail="Refresh token is invalid or expired. Please re-authenticate your YouTube channel.",
-                )
-            raise HTTPException(status_code=401, detail=f"Token refresh failed: {error_description}")
-
-        raise HTTPException(
-            status_code=401,
-            detail=f"Token refresh failed with status {response.status_code}",
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Token refresh exception: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Token refresh error: {e}")
-
 
 # ---------------------------------------------------------------------------
 # Helper: fetch all channel videos
 # ---------------------------------------------------------------------------
 
 async def get_channel_videos(access_token: str, channel_id: str) -> List[Dict]:
-    """Fetch all videos from a YouTube channel.
-
-    Uses a single httpx client for the entire paginated fetch (avoids
-    connection setup overhead per page).
-    """
+    """Fetch all videos from a YouTube channel with shared client and higher timeout."""
     logger.info("Fetching videos for channel: %s", channel_id)
     videos: List[Dict] = []
     next_page_token: Optional[str] = None
     page_count = 0
     max_pages = 10
 
-    # Single client for all pages — avoids repeated connection setup
-    async with _make_client() as client:
-        while page_count < max_pages:
-            params: Dict[str, Any] = {
-                "part": "snippet",
-                "channelId": channel_id,
-                "maxResults": 50,
-                "order": "date",
-                "type": "video",
-            }
-            if next_page_token:
-                params["pageToken"] = next_page_token
+    client = await get_google_http_client()
+    while page_count < max_pages:
+        params: Dict[str, Any] = {
+            "part": "snippet",
+            "channelId": channel_id,
+            "maxResults": 50,
+            "order": "date",
+            "type": "video",
+        }
+        if next_page_token:
+            params["pageToken"] = next_page_token
 
-            logger.debug("Fetching video page %d", page_count + 1)
+        logger.debug("Fetching video page %d", page_count + 1)
 
-            response = await client.get(
-                "https://www.googleapis.com/youtube/v3/search",
-                headers={"Authorization": f"Bearer {access_token}"},
-                params=params,
-            )
+        # Higher timeout for search API (60s)
+        response = await client.get(
+            "https://www.googleapis.com/youtube/v3/search",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params=params,
+            timeout=60.0
+        )
 
-            if response.status_code != 200:
-                logger.warning("Search API failed on page %d: %s", page_count + 1, response.status_code)
-                break
+        if response.status_code != 200:
+            logger.warning("Search API failed on page %d: %s", page_count + 1, response.status_code)
+            break
 
-            data = response.json()
-            video_ids = [
-                item["id"]["videoId"]
-                for item in data.get("items", [])
-                if item.get("id", {}).get("kind") == "youtube#video"
-            ]
+        data = response.json()
+        video_ids = [
+            item["id"]["videoId"]
+            for item in data.get("items", [])
+            if item.get("id", {}).get("kind") == "youtube#video"
+        ]
 
-            logger.debug("Found %d video IDs on page %d", len(video_ids), page_count + 1)
+        logger.debug("Found %d video IDs on page %d", len(video_ids), page_count + 1)
 
-            if video_ids:
-                details = await get_video_details(access_token, video_ids, client=client)
-                videos.extend(details)
+        if video_ids:
+            details = await get_video_details(access_token, video_ids)
+            videos.extend(details)
 
-            next_page_token = data.get("nextPageToken")
-            page_count += 1
-            if not next_page_token:
-                break
+        next_page_token = data.get("nextPageToken")
+        page_count += 1
+        if not next_page_token:
+            break
 
     logger.info("Total videos fetched for channel %s: %d", channel_id, len(videos))
     return videos
@@ -176,19 +84,16 @@ async def get_channel_videos(access_token: str, channel_id: str) -> List[Dict]:
 async def get_video_details(
     access_token: str,
     video_ids: List[str],
-    client: Optional[httpx.AsyncClient] = None,
 ) -> List[Dict]:
-    """Get detailed information for specific video IDs."""
+    """Get detailed information for specific video IDs using shared client."""
     logger.debug("Fetching details for %d videos", len(video_ids))
-    _close = False
-    if client is None:
-        client = _make_client()
-        _close = True
     try:
+        client = await get_google_http_client()
         response = await client.get(
             "https://www.googleapis.com/youtube/v3/videos",
             headers={"Authorization": f"Bearer {access_token}"},
             params={"part": "snippet,statistics,contentDetails", "id": ",".join(video_ids)},
+            timeout=60.0
         )
         if response.status_code == 200:
             result = response.json().get("items", [])
@@ -199,9 +104,6 @@ async def get_video_details(
     except Exception as e:
         logger.error("Error fetching video details: %s", e)
         return []
-    finally:
-        if _close:
-            await client.aclose()
 
 
 # ---------------------------------------------------------------------------
@@ -397,36 +299,40 @@ async def get_channel_analytics(
         if not refresh_tok:
             raise HTTPException(status_code=401, detail="No refresh token found for channel")
 
-        # Test current token
-        async with _make_client() as client:
-            test_response = await client.get(
-                "https://www.googleapis.com/youtube/v3/channels",
-                headers={"Authorization": f"Bearer {access_token}"},
-                params={"part": "snippet", "id": channel_id},
-            )
+        # Test current token health
+        client = await get_google_http_client()
+        test_response = await client.get(
+            "https://www.googleapis.com/youtube/v3/channels",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={"part": "snippet", "id": channel_id},
+            timeout=15.0
+        )
 
         if test_response.status_code == 401:
-            logger.info("Access token expired for channel %s — refreshing...", channel_id)
-            access_token = await refresh_access_token(refresh_tok)
-            supabase.table("channels").update({
-                "access_token": access_token,
-                "token_expiry": (datetime.now() + timedelta(seconds=3600)).isoformat(),
-            }).eq("channel_id", channel_id).execute()
-            logger.info("Token refreshed and saved for channel %s", channel_id)
-            redis_cache.delete(cache_key)  # drop stale cache after token rotation
+            logger.info("Access token expired for channel %s — refreshing via google_service", channel_id)
+            success = await refresh_youtube_token(channel_data)
+            if not success:
+                 raise HTTPException(status_code=401, detail="Could not refresh YouTube token")
+            
+            # Refetch channel data for new token
+            result = supabase.table("channels").select("*").eq("channel_id", channel_id).execute()
+            channel_data = result.data[0]
+            access_token = channel_data["access_token"]
+            redis_cache.delete(cache_key)
         elif test_response.status_code != 200:
             raise HTTPException(
                 status_code=500,
-                detail=f"YouTube API returned unexpected status: {test_response.status_code}",
+                detail=f"YouTube API connectivity issue: {test_response.status_code}",
             )
 
         # Get channel statistics
-        async with _make_client() as client:
-            channel_response = await client.get(
-                "https://www.googleapis.com/youtube/v3/channels",
-                headers={"Authorization": f"Bearer {access_token}"},
-                params={"part": "statistics,snippet", "id": channel_id},
-            )
+        client = await get_google_http_client()
+        channel_response = await client.get(
+            "https://www.googleapis.com/youtube/v3/channels",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={"part": "statistics,snippet", "id": channel_id},
+            timeout=30.0
+        )
 
         channel_stats = {}
         if channel_response.status_code == 200:
@@ -555,24 +461,26 @@ async def get_video_analytics(
         end_date = datetime.now().strftime("%Y-%m-%d")
         start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
 
-        async with _make_client() as client:
-            video_response = await client.get(
-                "https://www.googleapis.com/youtube/v3/videos",
-                headers={"Authorization": f"Bearer {access_token}"},
-                params={"part": "snippet,statistics,contentDetails", "id": video_id},
-            )
-            analytics_response = await client.get(
-                "https://youtubeanalytics.googleapis.com/v2/reports",
-                headers={"Authorization": f"Bearer {access_token}"},
-                params={
-                    "ids": f"channel=={channel_id}",
-                    "startDate": start_date,
-                    "endDate": end_date,
-                    "metrics": "views,likes,comments,shares,estimatedMinutesWatched,averageViewDuration",
-                    "filters": f"video=={video_id}",
-                    "dimensions": "day",
-                },
-            )
+        client = await get_google_http_client()
+        video_response = await client.get(
+            "https://www.googleapis.com/youtube/v3/videos",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={"part": "snippet,statistics,contentDetails", "id": video_id},
+            timeout=30.0
+        )
+        analytics_response = await client.get(
+            "https://youtubeanalytics.googleapis.com/v2/reports",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={
+                "ids": f"channel=={channel_id}",
+                "startDate": start_date,
+                "endDate": end_date,
+                "metrics": "views,likes,comments,shares,estimatedMinutesWatched,averageViewDuration",
+                "filters": f"video=={video_id}",
+                "dimensions": "day",
+            },
+            timeout=60.0
+        )
 
         video_data = {}
         analytics_data = {}

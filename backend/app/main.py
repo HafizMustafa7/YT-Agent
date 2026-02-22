@@ -2,8 +2,10 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from app.core.config import FRONTEND_URL
 
+from app.core_yt.google_service import set_google_http_client
 from app.routes import auth, channels, analysis, yt_agent, video_routes
 from app.services import video_service
 
@@ -19,21 +21,31 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Lifecycle hooks (Lifespan)
+# ---------------------------------------------------------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Backend starting up - initialising shared resources...")
+    # Initialize shared HTTP client
+    client = video_service.get_http_client() 
+    set_google_http_client(client)
+    logger.info("Shared HTTP client initialised.")
+    
+    yield
+    
+    logger.info("Backend shutting down - cleaning up resources...")
+    await video_service.close_http_client()
+    logger.info("Shutdown complete.")
+
+# ---------------------------------------------------------------------------
+# App Initialization
+# ---------------------------------------------------------------------------
 app = FastAPI(
     title="Auth + Channels Backend (Integrated)",
     description="Backend with Supabase auth, YouTube, and AI Video Generation",
-    version="1.4.0",
-)
-
-# ---------------------------------------------------------------------------
-# CORS
-# ---------------------------------------------------------------------------
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[FRONTEND_URL] if FRONTEND_URL else ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    version="1.5.0",
+    lifespan=lifespan
 )
 
 # ---------------------------------------------------------------------------
@@ -54,25 +66,23 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # ---------------------------------------------------------------------------
-# Lifecycle hooks
+# CORS
 # ---------------------------------------------------------------------------
-@app.on_event("startup")
-async def on_startup():
-    logger.info("Backend starting up...")
-    # Pre-warm the shared HTTP client used by video_service
-    video_service.get_http_client()
-    logger.info("Shared HTTP client initialised.")
+# Allow all for local dev, or use specific FRONTEND_URL
+origins = ["*"]
+if FRONTEND_URL:
+    origins.append(FRONTEND_URL)
+    # Also add standard docker/dev origins for safety
+    if "localhost" in FRONTEND_URL:
+        origins.extend(["http://localhost", "http://127.0.0.1"])
 
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    logger.info("Backend shutting down — closing shared HTTP client...")
-    await video_service.close_http_client()
-    logger.info("Shutdown complete.")
-
-# ---------------------------------------------------------------------------
-# Routers
-# ---------------------------------------------------------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(channels.router, prefix="/api/channels", tags=["Channels"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["Analysis"])
