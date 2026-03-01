@@ -321,7 +321,7 @@ async def get_channel_stats(channel_id: str, current_user: dict = Depends(get_cu
                 expiry_dt = datetime.fromisoformat(token_expiry)
                 now = datetime.now(timezone.utc)
                 if expiry_dt <= now:
-                    refreshed = await _refresh_youtube_token(channel)
+                    refreshed = await refresh_youtube_token(channel)
                     if not refreshed:
                         raise HTTPException(status_code=400, detail="Failed to refresh token for stats fetch")
                     resp = supabase.table("channels").select("*").eq("user_id", current_user["id"]).eq("channel_id", channel_id).execute()
