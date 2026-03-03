@@ -53,7 +53,7 @@ const CREATIVE_OPTIONS = {
     'emotional story',
     'how-to guide',
   ],
-  duration_seconds: Array.from({ length: 18 }, (_, i) => (i + 1) * 10), // 10..180
+  duration_seconds: [15, 30, 45, 60],
 };
 
 const CreativeFormScreen = ({ onSubmit, loading }) => {
@@ -64,7 +64,7 @@ const CreativeFormScreen = ({ onSubmit, loading }) => {
     camera_movement: CREATIVE_OPTIONS.camera_movement[0],
     effects: CREATIVE_OPTIONS.effects[0],
     story_format: CREATIVE_OPTIONS.story_format[0],
-    duration_seconds: 60, // Default 60 seconds
+    duration_seconds: 30, // Default 30 seconds
     constraints: [],
   });
 
@@ -197,7 +197,7 @@ const CreativeFormScreen = ({ onSubmit, loading }) => {
             >
               {CREATIVE_OPTIONS.duration_seconds.map((duration) => (
                 <option key={duration} value={duration}>
-                  {duration}s ({Math.floor(duration / 60)}:{(duration % 60).toString().padStart(2, '0')})
+                  {duration}s
                 </option>
               ))}
             </select>

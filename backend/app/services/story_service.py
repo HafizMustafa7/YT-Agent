@@ -8,7 +8,6 @@ from fastapi import HTTPException
 from typing import List, Dict, Any, Optional
 import json
 import re
-from itertools import product
 
 from app.core.config import settings
 from app.core_yt.llm_client import get_megallm_client
@@ -255,29 +254,47 @@ def video_to_dict(video) -> Dict:
     }
 
 
-def allocate_scene_durations(num_scenes: int, target_duration: int) -> List[int]:
-    """Allocate per-scene durations using only Sora-valid values: 4, 8, 12."""
-    allowed = [4, 8, 12]
-    if num_scenes <= 0:
-        return []
+# ---------------------------------------------------------------------------
+# Frame duration solver
+# ---------------------------------------------------------------------------
 
-    best_combo = None
-    best_diff = float("inf")
+# Only 8s and 12s allowed (Sora 2; 4s discarded as per product decision).
+# To support a new tier (e.g. 10s in Sora 3) just add it here.
+ALLOWED_FRAME_DURATIONS: list[int] = [8, 12]
 
-    for combo in product(allowed, repeat=num_scenes):
-        total = sum(combo)
-        diff = abs(total - target_duration)
-        # tie-breaker: prefer 8-second pacing when equally close
-        tie_score = sum(1 for x in combo if x == 8)
-        if diff < best_diff:
-            best_diff = diff
-            best_combo = (combo, tie_score)
-        elif diff == best_diff and best_combo is not None and tie_score > best_combo[1]:
-            best_combo = (combo, tie_score)
 
-    if best_combo is None:
-        return [8] * num_scenes
-    return list(best_combo[0])
+def resolve_frame_schedule(target_seconds: int) -> list[int]:
+    """Return an ordered list of frame durations that approximate target_seconds.
+
+    Uses a greedy coin-change approach: prioritise frames that overshoot by at
+    most the smallest allowed unit so the result is never shorter than the
+    target.  Ties: prefer the larger frame so fewer API calls are needed.
+    """
+    allowed = sorted(ALLOWED_FRAME_DURATIONS, reverse=True)  # [12, 8]
+    remaining = target_seconds
+    schedule: list[int] = []
+
+    while remaining > 0:
+        # Pick the largest frame that does not overshoot by more than the
+        # smallest unit, unless we are forced to overshoot.
+        chosen = None
+        for d in allowed:
+            if d <= remaining:
+                chosen = d
+                break
+        if chosen is None:
+            # remaining < smallest allowed — take one minimum-size chunk
+            chosen = min(allowed)
+        schedule.append(chosen)
+        remaining -= chosen
+
+    logger.debug(
+        "Frame schedule for %ds target: %s (actual=%ds)",
+        target_seconds,
+        schedule,
+        sum(schedule),
+    )
+    return schedule
 
 
 def _validate_user_topic(topic: str) -> str:
@@ -379,6 +396,16 @@ async def generate_story_and_frames(
         )
         color_grading = (creative_brief.get("effects") if creative_brief else None) or "natural cinematic color grading"
 
+        # ---------------------------------------------------------------------------
+        # Build frame schedule FIRST so prompts know their time budget.
+        # ---------------------------------------------------------------------------
+        frame_schedule = resolve_frame_schedule(target_duration)
+        num_scenes = len(frame_schedule)
+        logger.info(
+            "Resolved frame schedule for %ds: %s (%d scenes, actual=%ds)",
+            target_duration, frame_schedule, num_scenes, sum(frame_schedule),
+        )
+
         # Step 1: Topic Expansion (LLM Call #1)
         logger.info("STEP 1: Topic Expansion...")
         step1_prompt = f"""
@@ -388,10 +415,10 @@ Input:
   "topic": "{clean_topic}",
   "target_region": "US",
   "tone": "{tone}",
-  "duration": {target_duration}
+  "duration_seconds": {target_duration}
 }}
 Task:
-- Expand minimal topic into richer narrative intent.
+- Expand minimal topic into richer narrative intent scaled for exactly {num_scenes} scenes.
 - Return JSON with keys:
   expanded_topic, core_conflict, theme, setting, emotional_arc
 Return JSON only.
@@ -407,7 +434,7 @@ You are a cinematic story architect.
 Input:
 {json.dumps(step1_output, ensure_ascii=True)}
 Task:
-- Build a strict 3-act blueprint.
+- Build a strict 3-act blueprint fitted to {num_scenes} total scenes and {target_duration} seconds.
 - Return JSON with keys:
   act1, act2, act3, turning_point, climax, ending_tone
 Return JSON only.
@@ -450,7 +477,7 @@ Return JSON only.
         lock_text = _character_lock_text(character_profile_locked)
 
         # Step 4: Scene Breakdown (LLM Call #4)
-        logger.info("STEP 4: Scene Breakdown...")
+        logger.info("STEP 4: Scene Breakdown (%d scenes)...", num_scenes)
         step4_prompt = f"""
 You are a cinematic scene planner.
 Use this fixed locked character profile exactly:
@@ -459,23 +486,34 @@ Use this fixed locked character profile exactly:
 Input blueprint:
 {json.dumps(blueprint, ensure_ascii=True)}
 
+You MUST generate EXACTLY {num_scenes} scenes.
 Task:
-- Break into 6-10 scenes.
+- Break story into exactly {num_scenes} scenes.
+- For each scene output an `active_state` capturing the world state that MUST carry forward.
 - Return JSON:
 {{
   "scenes": [
     {{
       "scene_number": 1,
       "location": "...",
-      "action": "...",
+      "action": "ONE single fast, continuous, cinematic action (max 15 words)",
       "emotion": "...",
-      "short_narration": "..."
+      "short_narration": "...",
+      "tracked_objects": ["list every prop/object present — must remain consistent"],
+      "active_state": {{
+        "environment": "full description of current environment",
+        "global_lighting": "lighting type and colour",
+        "character_clothing_check": "confirm exact clothing from character lock"
+      }},
+      "adherence_check": true
     }}
   ]
 }}
 Rules:
-- No outfit changes.
+- No outfit changes across ANY scene.
 - No new physical attributes.
+- adherence_check must be true only if character clothing exactly matches the character profile lock.
+- tracked_objects MUST be consistent: objects introduced in scene N must appear or be explicitly removed in scene N+1.
 Return JSON only.
 """
         scene_obj = await call_megallm_json_with_retry("STEP 4: Scene Breakdown", step4_prompt)
@@ -490,12 +528,12 @@ You are a cinematic screenplay writer.
 Use this fixed locked character profile exactly:
 {lock_text}
 
-Input scenes:
+Input scenes ({num_scenes} scenes, target {target_duration}s):
 {json.dumps(scene_breakdown, ensure_ascii=True)}
 
 Task:
-- Write complete emotional narrative for approximately {target_duration} seconds.
-- Keep names, physical descriptions, and clothing fixed.
+- Write a complete emotional narrative for exactly {num_scenes} scenes / approximately {target_duration} seconds.
+- Keep character names, physical descriptions, and clothing FIXED across all scenes.
 - Return JSON:
 {{ "full_story_text": "..." }}
 Return JSON only.
@@ -503,18 +541,30 @@ Return JSON only.
         full_story_obj = await call_megallm_json_with_retry("STEP 5: Full Narrative", step5_prompt)
         full_story_text = str(full_story_obj.get("full_story_text", "")).strip()
 
-        # Step 6: Frame Generator (LLM Call #6)
-        logger.info("STEP 6: Frame Generator...")
+        # Step 6: Frame Planner — state machine with start_state / end_state (LLM Call #6)
+        logger.info("STEP 6: Frame Planner (state machine, %d frames)...", num_scenes)
+        # Pass the resolved per-frame duration budget so the LLM knows each frame's time window.
+        frame_duration_budget = {
+            str(i + 1): f"{frame_schedule[i]}s" for i in range(num_scenes)
+        }
         step6_prompt = f"""
-You are a cinematography planner.
+You are a master cinematography planner.
 Use this fixed locked character profile exactly:
 {lock_text}
 
 Input scenes:
 {json.dumps(scene_breakdown, ensure_ascii=True)}
 
+Time budget per frame (scene_number: duration):
+{json.dumps(frame_duration_budget, ensure_ascii=True)}
+
+You MUST generate EXACTLY {num_scenes} frame plans.
 Task:
-- For each scene, generate shot structure JSON:
+- For each scene generate a frame plan with state-machine continuity.
+- The `start_state` of each frame must exactly match the `end_state` of the previous frame.
+- Select ONLY shot type, camera angle and movement that are achievable in the given time budget.
+- Must be fully cinematic — think real movie clips.
+- Return JSON:
 {{
   "frames": [
     {{
@@ -524,13 +574,19 @@ Task:
       "camera_movement": "{camera_movement}",
       "lighting_style": "...",
       "mood": "...",
-      "environment_details": "..."
+      "environment_details": "...",
+      "start_state": "exact physical world state at the START of this frame",
+      "end_state": "exact physical world state at the END of this frame",
+      "tracked_objects": ["all objects present in this frame"],
+      "adherence_check": true
     }}
   ]
 }}
 Rules:
-- No outfit changes.
-- Live-action realism only.
+- adherence_check MUST be true only if character clothing matches the locked profile exactly.
+- tracked_objects from scene N must appear in scene N+1 unless the action explicitly removes them.
+- Live-action realism only. No animated or illustrated style.
+- Do NOT change the environment or lighting unless the scene location explicitly changes.
 Return JSON only.
 """
         frame_obj = await call_megallm_json_with_retry("STEP 6: Frame Generator", step6_prompt)
@@ -538,14 +594,14 @@ Return JSON only.
         if not isinstance(frame_data, list) or not frame_data:
             raise ValueError("STEP 6 failed: no frame plan generated.")
 
-        # Step 7: Visual Prompt Generator (LLM Call #7)
+        # Step 7: Visual Prompt Generator — state-aware, with creative module injection (LLM Call #7)
         logger.info("STEP 7: Visual Prompt Generator...")
         step7_prompt = f"""
-You are a diffusion prompt engineer for live-action cinematic output.
+You are a world-class diffusion prompt engineer specialising in live-action cinematic content.
 Use this fixed locked character profile exactly:
 {lock_text}
 
-Creative configuration:
+Creative configuration (inject ALL of these literally into every visual_prompt):
 - Tone: {tone}
 - Visual style: {visual_style}
 - Camera movement: {camera_movement}
@@ -553,19 +609,30 @@ Creative configuration:
 - Target audience: {target_audience}
 - Color grading: {color_grading}
 
+Time budget per scene (scene_number: seconds available):
+{json.dumps(frame_duration_budget, ensure_ascii=True)}
+
 Input frame_data:
 {json.dumps(frame_data, ensure_ascii=True)}
 
 Task:
-- For each frame, generate diffusion-ready ultra-photorealistic visual prompt.
-- Must include full locked character appearance and exact locked clothing.
-- Must be live-action only, natural skin texture, depth of field.
-- Lens must be 85mm or 50mm.
+- For EACH frame generate a diffusion-ready ultra-photorealistic visual prompt.
+- The visual_prompt MUST include:
+    1. Full locked character appearance + exact clothing (copy verbatim from lock).
+    2. Scene start_state — exact world state at the beginning of the clip.
+    3. Scene end_state — exact world state at the end of the clip.
+    4. ONE single, fast, continuous, fully cinematic action achievable in the given time budget.
+    5. All creative modules: tone, visual style, camera movement, color grading.
+    6. All tracked_objects from the frame plan must appear.
+- Think like a Hollywood DP: lens (85mm or 50mm), depth of field, golden-hour or motivated light.
+- Live-action only; natural skin texture; absolutely no animation or CGI style.
 - Return JSON:
 {{
   "scenes": [
     {{
       "scene_number": 1,
+      "start_state": "...",
+      "end_state": "...",
       "visual_prompt": "...",
       "audio_direction": {{
         "narration_style": "clear studio-quality",
@@ -583,13 +650,15 @@ Return JSON only.
         if not visual_scenes:
             raise ValueError("STEP 7 failed: no visual prompts generated.")
 
-        # Final assembly with duration constraints and strict lock injection for every frame prompt.
-        if len(visual_scenes) > max_frames:
-            logger.info("Truncating generated scenes from %d to max_frames=%d", len(visual_scenes), max_frames)
-            visual_scenes = visual_scenes[:max_frames]
-
-        allowed_durations = [4, 8, 12]
-        allocated = allocate_scene_durations(len(visual_scenes), target_duration)
+        # Final assembly — use resolved frame_schedule durations directly.
+        # Truncate to the number of scheduled frames; visual_scenes come from LLM
+        # which was told to produce exactly num_scenes items.
+        if len(visual_scenes) > num_scenes:
+            logger.info(
+                "LLM produced %d visual scenes but schedule only has %d slots — truncating.",
+                len(visual_scenes), num_scenes,
+            )
+            visual_scenes = visual_scenes[:num_scenes]
 
         scene_map = {}
         for idx, s in enumerate(scene_breakdown):
@@ -611,10 +680,9 @@ Return JSON only.
             scene_src = scene_map.get(scene_num, {})
             frame_plan = frame_plan_map.get(scene_num, {})
 
-            raw_duration = s.get("duration_seconds")
-            if raw_duration not in allowed_durations:
-                raw_duration = frame_plan.get("duration_seconds")
-            duration = raw_duration if raw_duration in allowed_durations else allocated[idx]
+            # Duration comes from the pre-computed schedule (index-based) not from LLM output.
+            # This guarantees 8 or 12 only — never 4 or anything hallucinated.
+            duration = frame_schedule[idx] if idx < len(frame_schedule) else ALLOWED_FRAME_DURATIONS[0]
 
             scene_description = " | ".join([
                 str(scene_src.get("location", "")),
@@ -625,9 +693,24 @@ Return JSON only.
                 scene_description = f"Scene {scene_num}"
 
             base_prompt = str(s.get("visual_prompt", "")).strip()
+            start_state = str(s.get("start_state", frame_plan.get("start_state", ""))).strip()
+            end_state = str(s.get("end_state", frame_plan.get("end_state", ""))).strip()
+            tracked_objects = (
+                scene_src.get("tracked_objects")
+                or frame_plan.get("tracked_objects")
+                or []
+            )
+
+            # Build enforced prompt — inject lock + states + creative modules
             enforced_prompt = (
                 f"{lock_text}\n"
-                f"NON-NEGOTIABLE: Use exact same character physical traits and clothing above.\n"
+                f"NON-NEGOTIABLE: Use EXACT same character physical traits and clothing above.\n"
+                f"Start State: {start_state}\n"
+                f"End State: {end_state}\n"
+                f"Tracked Objects (must all appear): {', '.join(str(o) for o in tracked_objects)}\n"
+                f"Creative: tone={tone}, style={visual_style}, camera={camera_movement}, "
+                f"color={color_grading}, audience={target_audience}\n"
+                f"Duration: {duration}s — ONE single, fast, continuous, fully cinematic action only.\n"
                 f"{base_prompt}"
             ).strip()
             # Keep prompt within downstream FrameInput schema max_length=5000.
@@ -648,7 +731,12 @@ Return JSON only.
                     "effects": color_grading,
                     "target_audience": target_audience,
                 },
-                "frame_plan": frame_plan,
+                "frame_plan": {
+                    **frame_plan,
+                    "start_state": start_state,
+                    "end_state": end_state,
+                    "tracked_objects": tracked_objects,
+                },
                 "audio_direction": s.get("audio_direction", {}),
             })
 

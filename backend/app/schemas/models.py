@@ -1,7 +1,7 @@
 """
 Pydantic models for API request and response validation.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any, Literal
 
 
@@ -37,15 +37,20 @@ class CreativePreferencesRequest(BaseModel):
     story_format: str = Field(..., description="Story format (e.g., narrative, documentary)")
     duration_seconds: int = Field(
         ...,
-        description="Video duration in seconds (10-180, step 10)",
-        ge=10,
-        le=180,
-        multiple_of=10,
+        description="Video duration in seconds — must be one of 15, 30, 45, 60",
     )
     constraints: List[str] = Field(
-        default_factory=list, 
-        description="Additional constraints or requirements"
+        default_factory=list,
+        description="Additional constraints or requirements",
     )
+
+    @field_validator("duration_seconds")
+    @classmethod
+    def duration_must_be_allowed(cls, v: int) -> int:
+        allowed = [15, 30, 45, 60]
+        if v not in allowed:
+            raise ValueError(f"duration_seconds must be one of {allowed}, got {v}")
+        return v
 
 
 class GenerateStoryRequest(BaseModel):
@@ -69,7 +74,7 @@ class FrameInput(BaseModel):
     frame_num: int = Field(..., ge=1)
     ai_video_prompt: str = Field(..., min_length=1, max_length=5000)
     scene_description: Optional[str] = None
-    duration_seconds: Literal[4, 8, 12] = Field(8, description="Must be a valid Sora duration: 4, 8, or 12")
+    duration_seconds: Literal[8, 12] = Field(8, description="Must be a valid Sora duration: 8 or 12 (4s discarded)")
 
 
 class CreateVideoProjectRequest(BaseModel):

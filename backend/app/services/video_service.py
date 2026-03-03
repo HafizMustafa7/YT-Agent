@@ -240,8 +240,8 @@ async def sora_create(prompt: str, duration_seconds: int = 8) -> str:
     if not settings.OPENAI_API_KEY:
         raise ValueError("OPENAI_API_KEY must be set in .env to use Sora video generation")
 
-    # Sora 2 only accepts 4, 8, or 12 seconds
-    ALLOWED = [4, 8, 12]
+    # Sora 2 accepts 4, 8, or 12 seconds; 4s discarded by product decision — only 8 or 12.
+    ALLOWED = [8, 12]
     sec = min(ALLOWED, key=lambda x: abs(x - duration_seconds))
     max_sec = settings.SORA_MAX_DURATION_SECONDS
     if sec > max_sec:

@@ -155,7 +155,9 @@ function YTAgentPage() {
         };
 
         const normalizeDuration = (value) => {
-            const allowed = [4, 8, 12];
+            // Only 8 and 12 are valid Sora durations (4s discarded).
+            // Story service always produces 8 or 12, but guard here too.
+            const allowed = [8, 12];
             const raw = Number(value);
             if (!Number.isFinite(raw)) return 8;
             return allowed.reduce((prev, curr) =>
