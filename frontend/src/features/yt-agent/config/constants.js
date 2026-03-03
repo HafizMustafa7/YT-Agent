@@ -14,6 +14,7 @@ export const ENDPOINTS = {
     HEALTH: `${API_PREFIX}/health`,
     FETCH_TRENDS: `${API_PREFIX}/trends/fetch`,
     VALIDATE_TOPIC: `${API_PREFIX}/topics/validate`,
+    SUGGEST_TOPICS: `${API_PREFIX}/topics/suggest`,
     GENERATE_STORY: `${API_PREFIX}/stories/generate`,
     VIDEO_CREATE_PROJECT: `${API_PREFIX}/video/projects`,
     VIDEO_GET_PROJECT: (id) => `${API_PREFIX}/video/projects/${id}`,
@@ -37,7 +38,8 @@ export const APP_VERSION = '1.0.0';
 
 // Request Timeouts (in milliseconds)
 export const TIMEOUTS = {
-    DEFAULT: 60000,  // 60 seconds
-    STORY_GENERATION: 600000,  // 10 minutes for AI generation
-    VIDEO_OPERATION: 60000,    // 1 minute for video API calls
+    DEFAULT: 60000,              // 60 seconds
+    STORY_GENERATION: 600000,    // 10 minutes for AI generation
+    VIDEO_OPERATION: 60000,      // 1 minute for video API calls
+    TOPIC_SUGGESTION: 90000,     // 90 seconds for trend+LLM pipeline
 };

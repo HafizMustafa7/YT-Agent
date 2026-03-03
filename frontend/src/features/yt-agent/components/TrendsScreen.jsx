@@ -1,7 +1,18 @@
 import React, { useState } from 'react';
 import '../styles/components/TrendsScreen.css';
+import TopicSuggestions from './TopicSuggestions';
 
-const TrendsScreen = ({ trendsData, onSelectVideo, loading, onCustomTopic }) => {
+const TrendsScreen = ({
+  trendsData,
+  onSelectVideo,
+  loading,
+  onCustomTopic,
+  // Topic suggestion props
+  suggestions = [],
+  suggestionsLoading = false,
+  suggestionsError = null,
+  onSelectSuggestedTopic,
+}) => {
   const [customTopic, setCustomTopic] = useState('');
   const formatNumber = (num) => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
@@ -61,6 +72,18 @@ const TrendsScreen = ({ trendsData, onSelectVideo, loading, onCustomTopic }) => 
           </p>
         </div>
       </div>
+
+      {/* ── AI Topic Suggestions panel (auto-shows after trends load) ── */}
+      {(suggestionsLoading || suggestions.length > 0 || suggestionsError) && (
+        <TopicSuggestions
+          topics={suggestions}
+          loading={suggestionsLoading}
+          error={suggestionsError}
+          trendsAnalysed={trendsData?.total_results || 0}
+          niche={trendsData?.query_used || ''}
+          onSelectTopic={onSelectSuggestedTopic}
+        />
+      )}
 
       <div className="trends-grid">
         {trendsData?.trends?.map((video) => (
@@ -125,9 +148,14 @@ const TrendsScreen = ({ trendsData, onSelectVideo, loading, onCustomTopic }) => 
           <p>No trends found. Try a different search.</p>
         </div>
       )}
+
+      {trendsData?.trends?.length === 0 && !loading && (
+        <div className="empty-state">
+          <p>No trends found. Try a different search.</p>
+        </div>
+      )}
     </div>
   );
 };
 
 export default TrendsScreen;
-

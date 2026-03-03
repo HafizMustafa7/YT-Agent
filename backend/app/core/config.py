@@ -48,6 +48,13 @@ class Settings:
     MAX_FRAMES: int = 5
     STORY_GENERATION_TIMEOUT: int = 600  # 10 minutes
 
+    # Topic Suggestion Settings
+    TOPIC_SUGGESTION_MIN_ENGAGEMENT: float = float(os.getenv("TOPIC_SUGGESTION_MIN_ENGAGEMENT", "0.01"))
+    TOPIC_SUGGESTION_TOP_N: int = int(os.getenv("TOPIC_SUGGESTION_TOP_N", "5"))
+    TOPIC_SUGGESTION_TIMEOUT: int = int(os.getenv("TOPIC_SUGGESTION_TIMEOUT", "60"))
+    TOPIC_SUGGESTION_CACHE_TTL: int = int(os.getenv("TOPIC_SUGGESTION_CACHE_TTL", "1800"))  # 30 min
+
+
     # Video Generation (Sora 2 + R2)
     SORA_MODEL: str = os.getenv("SORA_MODEL", "sora-2")
     SORA_VIDEO_SIZE: str = os.getenv("SORA_VIDEO_SIZE", "1280x720")

@@ -133,6 +133,22 @@ export const validateTopic = async (topic, nicheHint = null) => {
 };
 
 /**
+ * Suggest topics based on trending YouTube Shorts in a niche
+ * @param {string} niche - Content niche to analyse
+ * @param {string} mode  - 'search_trends' | 'analyze_niche'
+ * @param {number} minEngagement - Minimum engagement ratio (default 0.01)
+ * @param {number} topN - Number of suggestions to return (default 5)
+ * @returns {Promise<object>} - { success, niche, topics, trends_analysed }
+ */
+export const suggestTopics = async (niche, mode = 'search_trends', minEngagement = 0.01, topN = 5) => {
+    return callApi(
+        ENDPOINTS.SUGGEST_TOPICS,
+        { niche: niche.trim(), mode, min_engagement: minEngagement, top_n: topN },
+        TIMEOUTS.TOPIC_SUGGESTION
+    );
+};
+
+/**
  * Generate story and frames
  * @param {string} topic - Topic for the story
  * @param {object} selectedVideo - Selected video data
@@ -281,6 +297,7 @@ export const uploadProjectToYoutube = async (projectId) => {
 const apiService = {
     fetchTrends,
     validateTopic,
+    suggestTopics,
     generateStory,
     checkHealth,
     createVideoProject,

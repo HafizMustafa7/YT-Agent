@@ -14,12 +14,18 @@ from app.schemas.models import (
     TrendRequest,
     TopicValidationRequest,
     GenerateStoryRequest,
+    TopicSuggestionRequest,
 )
 from app.services.youtube_service import get_trending_shorts
 from app.core_yt.topic_validator import validate_topic
 from app.core_yt.creative_builder import build_creative_brief
 from app.services.story_service import generate_story_and_frames
+from app.core_yt.engagement_filter import filter_by_engagement, rank_by_engagement
+from app.core_yt.trend_summary_builder import build_trend_summary
+from app.core_yt.topic_suggestion_engine import generate_topic_suggestions
+from app.core_yt.redis_cache import redis_cache
 from app.core.config import settings
+
 
 # Create API router with v1 prefix
 router = APIRouter()
@@ -120,6 +126,104 @@ async def validate_topic_endpoint(request: TopicValidationRequest, current_user:
         raise HTTPException(
             status_code=500, 
             detail="An error occurred during topic validation. Please try again."
+        )
+
+
+@router.post("/topics/suggest")
+async def suggest_topics(
+    request: TopicSuggestionRequest,
+    current_user: dict = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Automatic topic suggestion pipeline.
+
+    Full pipeline:
+      1. Fetch trending Shorts via YouTube API (get_trending_shorts)
+      2. Filter videos by engagement ratio (likes+comments)/views
+      3. Build a compact trend summary for the LLM
+      4. Call MegaLLM to generate ranked topic suggestions
+      5. Return Top-N topics with rationale and virality scores
+
+    Results are cached in Redis for 30 minutes (configurable).
+    """
+    niche = request.niche.strip()
+    if not niche:
+        raise HTTPException(status_code=400, detail="Niche cannot be empty.")
+
+    # Redis cache key scoped to all pipeline params
+    cache_key = (
+        f"public:topic_suggestions:{niche}:{request.mode}:"
+        f"{request.min_engagement}:{request.top_n}"
+    )
+
+    cached = redis_cache.get(cache_key)
+    if cached:
+        logger.info("Cache HIT for topic suggestions: %s", cache_key)
+        return cached
+
+    try:
+        # ── Step 1: Fetch trends ──────────────────────────────────────────────
+        query = niche if request.mode == "analyze_niche" else f"trending {niche} shorts"
+        trends = get_trending_shorts(
+            query,
+            max_results=settings.YOUTUBE_MAX_RESULTS,
+            ai_threshold=settings.YOUTUBE_AI_THRESHOLD,
+            search_pages=settings.YOUTUBE_SEARCH_PAGES,
+        )
+
+        if not trends:
+            return {
+                "success": True,
+                "niche": niche,
+                "topics": [],
+                "trends_analysed": 0,
+                "message": "No trending videos found for this niche. Try a different niche.",
+            }
+
+        # ── Step 2: Engagement filter ─────────────────────────────────────────
+        filtered = filter_by_engagement(trends, min_ratio=request.min_engagement)
+        # Fall back to all trends if filter removes everything
+        pool = rank_by_engagement(filtered) if filtered else trends[:15]
+
+        # ── Step 3: Build trend summary for LLM ──────────────────────────────
+        trend_summary = build_trend_summary(pool, niche)
+
+        # ── Step 4+5: LLM topic generation (with timeout guard) ───────────────
+        topics = await asyncio.wait_for(
+            generate_topic_suggestions(trend_summary, niche, top_n=request.top_n),
+            timeout=settings.TOPIC_SUGGESTION_TIMEOUT,
+        )
+
+        response = {
+            "success": True,
+            "niche": niche,
+            "topics": topics,
+            "trends_analysed": len(pool),
+        }
+
+        # Cache the result
+        if topics:
+            redis_cache.set(cache_key, response, ttl=settings.TOPIC_SUGGESTION_CACHE_TTL)
+
+        return response
+
+    except asyncio.TimeoutError:
+        logger.error(
+            "Topic suggestion timed out after %ds for niche: %s",
+            settings.TOPIC_SUGGESTION_TIMEOUT,
+            niche,
+        )
+        raise HTTPException(
+            status_code=504,
+            detail="Topic suggestion timed out. The AI service is taking too long. Please try again.",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error generating topic suggestions: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while generating topic suggestions. Please try again.",
         )
 
 

@@ -28,15 +28,41 @@ function YTAgentPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
+    // ── Topic suggestion state ──────────────────────────────────────────────
+    const [suggestions, setSuggestions] = useState([]);
+    const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+    const [suggestionsError, setSuggestionsError] = useState(null);
+    const [lastSuggestionNiche, setLastSuggestionNiche] = useState(null);
+
     // API calls now handled by apiService
 
     const handleFetchTrends = async (mode, niche = null) => {
         setLoading(true);
         setError(null);
+        // Reset suggestions for new search
+        setSuggestions([]);
+        setSuggestionsError(null);
         try {
             const data = await apiService.fetchTrends(mode, niche);
             setTrendsData(data);
             setSearchParams({ step: 'trends' });
+
+            // ── Auto-trigger topic suggestions in the background ─────────
+            const nicheForSuggestions = niche || 'trending AI shorts';
+            setLastSuggestionNiche(nicheForSuggestions);
+            setSuggestionsLoading(true);
+            setSuggestionsError(null);
+            apiService
+                .suggestTopics(nicheForSuggestions, mode)
+                .then((res) => {
+                    setSuggestions(res?.topics || []);
+                })
+                .catch((err) => {
+                    setSuggestionsError(err.message || 'Could not load suggestions.');
+                })
+                .finally(() => {
+                    setSuggestionsLoading(false);
+                });
         } catch (err) {
             setError(err.message);
         } finally {
@@ -216,6 +242,15 @@ function YTAgentPage() {
                             setSearchParams({ step: 'topic' });
                         }}
                         loading={loading}
+                        suggestions={suggestions}
+                        suggestionsLoading={suggestionsLoading}
+                        suggestionsError={suggestionsError}
+                        onSelectSuggestedTopic={(topic) => {
+                            setTopicInput(topic);
+                            setSelectedVideo(null);
+                            setValidationResult(null);
+                            setSearchParams({ step: 'topic' });
+                        }}
                     />
                 )}
 
