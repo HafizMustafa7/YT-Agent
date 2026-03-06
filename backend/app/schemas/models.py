@@ -37,7 +37,7 @@ class CreativePreferencesRequest(BaseModel):
     story_format: str = Field(..., description="Story format (e.g., narrative, documentary)")
     duration_seconds: int = Field(
         ...,
-        description="Video duration in seconds — must be one of 15, 30, 45, 60",
+        description="Video duration in seconds — must be one of 16, 32, 48, 60",
     )
     constraints: List[str] = Field(
         default_factory=list,
@@ -47,7 +47,7 @@ class CreativePreferencesRequest(BaseModel):
     @field_validator("duration_seconds")
     @classmethod
     def duration_must_be_allowed(cls, v: int) -> int:
-        allowed = [15, 30, 45, 60]
+        allowed = [16, 32, 48, 60]
         if v not in allowed:
             raise ValueError(f"duration_seconds must be one of {allowed}, got {v}")
         return v
@@ -74,7 +74,7 @@ class FrameInput(BaseModel):
     frame_num: int = Field(..., ge=1)
     ai_video_prompt: str = Field(..., min_length=1, max_length=5000)
     scene_description: Optional[str] = None
-    duration_seconds: Literal[8, 12] = Field(8, description="Must be a valid Sora duration: 8 or 12 (4s discarded)")
+    duration_seconds: Literal[4, 8, 12] = Field(8, description="Must be a valid Sora duration: 4, 8, or 12")
 
 
 class CreateVideoProjectRequest(BaseModel):

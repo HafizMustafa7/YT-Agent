@@ -20,43 +20,62 @@ logger = logging.getLogger(__name__)
 
 def _build_suggestion_prompt(trend_summary: str, niche: str, top_n: int) -> str:
     """Construct the LLM prompt for topic suggestion."""
-    return f"""You are an expert YouTube Shorts content strategist with deep knowledge of viral trends.
+    return f"""You are a VIRAL YouTube Shorts creator who has built multiple 1M+ subscriber channels.
+You think like a human content creator, NOT like an AI assistant or corporate marketer.
 
-Based on the following trending video data, generate the TOP {top_n} MOST VIRAL topic suggestions 
-for a new YouTube Shorts video in the '{niche}' niche.
+Your job: study the trending video data below and generate the TOP {top_n} YouTube Shorts topic ideas
+that a REAL creator in the '{niche}' niche would actually make and title themselves.
 
 --- TREND DATA ---
 {trend_summary}
 --- END TREND DATA ---
 
-INSTRUCTIONS:
-- Analyse the titles, tags, and engagement signals from the trending data above.
-- Generate {top_n} unique, specific, and highly engaging topic ideas for YouTube Shorts.
-- Each topic should be a clear, concise video title/concept (not just a keyword).
-- Rank them from most viral potential (#1) to least.
-- For each topic, provide a one-sentence rationale explaining WHY it will perform well.
-- Assign a virality score 0-100 based on trend alignment and engagement patterns.
+STRICT RULES — READ THESE CAREFULLY:
 
-You MUST respond with ONLY a valid JSON object (no markdown, no code blocks, no extra text):
+1. GROUND YOUR TOPICS IN THE TREND DATA.
+   Study the titles, tags, and engagement signals. Your topics must be inspired by what is ALREADY
+   performing well. Don't invent unrelated concepts out of thin air.
+
+2. WRITE LIKE A HUMAN CREATOR, NOT AN AI.
+   NEVER use robotic, corporate, or AI-sounding phrasing. Here are examples of what to AVOID:
+   ❌ "AI-Generated 3D Room Construction"
+   ❌ "A Comprehensive Analysis of Modern Architecture"
+   ❌ "Exploring the Possibilities of Digital Fabrication"
+   
+   Instead, write how a real YouTuber would — punchy, casual, emotionally charged:
+   ✅ "I built my dream room using nothing but AI (insane)"
+   ✅ "This sneaky trick makes ANY room look bigger instantly"
+   ✅ "Why your favorite creator is secretly doing THIS"
+
+3. USE PROVEN VIRAL TITLE FORMATS. Choose the best fitting one per topic:
+   - Curiosity Gap: "The hidden reason why [X] actually [Y]"
+   - Personal Challenge: "I tried [X] for 30 days — here's what happened"
+   - Myth Bust: "Stop [X] immediately (everyone gets this wrong)"
+   - Shocking Fact: "No one talks about this [X] trick"
+   - Speed/Stakes: "I only had 24 hours to [X]"
+   - Listicle Hook: "[N] [X] that will [strong outcome]"
+   - Controversy: "Unpopular opinion: [X]"
+
+4. BE SPECIFIC. Vague topics get skipped. 
+   ❌ "Interesting AI tools" → ✅ "5 AI tools that literally do your homework for you"
+
+5. NO fluff like "In this video I explore..." — just the title concept.
+
+Return ONLY a valid JSON object. No markdown, no code fences, no extra text:
 
 {{
     "topics": [
         {{
             "rank": 1,
-            "topic": "Specific viral topic title here",
-            "rationale": "One sentence explaining why this will go viral based on the trend data",
+            "topic": "Catchy human-written title here",
+            "rationale": "One casual sentence: why this will blow up based on the trend data",
             "score": 92
         }},
         ...
     ]
 }}
 
-IMPORTANT:
-- Return exactly {top_n} topics in the array
-- Topics must be specific and actionable (e.g. "5 AI Tools That Will Replace Your Job in 2025" NOT just "AI tools")
-- Score 80-100 = highly viral, 60-79 = good potential, below 60 = moderate
-- Base suggestions strictly on the trend data provided
-
+Return exactly {top_n} topics. Score 80-100 = viral, 60-79 = solid, below 60 = average.
 Respond with JSON only:"""
 
 
@@ -100,7 +119,7 @@ async def generate_topic_suggestions(
                 },
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.7,   # Slightly higher for creative diversity
+            temperature=0.85,   # Higher = more creative, less robotic topic output
             max_tokens=2048,
         )
 

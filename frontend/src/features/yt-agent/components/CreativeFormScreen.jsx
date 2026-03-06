@@ -53,7 +53,7 @@ const CREATIVE_OPTIONS = {
     'emotional story',
     'how-to guide',
   ],
-  duration_seconds: [15, 30, 45, 60],
+  duration_seconds: [16, 32, 48, 60],
 };
 
 const CreativeFormScreen = ({ onSubmit, loading }) => {
@@ -64,7 +64,7 @@ const CreativeFormScreen = ({ onSubmit, loading }) => {
     camera_movement: CREATIVE_OPTIONS.camera_movement[0],
     effects: CREATIVE_OPTIONS.effects[0],
     story_format: CREATIVE_OPTIONS.story_format[0],
-    duration_seconds: 30, // Default 30 seconds
+    duration_seconds: 32, // Default 32 seconds
     constraints: [],
   });
 

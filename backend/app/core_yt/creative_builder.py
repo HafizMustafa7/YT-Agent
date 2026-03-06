@@ -40,7 +40,7 @@ ALLOWED_COLOR_GRADING = [
 
 # Single source of truth for allowed story durations.
 # To add a new tier just append here — no other code changes required.
-ALLOWED_DURATIONS: list[int] = [15, 30, 45, 60]
+ALLOWED_DURATIONS: list[int] = [16, 32, 48, 60]
 
 
 def normalize_duration_seconds(raw: Any, default: int = 30) -> int:
