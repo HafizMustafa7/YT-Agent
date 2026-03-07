@@ -35,22 +35,6 @@ class CreativePreferencesRequest(BaseModel):
     camera_movement: str = Field(..., description="Camera movement style")
     effects: str = Field(..., description="Visual effects preference")
     story_format: str = Field(..., description="Story format (e.g., narrative, documentary)")
-    duration_seconds: int = Field(
-        ...,
-        description="Video duration in seconds — must be one of 16, 32, 48, 60",
-    )
-    constraints: List[str] = Field(
-        default_factory=list,
-        description="Additional constraints or requirements",
-    )
-
-    @field_validator("duration_seconds")
-    @classmethod
-    def duration_must_be_allowed(cls, v: int) -> int:
-        allowed = [16, 32, 48, 60]
-        if v not in allowed:
-            raise ValueError(f"duration_seconds must be one of {allowed}, got {v}")
-        return v
 
 
 class GenerateStoryRequest(BaseModel):

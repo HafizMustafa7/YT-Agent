@@ -283,83 +283,7 @@ def _snap_to_sora(seconds: float) -> int:
 
 
 # ===========================================================================
-# NEW: Importance-weighted duration allocation
-# ===========================================================================
-
-def _allocate_scene_durations(importance_scores: List[int], total_seconds: int) -> List[int]:
-    """Allocate clip durations proportionally from importance scores.
-
-    Algorithm:
-      1. Compute raw proportional duration per scene.
-      2. Snap each to the nearest Sora-valid value (4, 8, 12).
-      3. Iteratively redistribute remaining drift seconds to scenes
-         in descending importance order, bumping each up or down to
-         the next valid Sora tier until the total matches exactly.
-
-    Args:
-        importance_scores: list of integers (1–15 each, one per scene).
-        total_seconds: target total video duration.
-
-    Returns:
-        List of per-scene durations in seconds, guaranteed to sum to
-        total_seconds (to the nearest valid Sora combination).
-    """
-    if not importance_scores:
-        return []
-
-    n = len(importance_scores)
-    total_importance = sum(importance_scores) or 1
-    raw_durations = [(total_seconds * score) / total_importance for score in importance_scores]
-    snapped = [_snap_to_sora(d) for d in raw_durations]
-
-    allowed_sorted = sorted(ALLOWED_FRAME_DURATIONS)  # [4, 8, 12]
-
-    # Sort scene indices by importance descending (crux first, smallest last)
-    priority_order = sorted(range(n), key=lambda i: importance_scores[i], reverse=True)
-
-    # Iteratively add or remove Sora-tier seconds until sum == total_seconds
-    max_iters = n * len(allowed_sorted) + 10
-    for _ in range(max_iters):
-        current_total = sum(snapped)
-        if current_total == total_seconds:
-            break
-        drift = total_seconds - current_total  # positive = need more seconds
-
-        adjusted = False
-        for idx in priority_order:
-            cur = snapped[idx]
-            if drift > 0:
-                # Try to bump this scene up one tier
-                higher = [d for d in allowed_sorted if d > cur]
-                if higher:
-                    snapped[idx] = higher[0]
-                    adjusted = True
-                    break
-            else:
-                # Try to bump this scene down one tier
-                lower = [d for d in allowed_sorted if d < cur]
-                if lower:
-                    snapped[idx] = lower[-1]
-                    adjusted = True
-                    break
-
-        if not adjusted:
-            # Cannot converge further (all scenes at floor or ceiling)
-            break
-
-    logger.debug(
-        "Duration allocation: importance=%s, raw=%s, snapped=%s (target=%ds, actual=%ds)",
-        importance_scores,
-        [round(r, 1) for r in raw_durations],
-        snapped,
-        total_seconds,
-        sum(snapped),
-    )
-    return snapped
-
-
-# ===========================================================================
-# NEW: Lock preamble builder (Prevention-based consistency — Option A)
+# Lock preamble builder (Prevention-based consistency — Option A)
 # ===========================================================================
 
 def _build_lock_preamble(
@@ -413,7 +337,6 @@ async def generate_story_and_frames(
     user_topic: str,
     max_frames: int = 10,
     creative_brief: Optional[Dict[str, Any]] = None,
-    video_duration: Optional[int] = 60,
 ) -> Dict[str, Any]:
     """
     Generate story pipeline with 12 conceptual stages (8 LLM calls).
@@ -444,10 +367,6 @@ async def generate_story_and_frames(
         story_format = creative_brief.get("story_format", "narrative") if creative_brief else "narrative"
         target_audience = creative_brief.get("target_audience", "General") if creative_brief else "General"
         color_grading = (creative_brief.get("effects") if creative_brief else None) or "natural cinematic color grading"
-        target_duration = _normalize_duration_to_int(
-            creative_brief.get("duration_seconds", video_duration) if creative_brief else (video_duration or 60),
-            default=60,
-        )
 
         # ===================================================================
         # STAGE 1 — Topic Enrichment (LLM Call #1)
@@ -456,13 +375,12 @@ async def generate_story_and_frames(
         stage1_prompt = f"""You are a cinematic content strategist specializing in visual storytelling.
 
 User topic: "{clean_topic}"
-Target duration: {target_duration} seconds
 Visual tone: {tone}
 Style: {visual_style}
 Target audience: {target_audience}
 
 Task:
-Expand this topic into a rich visual scenario optimized for a short-form video.
+Expand this topic into a rich visual scenario optimized for a short-form video (16 to 60 seconds long).
 Infer and define all environmental details that a cinematographer would need.
 
 Return JSON only:
@@ -505,13 +423,12 @@ Return JSON only."""
 Topic enrichment:
 {json.dumps(stage1, ensure_ascii=True)}
 
-Duration: {target_duration} seconds.
 Story format: {story_format}
 
 Task:
-Create a tight 4-act story arc that fits within {target_duration} seconds.
+Create a tight 4-act story arc. The story should naturally unfold over 16 to 60 seconds.
 The story should be VISUALLY driven — no dialogue-heavy scenes.
-The CRUX (main event) must be the most visually powerful and impactful moment.
+The CRUX (main event) must be the most visually powerful, longest, and highest-action segment.
 
 Rules:
 - Setup and Resolution should be brief visual beats.
@@ -650,7 +567,7 @@ Story arc:
 {json.dumps(stage2, ensure_ascii=True)}
 
 Narrative constraints:
-- Total video duration: {target_duration} seconds
+- Total video duration: between 16 and 60 seconds (dynamically determined by story needs)
 - Tone: {tone}
 - The crux scene is: "{stage2.get('crux', '')}"
 
@@ -746,55 +663,43 @@ Return JSON only."""
                 importance_map[sid] = 5
 
         # ===================================================================
-        # DURATION ALLOCATION — pure math, no LLM
+        # STAGE 7 — Shot Planning (LLM Call #7) — locks injected, state machine, dynamic duration
         # ===================================================================
-        logger.info("Duration Allocation (pure math)...")
-        ordered_scene_ids = [sc.get("scene_id", f"scene_{i+1}") for i, sc in enumerate(scenes)]
-        importance_list = [importance_map.get(sid, 5) for sid in ordered_scene_ids]
-        duration_list = _allocate_scene_durations(importance_list, target_duration)
+        logger.info("STAGE 7: Shot Planning (Dynamic Duration)...")
 
-        logger.info(
-            "Duration allocation: scenes=%s importance=%s durations=%s (total=%ds)",
-            ordered_scene_ids, importance_list, duration_list, sum(duration_list)
-        )
-
-        # Attach duration to each scene dict for downstream stages
-        scene_duration_map: Dict[str, int] = {}
-        for sid, dur in zip(ordered_scene_ids, duration_list):
-            scene_duration_map[sid] = dur
-
-        # ===================================================================
-        # STAGE 7 — Shot Planning (LLM Call #7) — locks injected, state machine
-        # ===================================================================
-        logger.info("STAGE 7: Shot Planning...")
-
-        # Build a scene+duration summary for the LLM
-        scenes_with_duration = []
+        # Build a scene summary with importance scores for the LLM
+        scenes_with_importance = []
         for sc in scenes:
             sid = sc.get("scene_id", "")
-            scenes_with_duration.append({
+            scenes_with_importance.append({
                 **sc,
-                "allocated_duration_seconds": scene_duration_map.get(sid, 8),
+                "importance_score": importance_map.get(sid, 5),
             })
 
         stage7_prompt = f"""You are a master cinematographer planning shots for a live-action short film.
 
 {lock_preamble}
 
-Scenes with allocated durations:
-{json.dumps(scenes_with_duration, ensure_ascii=True)}
+Scenes with Importance Scores (higher score = longer screen time, more shots):
+{json.dumps(scenes_with_importance, ensure_ascii=True)}
 
 Creative config:
   tone={tone} | style={visual_style} | camera_preference={camera_movement} | grade={color_grading}
 
 Task:
 For EACH scene, plan its shots. Each shot is one continuous camera clip.
-The total shot duration within a scene must equal the scene's allocated_duration_seconds.
-Allowed shot durations: 4s, 8s, or 12s only.
+The total sum of ALL shots' duration across ALL scenes must be between 16 and 60 seconds.
 
-State-machine rule (CRITICAL):
+Duration & Pacing Rules (CRITICAL):
+  - Shot durations must ONLY be 4, 8, or 12.
+  - Prioritize 4s and 8s shots to keep the pacing dynamic, fast, and attractive. Avoid 12s shots unless absolutely necessary for a long sweeping move.
+  - The Crux scene MUST have the longest total duration (e.g. 2-3 shots summing to 12-24s).
+  - Setup and Resolution scenes MUST be brief (e.g. 1 shot of 4s or 8s).
+  - Maintain consistent camera angles and visual continuity between shots within the same scene.
+
+State-machine rule:
   - Every shot has a start_state and end_state describing the EXACT physical world state.
-  - The start_state of shot N MUST be identical to the end_state of shot N-1 (across the entire video, not just within a scene).
+  - The start_state of shot N MUST be identical to the end_state of shot N-1.
   - The very first shot's start_state describes the opening frame of the video.
   - The very last shot's end_state is the closing freeze-frame.
 
@@ -822,8 +727,9 @@ Return JSON only:
   ]
 }}
 Rules:
-- Each scene may have 1–3 shots depending on duration.
-- Shot duration must be 4, 8, or 12 only.
+- Each scene may have 1–3 shots depending on its importance.
+- Shot duration must be 4, 8, or 12 only (favoring 4 and 8).
+- The sum of ALL shot durations must be between 16 and 60 seconds.
 - All characters must wear EXACTLY the clothing from the CHARACTER LOCK above.
 - Only use objects from the OBJECT & ENVIRONMENT LOCK above.
 - Live-action photorealistic only. No animation.
@@ -835,38 +741,70 @@ Return JSON only."""
             raise ValueError("STAGE 7 failed: no shot plan generated.")
 
         # ===================================================================
-        # POST-STAGE 7 — Enforce scene duration budgets (deterministic)
-        # The LLM often ignores per-scene duration constraints, causing total
-        # duration to overflow. We reassign shot durations here using the same
-        # importance-weighted allocator, treating each shot within a scene as
-        # equal importance (1) so the budget is split evenly across shots.
+        # POST-STAGE 7 — Dynamic Duration Safeguard (16s - 60s)
+        # We asked the LLM to stay within 16-60s. If it fails, we enforce it here.
         # ===================================================================
-        logger.info("Enforcing scene-level duration budgets on shot plan...")
-        shots_by_scene: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        # Preserve original order
+        logger.info("Enforcing dynamic duration bounds (16-60s) on shot plan...")
+        
+        # Ensure all durations are valid Sora lengths
         for shot in shot_plan:
-            shots_by_scene[shot.get("scene_id", "")].append(shot)
+            raw_dur = shot.get("duration_seconds", 8)
+            shot["duration_seconds"] = min(ALLOWED_FRAME_DURATIONS, key=lambda x: abs(x - raw_dur))
 
-        for scene_id, scene_shots in shots_by_scene.items():
-            allocated = scene_duration_map.get(scene_id, ALLOWED_FRAME_DURATIONS[1])
-            n_shots = len(scene_shots)
-            if n_shots == 0:
-                continue
-            # Assign equal weight to each shot; allocator picks valid Sora durations
-            equal_weights = [1] * n_shots
-            new_durations = _allocate_scene_durations(equal_weights, allocated)
-            for shot, dur in zip(scene_shots, new_durations):
-                shot["duration_seconds"] = dur
-            actual = sum(s["duration_seconds"] for s in scene_shots)
-            logger.debug(
-                "Scene %s: allocated=%ds shots=%d new_durations=%s actual=%ds",
-                scene_id, allocated, n_shots, new_durations, actual,
-            )
+        # Helper to calculate total
+        def get_total_duration():
+            return sum(s["duration_seconds"] for s in shot_plan)
 
-        enforced_total = sum(s.get("duration_seconds", 8) for s in shot_plan)
+        # Trimmer loop (> 60s)
+        while get_total_duration() > 60 and len(shot_plan) > 1:
+            # Find the shot in the LEAST important scene that is currently the SHORTEST.
+            # We sort by: Importance (Ascending), Duration (Ascending)
+            shot_plan.sort(key=lambda s: (
+                importance_map.get(s.get("scene_id", ""), 5), 
+                s["duration_seconds"]
+            ))
+            # Remove the first one
+            dropped = shot_plan.pop(0)
+            logger.debug("Overshot > 60s: dropped shot %s (dur %ds) from scene %s", 
+                         dropped.get("shot_id"), dropped["duration_seconds"], dropped.get("scene_id"))
+
+        # Padding loop (< 16s)
+        while get_total_duration() < 16:
+            # Find the shot in the MOST important scene that we can extend (up to max 12s)
+            # Sort by: Importance (Descending)
+            shot_plan.sort(key=lambda s: importance_map.get(s.get("scene_id", ""), 5), reverse=True)
+            
+            extended = False
+            for shot in shot_plan:
+                current_dur = shot["duration_seconds"]
+                if current_dur < 12:
+                    # Bump to next valid Sora duration
+                    next_dur = 8 if current_dur <= 4 else 12
+                    logger.debug("Undershot < 16s: extended shot %s from %ds to %ds", 
+                                 shot.get("shot_id"), current_dur, next_dur)
+                    shot["duration_seconds"] = next_dur
+                    extended = True
+                    break
+            
+            if not extended:
+                # If all shots are already 12s and we are still < 16s (meaning there's only 1 shot total)
+                # Duplicate the shot as a fallback to reach 16s (2x8s or 12s+4s etc)
+                # This is an extreme edge case.
+                logger.debug("Edge case fallback: duplicating a shot to hit 16s minimum.")
+                dup = dict(shot_plan[0])
+                dup["shot_id"] = f"{dup['shot_id']}_dup"
+                dup["duration_seconds"] = 4
+                shot_plan.append(dup)
+
+        # Restore strict original temporal order (which might be lost by sorting)
+        # We rely on shot_id/scene_id or just general position. Best way is to re-extract from stage7 original order.
+        original_order = {s.get("shot_id"): i for i, s in enumerate(stage7.get("shot_plan", []))}
+        shot_plan.sort(key=lambda s: original_order.get(s.get("shot_id", ""), 999))
+
+        enforced_total = get_total_duration()
         logger.info(
-            "Post-Stage-7 enforcement: target=%ds enforced_total=%ds shots=%d",
-            target_duration, enforced_total, len(shot_plan),
+            "Post-Stage-7 enforcement: enforced_total=%ds shots=%d",
+            enforced_total, len(shot_plan),
         )
 
         # ===================================================================
@@ -918,6 +856,7 @@ Background Sound:
 3. From the object registry, pick the 2-3 MOST VISUALLY IMPORTANT objects for this shot only.
    Weave them into the prose naturally — do NOT list them.
 4. ONE single camera movement per shot. ONE primary subject action.
+   For multi-shot scenes: maintain visual continuity — do NOT jump to confusing angles between shots in the same scene.
 5. The Actions section must describe beats that START at start_state and END at end_state.
 6. Live-action photorealistic only. Absolutely no animation or illustrated style.
 7. Keep total prompt per shot under 800 characters. Be precise, not verbose.
@@ -968,12 +907,12 @@ Return JSON only."""
             scene_meta = scene_map.get(scene_id, {})
             score_meta = scene_scores_map.get(scene_id, {})
 
-            # Duration: prefer shot plan (LLM-specified), fallback to scene allocation
+            # Duration: prefer shot plan (LLM-specified), fallback to minimum valid Sora duration
             raw_duration = vp.get("duration_seconds") or shot_meta.get("duration_seconds")
             if raw_duration in ALLOWED_FRAME_DURATIONS:
                 duration = raw_duration
             else:
-                duration = scene_duration_map.get(scene_id, ALLOWED_FRAME_DURATIONS[0])
+                duration = ALLOWED_FRAME_DURATIONS[0]  # Default to 4s (minimum Sora clip)
 
             # Build a human-readable scene description
             scene_description = " | ".join(filter(None, [
@@ -1065,7 +1004,7 @@ Return JSON only."""
             "metadata": {
                 "total_frames": len(frames),
                 "estimated_duration": total_duration,
-                "target_duration": f"{target_duration} seconds",
+                "actual_duration": f"{total_duration} seconds (dynamically generated by LLM)",
                 "character_based": len(characters_locked) > 0,
                 "locked_character_profile": characters_locked,
                 "locked_object_registry": objects_locked,

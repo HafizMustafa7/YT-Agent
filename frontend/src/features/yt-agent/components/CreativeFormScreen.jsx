@@ -51,9 +51,7 @@ const CREATIVE_OPTIONS = {
     'educational',
     'did you know',
     'emotional story',
-    'how-to guide',
   ],
-  duration_seconds: [16, 32, 48, 60],
 };
 
 const CreativeFormScreen = ({ onSubmit, loading }) => {
@@ -64,7 +62,6 @@ const CreativeFormScreen = ({ onSubmit, loading }) => {
     camera_movement: CREATIVE_OPTIONS.camera_movement[0],
     effects: CREATIVE_OPTIONS.effects[0],
     story_format: CREATIVE_OPTIONS.story_format[0],
-    duration_seconds: 32, // Default 32 seconds
     constraints: [],
   });
 
@@ -182,22 +179,6 @@ const CreativeFormScreen = ({ onSubmit, loading }) => {
               {CREATIVE_OPTIONS.story_format.map((option) => (
                 <option key={option} value={option}>
                   {option.charAt(0).toUpperCase() + option.slice(1)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="duration_seconds">Video Duration</label>
-            <select
-              id="duration_seconds"
-              value={formData.duration_seconds}
-              onChange={(e) => handleChange('duration_seconds', parseInt(e.target.value))}
-              className="form-select"
-            >
-              {CREATIVE_OPTIONS.duration_seconds.map((duration) => (
-                <option key={duration} value={duration}>
-                  {duration}s
                 </option>
               ))}
             </select>

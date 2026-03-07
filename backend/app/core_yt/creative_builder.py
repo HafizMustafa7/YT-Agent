@@ -38,26 +38,6 @@ ALLOWED_COLOR_GRADING = [
 ]
 
 
-# Single source of truth for allowed story durations.
-# To add a new tier just append here — no other code changes required.
-ALLOWED_DURATIONS: list[int] = [16, 32, 48, 60]
-
-
-def normalize_duration_seconds(raw: Any, default: int = 30) -> int:
-    """Clamp raw duration to the nearest allowed tier in ALLOWED_DURATIONS.
-
-    Strategy: find the tier with the smallest absolute difference to the
-    requested value.  Ties are broken in favour of the shorter tier so the
-    model has a realistic chance of completing the story.
-    """
-    try:
-        duration = int(raw)
-    except (TypeError, ValueError):
-        duration = default
-
-    return min(ALLOWED_DURATIONS, key=lambda t: (abs(t - duration), t))
-
-
 def build_creative_brief(preferences: Dict[str, Any]) -> Dict[str, Any]:
     """
     Build structured and validated creative brief from user preferences.
@@ -89,8 +69,6 @@ def build_creative_brief(preferences: Dict[str, Any]) -> Dict[str, Any]:
         "camera_movement": camera_movement,
         "effects": effects,
         "story_format": story_format,
-        "duration_seconds": normalize_duration_seconds(preferences.get("duration_seconds", 60)),
         "constraints": preferences.get("constraints", []),
-        "visual_mood": preferences.get("visual_mood", "engaging and vibrant"),
     }
 

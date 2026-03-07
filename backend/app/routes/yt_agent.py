@@ -249,7 +249,6 @@ async def generate_story(request: GenerateStoryRequest, current_user: dict = Dep
                 selected_video=request.selected_video,
                 user_topic=request.topic,
                 creative_brief=creative_brief,
-                video_duration=creative_brief.get("duration_seconds", settings.DEFAULT_VIDEO_DURATION),
             ),
             timeout=settings.STORY_GENERATION_TIMEOUT,
         )
