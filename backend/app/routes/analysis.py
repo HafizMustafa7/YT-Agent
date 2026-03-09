@@ -201,7 +201,7 @@ async def test_token_refresh(channel_id: str, current_user: dict = Depends(get_c
         if not client_id or not client_secret:
             return {"error": "Missing client credentials", "debug_info": debug_info}
 
-        async with _make_client() as client:
+        async with httpx.AsyncClient(timeout=20.0) as client:
             response = await client.post(
                 "https://oauth2.googleapis.com/token",
                 data={

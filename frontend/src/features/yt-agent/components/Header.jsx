@@ -1,17 +1,40 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Sun, Moon, Menu, X, Settings, LogOut } from 'lucide-react';
+import { ArrowLeft, Sun, Moon, Menu, X, Settings, LogOut, Zap } from 'lucide-react';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { tokenService } from '../../../services/tokenService';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../../components/ui/dialog';
 import { Button } from '../../../components/ui/button';
+import { supabase } from '../../../supabaseClient';
 import '../styles/components/Header.css';
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [credits, setCredits] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
   const { isDarkTheme, toggleTheme } = useTheme();
+
+  // Fetch credit balance on mount (non-blocking)
+  useEffect(() => {
+    const fetchCredits = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const resp = await fetch(
+          `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/user/credits`,
+          { headers: { Authorization: `Bearer ${session.access_token}` } }
+        );
+        if (resp.ok) {
+          const data = await resp.json();
+          setCredits(data.credits);
+        }
+      } catch (e) {
+        // silently fail — credits display is non-critical
+      }
+    };
+    fetchCredits();
+  }, []);
 
   const toggleMenu = () => setIsMenuOpen(!isMenuOpen);
 
@@ -64,6 +87,21 @@ const Header = () => {
           </nav>
 
           <div className="header-actions">
+            {/* Credits display + buy credits button */}
+            {credits !== null && (
+              <button
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all ${isDarkTheme
+                    ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/20'
+                    : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                  }`}
+                onClick={() => navigate('/pricing')}
+                title="Credits remaining — click to buy more"
+              >
+                <Zap size={14} />
+                {credits} credits
+              </button>
+            )}
+
             <button
               className="theme-toggle-btn"
               onClick={toggleTheme}

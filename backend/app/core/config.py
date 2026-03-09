@@ -44,7 +44,7 @@ class Settings:
     YOUTUBE_AI_THRESHOLD: int = 30
     
     # Story Generation Settings
-    DEFAULT_VIDEO_DURATION: int = 60
+    DEFAULT_VIDEO_DURATION: int = 44
     MAX_FRAMES: int = 5
     STORY_GENERATION_TIMEOUT: int = 600  # 10 minutes
 
@@ -74,6 +74,11 @@ class Settings:
     SUPABASE_URL: str = SUPABASE_URL
     SUPABASE_SERVICE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
     VIDEO_DEFAULT_USER_ID: str = os.getenv("VIDEO_DEFAULT_USER_ID", "")
+
+    # Paddle Payment Settings
+    PADDLE_API_KEY: str = os.getenv("PADDLE_API_KEY", "")
+    PADDLE_WEBHOOK_SECRET: str = os.getenv("PADDLE_WEBHOOK_SECRET", "")
+    PADDLE_ENVIRONMENT: str = os.getenv("PADDLE_ENVIRONMENT", "sandbox")
     
     # Redis Cache Settings
     REDIS_ENABLED: bool = os.getenv("REDIS_ENABLED", "True").lower() == "true"

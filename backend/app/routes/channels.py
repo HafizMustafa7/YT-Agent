@@ -260,11 +260,11 @@ async def list_channels(current_user: dict = Depends(get_current_user)):
     redis_cache.set(cache_key, safe, ttl=_TTL_CHANNELS_LIST)
     logger.info("[CACHE SET] channel list for user %s (TTL=%ds)", current_user["id"], _TTL_CHANNELS_LIST)
 
-    return channels
+    return safe
 
 
 @router.post("/refresh")
-async def refresh_youtube_token(current_user: dict = Depends(get_current_user)):
+async def refresh_youtube_token_route(current_user: dict = Depends(get_current_user)):
     """Refresh YouTube access token for the current user (assumes single channel per user)."""
     try:
         resp = supabase.table("channels").select("*").eq("user_id", current_user["id"]).execute()

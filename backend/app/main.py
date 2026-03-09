@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from app.core.config import FRONTEND_URL
 
 from app.core_yt.google_service import set_google_http_client
-from app.routes import auth, channels, analysis, yt_agent, video_routes
+from app.routes import auth, channels, analysis, yt_agent, video_routes, payment
 from app.services import video_service
 
 # ---------------------------------------------------------------------------
@@ -96,6 +96,8 @@ app.include_router(analysis.router, prefix="/api/analysis", tags=["Analysis"])
 # YT-Agent Routes
 app.include_router(yt_agent.router, prefix="/api/v1", tags=["YT-Agent"])
 app.include_router(video_routes.router, prefix="/api/v1/video", tags=["Video Generation"])
+app.include_router(payment.router, prefix="/api", tags=["Payment"])
+
 
 
 @app.get("/")

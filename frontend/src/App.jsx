@@ -11,6 +11,9 @@ import { supabase } from "./supabaseClient";
 
 import YTAgentPage from "./pages/YTAgentPage";
 import Dashboard from "./pages/Dashboard";
+import PricingPage from "./pages/PricingPage";
+import CheckoutPage from "./pages/CheckoutPage";
+import SuccessPage from "./pages/SuccessPage";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
 function App() {
@@ -58,7 +61,7 @@ function App() {
           setUser(null);
           setSynced(false);
           // Redirect to home if on a protected route
-          const protectedRoutes = ["/dashboard", "/analytics", "/niche-input", "/results", "/frame-results"];
+          const protectedRoutes = ["/dashboard", "/analytics", "/niche-input", "/results", "/frame-results", "/generate-video", "/pricing", "/checkout"];
           if (protectedRoutes.includes(window.location.pathname)) {
             navigate("/", { replace: true });
           }
@@ -102,6 +105,17 @@ function App() {
           path="/generate-video"
           element={user ? <YTAgentPage /> : <AuthPage />}
         />
+
+        {/* Payment Pages */}
+        <Route
+          path="/pricing"
+          element={user ? <PricingPage /> : <AuthPage />}
+        />
+        <Route
+          path="/checkout"
+          element={user ? <CheckoutPage /> : <AuthPage />}
+        />
+        <Route path="/success" element={<SuccessPage />} />
       </Routes>
     </ThemeProvider>
   );

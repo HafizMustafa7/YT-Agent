@@ -231,7 +231,7 @@ async def call_megallm_json_with_retry(
 # Misc helpers
 # ===========================================================================
 
-def _normalize_duration_to_int(value: Any, default: int = 60) -> int:
+def _normalize_duration_to_int(value: Any, default: int = 44) -> int:
     try:
         d = int(value)
         return d if d > 0 else default
@@ -380,7 +380,7 @@ Style: {visual_style}
 Target audience: {target_audience}
 
 Task:
-Expand this topic into a rich visual scenario optimized for a short-form video (16 to 60 seconds long).
+Expand this topic into a rich visual scenario optimized for a short-form video (16 to 44 seconds long).
 Infer and define all environmental details that a cinematographer would need.
 
 Return JSON only:
@@ -426,7 +426,7 @@ Topic enrichment:
 Story format: {story_format}
 
 Task:
-Create a tight 4-act story arc. The story should naturally unfold over 16 to 60 seconds.
+Create a tight 4-act story arc. The story should naturally unfold over 16 to 44 seconds.
 The story should be VISUALLY driven — no dialogue-heavy scenes.
 The CRUX (main event) must be the most visually powerful, longest, and highest-action segment.
 
@@ -567,7 +567,7 @@ Story arc:
 {json.dumps(stage2, ensure_ascii=True)}
 
 Narrative constraints:
-- Total video duration: between 16 and 60 seconds (dynamically determined by story needs)
+- Total video duration: between 16 and 44 seconds (dynamically determined by story needs)
 - Tone: {tone}
 - The crux scene is: "{stage2.get('crux', '')}"
 
@@ -688,7 +688,7 @@ Creative config:
 
 Task:
 For EACH scene, plan its shots. Each shot is one continuous camera clip.
-The total sum of ALL shots' duration across ALL scenes must be between 16 and 60 seconds.
+The total sum of ALL shots' duration across ALL scenes must be between 16 and 44 seconds.
 
 Duration & Pacing Rules (CRITICAL):
   - Shot durations must ONLY be 4, 8, or 12.
@@ -729,7 +729,7 @@ Return JSON only:
 Rules:
 - Each scene may have 1–3 shots depending on its importance.
 - Shot duration must be 4, 8, or 12 only (favoring 4 and 8).
-- The sum of ALL shot durations must be between 16 and 60 seconds.
+- The sum of ALL shot durations must be between 16 and 44 seconds.
 - All characters must wear EXACTLY the clothing from the CHARACTER LOCK above.
 - Only use objects from the OBJECT & ENVIRONMENT LOCK above.
 - Live-action photorealistic only. No animation.
@@ -741,10 +741,10 @@ Return JSON only."""
             raise ValueError("STAGE 7 failed: no shot plan generated.")
 
         # ===================================================================
-        # POST-STAGE 7 — Dynamic Duration Safeguard (16s - 60s)
-        # We asked the LLM to stay within 16-60s. If it fails, we enforce it here.
+        # POST-STAGE 7 — Dynamic Duration Safeguard (16s - 44s)
+        # We asked the LLM to stay within 16-44s. If it fails, we enforce it here.
         # ===================================================================
-        logger.info("Enforcing dynamic duration bounds (16-60s) on shot plan...")
+        logger.info("Enforcing dynamic duration bounds (16-44s) on shot plan...")
         
         # Ensure all durations are valid Sora lengths
         for shot in shot_plan:
@@ -755,8 +755,8 @@ Return JSON only."""
         def get_total_duration():
             return sum(s["duration_seconds"] for s in shot_plan)
 
-        # Trimmer loop (> 60s)
-        while get_total_duration() > 60 and len(shot_plan) > 1:
+        # Trimmer loop (> 44s)
+        while get_total_duration() > 44 and len(shot_plan) > 1:
             # Find the shot in the LEAST important scene that is currently the SHORTEST.
             # We sort by: Importance (Ascending), Duration (Ascending)
             shot_plan.sort(key=lambda s: (
@@ -765,7 +765,7 @@ Return JSON only."""
             ))
             # Remove the first one
             dropped = shot_plan.pop(0)
-            logger.debug("Overshot > 60s: dropped shot %s (dur %ds) from scene %s", 
+            logger.debug("Overshot > 44s: dropped shot %s (dur %ds) from scene %s", 
                          dropped.get("shot_id"), dropped["duration_seconds"], dropped.get("scene_id"))
 
         # Padding loop (< 16s)

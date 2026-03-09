@@ -11,6 +11,8 @@ from app.core.config import settings
 from app.schemas.models import CreateVideoProjectRequest, GenerateFrameRequest
 from app.services import video_service
 from app.routes.auth import get_current_user
+from app.routes.payment import calculate_required_credits, check_and_deduct_credits
+
 
 logger = logging.getLogger(__name__)
 
@@ -182,14 +184,21 @@ async def start_generate_all(
         if not pending:
             return {"success": True, "message": "No pending/failed frames to generate.", "pending_count": 0}
 
+        # --- Credit Check & Deduction ---
+        total_seconds = sum(f.get("duration_seconds", 8) for f in pending)
+        credits_needed = calculate_required_credits(total_seconds)
+        await check_and_deduct_credits(current_user["id"], credits_needed)
+
         background_tasks.add_task(video_service.generate_all_pending_frames, project_id)
-        logger.info("Started generation for project %s (%d frames)", project_id, len(pending))
+        logger.info("Started generation for project %s (%d frames, %d credits deducted)", project_id, len(pending), credits_needed)
 
         return {
             "success": True,
-            "message": f"Generation started for {len(pending)} frame(s).",
+            "message": f"Generation started for {len(pending)} frame(s). {credits_needed} credit(s) deducted.",
             "pending_count": len(pending),
+            "credits_used": credits_needed,
         }
+
     except HTTPException:
         raise
     except Exception as e:
@@ -228,6 +237,11 @@ async def generate_one_frame(
 
         if frame.get("status") not in ("pending", "failed"):
             return {"success": True, "message": f"Frame already in state '{frame.get('status')}', skipping."}
+
+        # --- Credit Check & Deduction (single frame) ---
+        frame_seconds = frame.get("duration_seconds", 8)
+        credits_needed = calculate_required_credits(frame_seconds)
+        await check_and_deduct_credits(current_user["id"], credits_needed)
 
         background_tasks.add_task(
             video_service.generate_single_frame,

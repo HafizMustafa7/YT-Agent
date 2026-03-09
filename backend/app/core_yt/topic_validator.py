@@ -82,7 +82,7 @@ Evaluate the topic based on these criteria:
 2. **Content Quality**: Is the topic clear, specific, and makes sense for a short video?
 3. **Engagement Potential**: Would this topic attract viewers? Is it interesting/viral-worthy?
 4. **Clarity**: Is the topic understandable and well-defined?
-5. **Feasibility**: Can this be made into a 30-60 second video?
+5. **Feasibility**: Can this be made into a 30-44 second video?
 
 You MUST respond with ONLY a valid JSON object (no markdown, no code blocks, no extra text):
 

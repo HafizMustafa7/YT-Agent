@@ -112,7 +112,7 @@ const ResultsScreen = () => {
 
       // Call the story generation API via central service
       const creativePreferences = {
-        duration_seconds: 60, // Default for shorts
+        duration_seconds: 44, // Default for shorts
         target_audience: 'general',
         tone: 'engaging'
       };
