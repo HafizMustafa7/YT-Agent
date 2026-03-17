@@ -34,8 +34,7 @@ class RedisCache:
                 if settings.REDIS_URL:
                     # Initialize from URL (e.g., Render)
                     self.client = redis.Redis.from_url(settings.REDIS_URL, **common_params)
-                    self.client.ping()
-                    logger.info("Redis connected successfully via REDIS_URL")
+                    logger.info("Redis initialized via REDIS_URL")
                 else:
                     # Fallback to host/port (e.g., local or Redis Cloud)
                     connection_params = {
@@ -52,13 +51,11 @@ class RedisCache:
                         connection_params["ssl"] = True
                         connection_params["ssl_cert_reqs"] = ssl.CERT_NONE
                         self.client = redis.Redis(**connection_params)
-                        self.client.ping()
-                        logger.info("Redis connected successfully (SSL) to %s:%s", settings.REDIS_HOST, settings.REDIS_PORT)
+                        logger.info("Redis initialized (SSL) to %s:%s", settings.REDIS_HOST, settings.REDIS_PORT)
                     else:
                         # Connect without SSL
                         self.client = redis.Redis(**connection_params)
-                        self.client.ping()
-                        logger.info("Redis connected successfully to %s:%s", settings.REDIS_HOST, settings.REDIS_PORT)
+                        logger.info("Redis initialized to %s:%s", settings.REDIS_HOST, settings.REDIS_PORT)
                 
                 logger.info("Cache TTL: %ds (%.1f hours)", self.ttl, self.ttl / 3600)
             except redis.ConnectionError as e:

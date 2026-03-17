@@ -585,6 +585,16 @@ async def generate_single_frame(
         error_msg = str(e)
         logger.error("Frame %d generation failed: %s", frame_num, error_msg)
         update_frame_status(frame_id, "failed", error_message=error_msg)
+        
+        # Refund credits on failure
+        try:
+            from app.routes.payment import calculate_required_credits, refund_credits
+            project = get_project_with_frames_and_assets(project_id)
+            if project and project.get("user_id"):
+                credits_to_refund = calculate_required_credits(duration_seconds)
+                await refund_credits(project["user_id"], credits_to_refund)
+        except Exception as refund_err:
+            logger.error("Failed to refund credits for failed frame %d: %s", frame_num, refund_err)
         # Do NOT re-raise: this runs as a BackgroundTask, re-raising causes ASGI errors
 
 

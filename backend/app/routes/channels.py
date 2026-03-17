@@ -17,6 +17,7 @@ _TTL_CHANNELS_LIST = 300   # 5 min — channel list changes rarely
 _TTL_STATS         = 900   # 15 min — subscriber/video counts
 
 from app.core_yt.google_service import get_google_http_client, refresh_youtube_token, fetch_channel_thumbnail
+from app.utils.errors import handle_error
 
 router = APIRouter(tags=["Channels"])
 logger = logging.getLogger(__name__)
@@ -88,7 +89,7 @@ async def start_youtube_oauth(current_user: dict = Depends(get_current_user)):
         return {"url": authorization_url}
     except Exception as e:
         logger.exception("[CHANNELS] start_youtube_oauth failed")
-        raise HTTPException(status_code=400, detail=str(e))
+        handle_error(e)
 
 
 @router.get("/oauth/callback")
@@ -214,7 +215,7 @@ async def oauth_callback(request: Request, state: str = None, code: str = None):
         except Exception:
             pass  # Don't let cleanup errors mask the original error
         logger.exception("[CHANNELS] oauth_callback failed")
-        raise HTTPException(status_code=400, detail=str(e))
+        handle_error(e)
 
 
 @router.get("/")
@@ -287,7 +288,7 @@ async def refresh_youtube_token_route(current_user: dict = Depends(get_current_u
         raise
     except Exception as e:
         logger.exception("[CHANNELS] refresh_youtube_token failed")
-        raise HTTPException(status_code=400, detail=str(e))
+        handle_error(e)
 
 
 # Note: _refresh_youtube_token is now handled by google_service.py
@@ -361,4 +362,4 @@ async def get_channel_stats(channel_id: str, current_user: dict = Depends(get_cu
         raise
     except Exception as e:
         logger.exception("[CHANNELS] get_channel_stats failed")
-        raise HTTPException(status_code=400, detail=str(e))
+        handle_error(e)

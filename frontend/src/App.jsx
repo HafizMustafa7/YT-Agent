@@ -21,7 +21,6 @@ function App() {
   const location = useLocation();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [synced, setSynced] = useState(false);
 
   useEffect(() => {
     // Initialize session once
@@ -55,11 +54,10 @@ function App() {
           setUser(session.user);
 
           if (event === 'SIGNED_IN') {
-            setSynced(false);
+            // Synced state removed
           }
         } else {
           setUser(null);
-          setSynced(false);
           // Redirect to home if on a protected route
           const protectedRoutes = ["/dashboard", "/analytics", "/niche-input", "/results", "/frame-results", "/generate-video", "/pricing", "/checkout"];
           if (protectedRoutes.includes(window.location.pathname)) {
@@ -115,7 +113,7 @@ function App() {
           path="/checkout"
           element={user ? <CheckoutPage /> : <AuthPage />}
         />
-        <Route path="/success" element={<SuccessPage />} />
+        <Route path="/success" element={user ? <SuccessPage /> : <AuthPage />} />
       </Routes>
     </ThemeProvider>
   );

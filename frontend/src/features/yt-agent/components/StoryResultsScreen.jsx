@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../../../supabaseClient';
 import { useSelectedChannel } from '../../../contexts/SelectedChannelContext';
 import '../styles/components/StoryResultsScreen.css';
 const StoryResultsScreen = ({ storyResult, topic, onGenerateVideo }) => {
@@ -6,6 +7,27 @@ const StoryResultsScreen = ({ storyResult, topic, onGenerateVideo }) => {
   const [expandedFrame, setExpandedFrame] = useState(null);
   const [copiedFrame, setCopiedFrame] = useState(null);
   const [videoCreating, setVideoCreating] = useState(false);
+  const [availableCredits, setAvailableCredits] = useState(null);
+
+  useEffect(() => {
+    const fetchCredits = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const resp = await fetch(
+          `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/user/credits`,
+          { headers: { Authorization: `Bearer ${session.access_token}` } }
+        );
+        if (resp.ok) {
+          const data = await resp.json();
+          setAvailableCredits(data.credits);
+        }
+      } catch (e) {
+        console.error('Failed to fetch credits:', e);
+      }
+    };
+    fetchCredits();
+  }, []);
 
   const story = storyResult?.story || {};
   const frames = story?.frames || [];
@@ -198,14 +220,27 @@ const StoryResultsScreen = ({ storyResult, topic, onGenerateVideo }) => {
             )}
           </div>
 
-          <button
-            type="button"
-            className="generate-video-btn"
-            onClick={handleGenerateVideo}
-            disabled={videoCreating || !selectedChannel}
-          >
-            {videoCreating ? 'Creating project…' : 'Generate Video → Open Video Gen Dashboard'}
-          </button>
+          {(() => {
+            const requiredCredits = Math.ceil((story?.metadata?.estimated_duration || 0) / 4);
+            const hasEnoughCredits = availableCredits === null || availableCredits >= requiredCredits;
+            return (
+              <>
+                {!hasEnoughCredits && (
+                  <div className="mb-3 p-3 bg-red-500/10 border border-red-500/30 text-red-500 rounded-lg text-sm text-center">
+                    Insufficient credits to generate this video. Required: {requiredCredits}, Available: {availableCredits}. <a href="/pricing" className="underline font-bold">Buy more</a>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="generate-video-btn"
+                  onClick={handleGenerateVideo}
+                  disabled={videoCreating || !selectedChannel || !hasEnoughCredits}
+                >
+                  {videoCreating ? 'Creating project…' : 'Generate Video → Open Video Gen Dashboard'}
+                </button>
+              </>
+            );
+          })()}
           <p className="generate-video-hint">
             Creates a video project and opens the dashboard to generate clips per frame or all at once, then compile.
           </p>

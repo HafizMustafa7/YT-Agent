@@ -12,6 +12,7 @@ from app.core.config import supabase
 from app.models.analytics import VideoAnalytics, ChannelInfo, AnalyticsResponse
 from app.routes.auth import get_current_user
 from app.core_yt.redis_cache import redis_cache
+from app.utils.errors import handle_error
 
 # Cache TTLs
 _TTL_ANALYTICS = 3600  # 1 hour — expensive multi-page YouTube API call
@@ -147,6 +148,8 @@ def categorize_video(title: str) -> str:
 @router.get("/debug/token/{channel_id}")
 async def debug_token_info(channel_id: str, current_user: dict = Depends(get_current_user)):
     """Debug token information for a specific channel."""
+    if os.getenv("ENVIRONMENT", "development") == "production":
+        return {"error": "Debug endpoints disabled in production"}
     try:
         result = (
             supabase.table("channels")
@@ -174,6 +177,8 @@ async def debug_token_info(channel_id: str, current_user: dict = Depends(get_cur
 @router.post("/debug/test-refresh/{channel_id}")
 async def test_token_refresh(channel_id: str, current_user: dict = Depends(get_current_user)):
     """Test token refresh for debugging."""
+    if os.getenv("ENVIRONMENT", "development") == "production":
+        return {"error": "Debug endpoints disabled in production"}
     try:
         result = (
             supabase.table("channels")
@@ -238,7 +243,7 @@ async def get_all_channels(current_user: dict = Depends(get_current_user)):
         return {"channels": result.data, "count": len(result.data)}
     except Exception as e:
         logger.error("Database error fetching channels: %s", e)
-        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+        handle_error(e)
 
 
 @router.get("/channels/{user_id}")
@@ -254,7 +259,7 @@ async def get_user_channels(user_id: str, current_user: dict = Depends(get_curre
         raise
     except Exception as e:
         logger.error("Error fetching channels for user %s: %s", user_id, e)
-        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+        handle_error(e)
 
 
 @router.get("/analytics/{channel_id}")
@@ -394,7 +399,7 @@ async def get_channel_analytics(
         raise
     except Exception as e:
         logger.error("Unexpected error in get_channel_analytics: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {e}")
+        handle_error(e)
 
 
 @router.get("/ai-insights/{channel_id}")
@@ -501,7 +506,7 @@ async def get_video_analytics(
         raise
     except Exception as e:
         logger.error("Error fetching video analytics: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error fetching video analytics: {e}")
+        handle_error(e)
 
 
 @router.get("/test-credentials")

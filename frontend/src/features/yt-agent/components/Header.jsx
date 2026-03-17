@@ -84,22 +84,28 @@ const Header = () => {
             >
               Analytics
             </a>
+            <a
+              href="#"
+              onClick={(e) => { e.preventDefault(); navigate('/pricing'); setIsMenuOpen(false); }}
+              className={location.pathname === '/pricing' ? 'active' : ''}
+            >
+              Pricing
+            </a>
           </nav>
 
           <div className="header-actions">
-            {/* Credits display + buy credits button */}
+            {/* Credits display */}
             {credits !== null && (
-              <button
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all ${isDarkTheme
-                    ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/20'
-                    : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+              <div
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border ${isDarkTheme
+                  ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+                  : 'bg-indigo-50 border-indigo-200 text-indigo-700'
                   }`}
-                onClick={() => navigate('/pricing')}
-                title="Credits remaining — click to buy more"
+                title="Credits remaining"
               >
                 <Zap size={14} />
                 {credits} credits
-              </button>
+              </div>
             )}
 
             <button

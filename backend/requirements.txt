@@ -8,7 +8,7 @@ deprecation==2.1.0
 dnspython==2.7.0
 email-validator==2.3.0
 fastapi==0.116.1
-git-filter-repo==2.47.0
+
 h11==0.16.0
 h2==4.3.0
 hpack==4.1.0
@@ -45,8 +45,7 @@ google-auth==2.38.0
 
 # YT-Agent-Umar Dependencies
 openai==1.58.1
-loguru==0.7.2
-tenacity==8.2.3
+
 redis==7.1.0
 ffmpeg-python==0.2.0
 paddle-python-sdk>=1.2.0

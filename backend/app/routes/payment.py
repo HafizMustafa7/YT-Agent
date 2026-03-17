@@ -135,6 +135,46 @@ async def check_and_deduct_credits(user_id: str, credits_needed: int) -> None:
     )
 
 
+async def refund_credits(user_id: str, credits_to_refund: int) -> None:
+    """
+    Refund credits to a user (usually when a background job fails).
+    """
+    if credits_to_refund <= 0:
+        return
+        
+    loop = asyncio.get_running_loop()
+
+    def _fetch():
+        return supabase.table("credits").select("credits, total_used").eq("user_id", user_id).execute()
+
+    resp = await loop.run_in_executor(None, _fetch)
+    data = getattr(resp, "data", [])
+
+    if not data:
+        logger.warning("[PAYMENT] Cannot refund %d credits: user %s not found in credits table", credits_to_refund, user_id)
+        return
+
+    available = data[0].get("credits", 0)
+    total_used_now = max(0, data[0].get("total_used", 0) - credits_to_refund)
+
+    def _refund():
+        return (
+            supabase.table("credits")
+            .update({
+                "credits": available + credits_to_refund,
+                "total_used": total_used_now,
+            })
+            .eq("user_id", user_id)
+            .execute()
+        )
+
+    await loop.run_in_executor(None, _refund)
+    logger.info(
+        "[PAYMENT] Refunded %d credits to user %s (remaining: %d)",
+        credits_to_refund, user_id, available + credits_to_refund,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
@@ -143,6 +183,10 @@ class CheckoutRequest(BaseModel):
     package_id: str
     success_url: str = "http://localhost:5173/success"
     cancel_url: str = "http://localhost:5173/checkout"
+
+
+class VerifyTransactionRequest(BaseModel):
+    transaction_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +356,121 @@ async def create_paddle_checkout(
             )
         await loop.run_in_executor(None, _fail_order)
         raise HTTPException(status_code=400, detail=f"Paddle error: {str(e)}")
+
+
+# ---------------------------------------------------------------------------
+# POST /api/paddle/verify (Frontend-Triggered Verification)
+# ---------------------------------------------------------------------------
+
+@router.post("/paddle/verify")
+async def verify_paddle_transaction(
+    request: VerifyTransactionRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Verify a transaction directly with Paddle API and grant credits if successful.
+    This provides a secure frontend-driven alternative/fallback to webhooks.
+    """
+    user_id = current_user["id"]
+    txn_id = request.transaction_id
+
+    if not paddle_client:
+        raise HTTPException(status_code=503, detail="Payment service unavailable.")
+
+    loop = asyncio.get_running_loop()
+
+    # 1. Fetch transaction from Paddle securely
+    try:
+        def _get_txn():
+            return paddle_client.transactions.get(txn_id)
+        transaction = await loop.run_in_executor(None, _get_txn)
+    except Exception as e:
+        logger.error("[PAYMENT] Failed to fetch transaction %s from Paddle: %s", txn_id, e)
+        raise HTTPException(status_code=400, detail="Failed to verify transaction with payment provider.")
+
+    # In the Python SDK, enum values can be tricky, so we safely convert to string
+    txn_status = str(transaction.status).split('.')[-1].lower() if transaction.status else ""
+
+    if txn_status != "completed":
+        return {"status": "pending", "message": f"Transaction is currently {txn_status}"}
+
+    # Extract custom data
+    custom_data = transaction.custom_data.data if (transaction.custom_data and hasattr(transaction.custom_data, 'data')) else {}
+    if not custom_data and hasattr(transaction, "custom_data") and isinstance(transaction.custom_data, dict):
+        custom_data = transaction.custom_data # Fallback if it's just a dict
+
+    order_id = custom_data.get("order_id")
+    pkg_id = custom_data.get("package_id")
+    txn_user_id = custom_data.get("user_id")
+
+    if not all([order_id, pkg_id, txn_user_id]):
+        logger.error("[PAYMENT] Transaction %s missing custom metadata. custom_data=%s", txn_id, custom_data)
+        raise HTTPException(status_code=400, detail="Transaction missing required metadata.")
+
+    if txn_user_id != user_id:
+        logger.warning("[PAYMENT] User %s attempted to verify transaction belonging to user %s", user_id, txn_user_id)
+        raise HTTPException(status_code=403, detail="Transaction does not belong to the current user.")
+
+    svc_supabase = _get_service_supabase()
+
+    # 2. Idempotency Check: skip if order is already completed
+    def _fetch_order():
+        return svc_supabase.table("orders").select("payment_status").eq("id", order_id).execute()
+
+    order_resp = await loop.run_in_executor(None, _fetch_order)
+    order_rows = getattr(order_resp, "data", [])
+    if order_rows and order_rows[0].get("payment_status") == "completed":
+        logger.info("[PAYMENT] Order %s already completed (idempotent frontend verify) for txn %s", order_id, txn_id)
+        return {"status": "already_processed", "message": "Credits already added previously."}
+
+    # 3. Process credits
+    def _fetch_package():
+        return svc_supabase.table("packages").select("credits").eq("id", pkg_id).execute()
+
+    pkg_resp = await loop.run_in_executor(None, _fetch_package)
+    pkg_rows = getattr(pkg_resp, "data", [])
+    if not pkg_rows:
+        logger.error("[PAYMENT] Package %s not found for txn %s", pkg_id, txn_id)
+        raise HTTPException(status_code=500, detail="Package not found.")
+
+    credits_to_add = pkg_rows[0]["credits"]
+
+    def _update_order():
+        return svc_supabase.table("orders").update({
+            "payment_status": "completed",
+            "transaction_id": txn_id,
+        }).eq("id", order_id).execute()
+
+    await loop.run_in_executor(None, _update_order)
+
+    # Upsert Credits
+    def _fetch_credits():
+        return svc_supabase.table("credits").select("credits, total_earned").eq("user_id", user_id).execute()
+
+    credits_resp = await loop.run_in_executor(None, _fetch_credits)
+    credits_rows = getattr(credits_resp, "data", [])
+
+    if credits_rows:
+        current_credits = credits_rows[0].get("credits", 0)
+        current_earned = credits_rows[0].get("total_earned", 0)
+        def _update_credits():
+            return svc_supabase.table("credits").update({
+                "credits": current_credits + credits_to_add,
+                "total_earned": current_earned + credits_to_add,
+            }).eq("user_id", user_id).execute()
+        await loop.run_in_executor(None, _update_credits)
+    else:
+        def _insert_credits():
+            return svc_supabase.table("credits").insert({
+                "user_id": user_id,
+                "credits": credits_to_add,
+                "total_earned": credits_to_add,
+                "total_used": 0,
+            }).execute()
+        await loop.run_in_executor(None, _insert_credits)
+
+    logger.info("[PAYMENT] Frontend Verification complete — user=%s +%d credits order=%s", user_id, credits_to_add, order_id)
+    return {"status": "success", "credits_added": credits_to_add}
 
 
 # ---------------------------------------------------------------------------

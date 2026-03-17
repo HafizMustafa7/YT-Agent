@@ -86,7 +86,15 @@ const CheckoutPage = () => {
             });
 
             if (response.data?.transactionId && window.Paddle) {
-                window.Paddle.Checkout.open({ transactionId: response.data.transactionId });
+                // Save transaction ID so the SuccessPage can verify it later
+                sessionStorage.setItem('paddle_transaction_id', response.data.transactionId);
+                
+                window.Paddle.Checkout.open({ 
+                    transactionId: response.data.transactionId,
+                    settings: {
+                        successUrl: response.data.success_url
+                    }
+                });
             } else {
                 setError('Failed to initialize checkout — missing transaction ID. Please try again.');
             }

@@ -12,6 +12,7 @@ from app.schemas.models import CreateVideoProjectRequest, GenerateFrameRequest
 from app.services import video_service
 from app.routes.auth import get_current_user
 from app.routes.payment import calculate_required_credits, check_and_deduct_credits
+from app.utils.errors import handle_error
 
 
 logger = logging.getLogger(__name__)
@@ -106,7 +107,7 @@ async def create_video_project(
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         logger.error("Unexpected error creating project: %s", e)
-        raise HTTPException(status_code=500, detail=f"Failed to create project: {str(e)}")
+        handle_error(e)
 
 
 @router.get("/projects/{project_id}", response_model=Dict[str, Any])
@@ -157,7 +158,7 @@ async def get_video_project(
         raise
     except Exception as e:
         logger.error("Error fetching project %s: %s", project_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to fetch project: {str(e)}")
+        handle_error(e)
 
 
 @router.post("/projects/{project_id}/generate")
@@ -203,7 +204,7 @@ async def start_generate_all(
         raise
     except Exception as e:
         logger.error("Error starting generation for project %s: %s", project_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to start generation: {str(e)}")
+        handle_error(e)
 
 
 @router.post("/projects/{project_id}/generate-frame")
@@ -258,7 +259,7 @@ async def generate_one_frame(
         raise
     except Exception as e:
         logger.error("Error starting frame generation: %s", e)
-        raise HTTPException(status_code=500, detail=f"Failed to start frame generation: {str(e)}")
+        handle_error(e)
 
 
 @router.post("/projects/{project_id}/combine")
@@ -306,7 +307,7 @@ async def combine_videos(
         }
     except Exception as e:
         logger.error("Error starting combine for project %s: %s", project_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to start combine: {str(e)}")
+        handle_error(e)
 
 
 @router.post("/projects/{project_id}/upload")
@@ -346,4 +347,4 @@ async def upload_to_youtube(
         raise
     except Exception as e:
         logger.error("Error starting upload for project %s: %s", project_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to start upload: {str(e)}")
+        handle_error(e)

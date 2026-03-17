@@ -108,7 +108,7 @@ def _sync_upsert_profile(user_id: str, email: str, full_name: str, oauth_provide
 
 @router.post("/signup")
 async def signup(payload: SignupRequest):
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         resp = await loop.run_in_executor(
             None, _sync_signup, payload.email, payload.password
@@ -132,7 +132,7 @@ async def signup(payload: SignupRequest):
 
 @router.post("/login")
 async def login(payload: LoginRequest):
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         resp = await loop.run_in_executor(
             None, _sync_login, payload.email, payload.password
@@ -189,7 +189,7 @@ async def get_current_user(authorization: str = Header(None)) -> dict:
         raise HTTPException(status_code=401, detail="Missing authorization header")
 
     token = authorization.split(" ", 1)[1] if " " in authorization else authorization
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     try:
         # 1. Verify token (blocking SDK call → executor)
@@ -247,7 +247,7 @@ async def get_optional_user(authorization: str = Header(None)):
     if not authorization:
         return None
     token = authorization.split(" ", 1)[1] if " " in authorization else authorization
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         user = await loop.run_in_executor(None, _sync_get_user, token)
         if not user:
@@ -277,7 +277,7 @@ async def logout():
 
 @router.post("/sync")
 async def sync_oauth_user(current_user: dict = Depends(get_current_user)):
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         logger.info("[SYNC] Syncing profile for OAuth user %s", current_user["email"])
         full_name = current_user.get("full_name") or current_user["email"].split("@")[0]

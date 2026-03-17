@@ -106,28 +106,7 @@ export class TokenService {
     }
   }
 
-  // Global API response interceptor
-  setupApiInterceptors() {
-    // Store original fetch
-    const originalFetch = window.fetch;
 
-    window.fetch = async (...args) => {
-      const response = await originalFetch(...args);
-
-      // Check for authentication errors
-      if (response.status === 401 || response.status === 403) {
-        // Check if it's a JWT expiration (not Drive or YouTube token)
-        const url = args[0];
-        if (typeof url === 'string' && !url.includes('/channels/')) {
-          console.log('[TokenService] JWT expired detected in API response');
-          this.handleExpiredSession();
-          return response; // Return original response to prevent further processing
-        }
-      }
-
-      return response;
-    };
-  }
 
   // Periodic session validation
   startSessionValidation(intervalMinutes = 5) {
@@ -176,6 +155,5 @@ export const tokenService = new TokenService();
 
 // Initialize interceptors when module loads
 if (typeof window !== 'undefined') {
-  tokenService.setupApiInterceptors();
   tokenService.startSessionValidation();
 }
