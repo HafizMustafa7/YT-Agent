@@ -90,6 +90,7 @@ async def check_and_deduct_credits(user_id: str, credits_needed: int) -> None:
     Raises HTTP 402 if the user has insufficient credits.
     Raises HTTP 500 on DB error.
     """
+    user_id = str(user_id)  # ensure text match against credits.user_id (text column)
     loop = asyncio.get_running_loop()
 
     def _fetch():
@@ -141,7 +142,8 @@ async def refund_credits(user_id: str, credits_to_refund: int) -> None:
     """
     if credits_to_refund <= 0:
         return
-        
+
+    user_id = str(user_id)  # ensure text match against credits.user_id (text column)
     loop = asyncio.get_running_loop()
 
     def _fetch():
@@ -223,12 +225,16 @@ async def get_pricing():
 @router.get("/user/credits")
 async def get_user_credits(current_user: dict = Depends(get_current_user)):
     """Return the authenticated user's credit balance."""
-    user_id = current_user["id"]
+    user_id = str(current_user["id"])  # cast to str: credits.user_id is text, not uuid
     loop = asyncio.get_running_loop()
+
+    # Use service-role client to bypass RLS on the credits table.
+    # The anon client is blocked by Supabase RLS policies and returns 0 rows.
+    svc_supabase = _get_service_supabase()
 
     def _fetch():
         return (
-            supabase.table("credits")
+            svc_supabase.table("credits")
             .select("credits")
             .eq("user_id", user_id)
             .execute()
@@ -237,6 +243,7 @@ async def get_user_credits(current_user: dict = Depends(get_current_user)):
     try:
         resp = await loop.run_in_executor(None, _fetch)
         data = getattr(resp, "data", [])
+        logger.info("[PAYMENT] Credits fetch for user %s → raw data: %s", user_id, data)
         credits = data[0]["credits"] if data else 0
         return {"credits": credits}
     except Exception as e:
@@ -371,7 +378,7 @@ async def verify_paddle_transaction(
     Verify a transaction directly with Paddle API and grant credits if successful.
     This provides a secure frontend-driven alternative/fallback to webhooks.
     """
-    user_id = current_user["id"]
+    user_id = str(current_user["id"])  # cast to str: credits.user_id is text
     txn_id = request.transaction_id
 
     if not paddle_client:

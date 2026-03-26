@@ -30,11 +30,11 @@ const Header = () => {
           setCredits(data.credits);
         }
       } catch (e) {
-        // silently fail — credits display is non-critical
+        console.error('[Header] Credits fetch failed:', e);
       }
     };
     fetchCredits();
-  }, []);
+  }, [location.pathname]);
 
   const toggleMenu = () => setIsMenuOpen(!isMenuOpen);
 
