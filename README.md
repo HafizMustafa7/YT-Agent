@@ -1,119 +1,50 @@
-# YT-Agent - AI-Powered YouTube Shorts Generator
+# YT-Agent (public upload)
 
-An automated platform that analyzes YouTube trends, validates topics, and generates complete storyboards with AI video generation prompts.
+Safe copy of the project for GitHub: **no real API keys or `.env` files** are included. Use the example files and set secrets locally or in your host’s dashboard.
 
-## Project Structure
+## Environment linking
 
-```
-YT-Agent/
-├── backend/              # FastAPI backend application
-│   ├── main.py          # API entry point
-│   ├── requirements.txt # Python dependencies
-│   ├── fetchtrend.py    # YouTube API service
-│   ├── generatestory.py # Story generation service
-│   └── app/
-│       └── core/        # Core business logic modules
-│           ├── trend_fetcher.py
-│           ├── topic_validator.py
-│           └── creative_builder.py
-│
-├── frontend/            # React frontend application
-│   ├── src/
-│   │   ├── App.js      # Main app component
-│   │   └── components/ # React components
-│   │       ├── HomeScreen
-│   │       ├── TrendsScreen
-│   │       ├── TopicValidationScreen
-│   │       ├── CreativeFormScreen
-│   │       └── StoryResultsScreen
-│   └── package.json
-│
-└── README.md           # This file
-```
+### Backend (`backend/.env`)
 
-## Features
+1. Copy `backend/.env.example` to `backend/.env`.
+2. Fill `SUPABASE_URL`, `SUPABASE_ANON_KEY` (anon/public), and `SUPABASE_SERVICE_KEY` (service role — server only, never expose to the browser).
+3. Add other keys (YouTube, OpenAI, Redis, etc.) as needed.
 
-### Input Layer Pipeline
-1. **Entry Screen**: Choose between "Search Trends" or "Analyze by Niche"
-2. **Trend Engine**: Fetches and displays trending YouTube Shorts
-3. **Topic Selection**: Select, edit, or enter custom topic
-4. **Topic Validation**: Validates topic (policy compliance + quality check)
-5. **Creative Direction**: Configure video style via dropdowns
-6. **Story Generation**: Generates complete story with dynamic frames
-7. **JSON Output**: Frame prompts in JSON format with creative modules
+The backend reads **only** `backend/.env` from disk (same keys can be set via OS env on Render/Docker).
 
-## Getting Started
+### Frontend (`frontend/.env`)
 
-### Backend Setup
+1. Copy `frontend/.env.example` to `frontend/.env`.
+2. Set `VITE_API_URL` to your backend URL (e.g. `http://localhost:8000`).
+3. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (**anon** key only — never commit the service role key here).
 
-1. Navigate to backend directory:
+## Local run
+
+**Backend**
+
 ```bash
 cd backend
-```
-
-2. Create virtual environment (recommended):
-```bash
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
-```bash
+# Windows: venv\Scripts\activate
 pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-4. Create `.env` file:
-```
-YOUTUBE_API_KEY=your_youtube_api_key_here
-GEMINI_API_KEY=your_gemini_api_key_here
-```
+**Frontend**
 
-5. Run the server:
-```bash
-python main.py
-```
-
-Backend runs on http://localhost:8000
-
-### Frontend Setup
-
-1. Navigate to frontend directory:
 ```bash
 cd frontend
-```
-
-2. Install dependencies:
-```bash
 npm install
+npm run dev
 ```
 
-3. Start development server:
-```bash
-npm start
-```
+Open `http://localhost:5173` (Vite default).
 
-Frontend runs on http://localhost:3000
+## Docker
 
-## API Endpoints
+See `docker-compose.yml`. Provide `backend/.env` and build args / env for `VITE_*` as in that file.
 
-- `POST /api/fetch-trends` - Fetch trending videos
-- `POST /api/validate-topic` - Validate a topic
-- `POST /api/generate-story` - Generate story and frames
+## Security
 
-## Technologies
-
-### Backend
-- FastAPI
-- Google YouTube Data API
-- Google Gemini AI
-- Python 3.8+
-
-### Frontend
-- React 19
-- CSS3
-- Modern JavaScript (ES6+)
-
-## License
-
-This project is for educational purposes.
-
+- Rotate any keys that were ever pasted in chat or committed by mistake.
+- Never push `backend/.env`, `frontend/.env`, or root `env` to Git.

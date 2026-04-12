@@ -1,0 +1,199 @@
+import React, { useState } from 'react';
+import '../styles/components/CreativeFormScreen.css';
+
+const CREATIVE_OPTIONS = {
+  tone: [
+    'dynamic',
+    'motivational',
+    'inspirational',
+    'educational',
+    'shocking',
+    'heartwarming',
+    'powerful',
+    'peaceful',
+  ],
+  target_audience: [
+    'General',
+    'Gen Z (18-24)',
+    'Millennials (25-40)',
+    'Gen X (41-56)',
+    'Teens (13-17)',
+    'Young Adults (18-25)',
+    'Adults (26-45)',
+    'Seniors (55+)',
+    'Content Creators',
+    'Entrepreneurs',
+    'Students',
+    'Fitness Enthusiasts',
+  ],
+  visual_style: [
+    'cinematic realism',
+    'documentary realism',
+    'naturalistic drama',
+    'urban realism',
+    'outdoor realism',
+  ],
+  camera_movement: [
+    'smooth tracking',
+    'static tripod',
+    'handheld documentary',
+    'push-in zoom',
+    'drone sweep',
+  ],
+  effects: [
+    'natural cinematic color grading',
+    'warm filmic',
+    'cool desaturated',
+    'high contrast documentary',
+  ],
+  story_format: [
+    'narrative',
+    'educational',
+    'did you know',
+    'emotional story',
+  ],
+};
+
+const CreativeFormScreen = ({ onSubmit, loading }) => {
+  const [formData, setFormData] = useState({
+    tone: CREATIVE_OPTIONS.tone[0],
+    target_audience: CREATIVE_OPTIONS.target_audience[0],
+    visual_style: CREATIVE_OPTIONS.visual_style[0],
+    camera_movement: CREATIVE_OPTIONS.camera_movement[0],
+    effects: CREATIVE_OPTIONS.effects[0],
+    story_format: CREATIVE_OPTIONS.story_format[0],
+    constraints: [],
+  });
+
+  const handleChange = (field, value) => {
+    setFormData((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSubmit(formData);
+  };
+
+  return (
+    <div className="creative-form-screen">
+      <div className="creative-header">
+        <h2>Creative Direction</h2>
+        <p className="screen-subtitle">
+          Configure your video's creative style and direction using the dropdowns below.
+        </p>
+      </div>
+
+      <form className="creative-form" onSubmit={handleSubmit}>
+        <div className="form-grid">
+          <div className="form-group">
+            <label htmlFor="tone">Tone / Style</label>
+            <select
+              id="tone"
+              value={formData.tone}
+              onChange={(e) => handleChange('tone', e.target.value)}
+              className="form-select"
+            >
+              {CREATIVE_OPTIONS.tone.map((option) => (
+                <option key={option} value={option}>
+                  {option.charAt(0).toUpperCase() + option.slice(1)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="target_audience">Target Audience</label>
+            <select
+              id="target_audience"
+              value={formData.target_audience}
+              onChange={(e) => handleChange('target_audience', e.target.value)}
+              className="form-select"
+            >
+              {CREATIVE_OPTIONS.target_audience.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="visual_style">Visual Style</label>
+            <select
+              id="visual_style"
+              value={formData.visual_style}
+              onChange={(e) => handleChange('visual_style', e.target.value)}
+              className="form-select"
+            >
+              {CREATIVE_OPTIONS.visual_style.map((option) => (
+                <option key={option} value={option}>
+                  {option.charAt(0).toUpperCase() + option.slice(1)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="camera_movement">Camera Movement</label>
+            <select
+              id="camera_movement"
+              value={formData.camera_movement}
+              onChange={(e) => handleChange('camera_movement', e.target.value)}
+              className="form-select"
+            >
+              {CREATIVE_OPTIONS.camera_movement.map((option) => (
+                <option key={option} value={option}>
+                  {option.charAt(0).toUpperCase() + option.slice(1)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="effects">Effects Style</label>
+            <select
+              id="effects"
+              value={formData.effects}
+              onChange={(e) => handleChange('effects', e.target.value)}
+              className="form-select"
+            >
+              {CREATIVE_OPTIONS.effects.map((option) => (
+                <option key={option} value={option}>
+                  {option.charAt(0).toUpperCase() + option.slice(1)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="story_format">Story Format</label>
+            <select
+              id="story_format"
+              value={formData.story_format}
+              onChange={(e) => handleChange('story_format', e.target.value)}
+              className="form-select"
+            >
+              {CREATIVE_OPTIONS.story_format.map((option) => (
+                <option key={option} value={option}>
+                  {option.charAt(0).toUpperCase() + option.slice(1)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="form-actions">
+          <button type="submit" className="submit-btn" disabled={loading}>
+            {loading ? 'Generating Story...' : 'Generate Story & Frames'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export default CreativeFormScreen;
+

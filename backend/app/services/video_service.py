@@ -11,8 +11,11 @@ import logging
 from typing import List, Dict, Any, Optional
 import httpx
 from supabase import create_client, Client
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 
-from app.config.settings import settings
+from app.core.config import settings, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 
 logger = logging.getLogger(__name__)
 
@@ -66,14 +69,7 @@ def get_supabase() -> Client:
     return _supabase
 
 
-def get_default_user_id() -> str:
-    """Use env default user (profiles.id) for unauthenticated flow."""
-    uid = (settings.VIDEO_DEFAULT_USER_ID or "").strip()
-    if not uid:
-        raise ValueError(
-            "VIDEO_DEFAULT_USER_ID must be set in .env (use a valid profiles.id UUID from Supabase)"
-        )
-    return uid
+
 
 
 # ---------------------------------------------------------------------------
@@ -124,22 +120,34 @@ def build_public_url(r2_path: str, bucket: str = "trash") -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
-def create_video_project(title: str, frames: List[Dict[str, Any]], user_id: Optional[str] = None) -> str:
+def create_video_project(
+    title: str, 
+    frames: List[Dict[str, Any]], 
+    user_id: Optional[str] = None, 
+    channel_id: Optional[str] = None
+) -> str:
     """
     Create a project and project_frames rows. Returns project_id (UUID string).
+    Now tracks channel_id explicitly for multi-channel support.
     """
     sb = get_supabase()
-    uid = user_id or get_default_user_id()
+    if not user_id:
+        raise ValueError("user_id is required for project creation")
+    uid = user_id
     input_value = title or "Story video"
 
     try:
-        project_row = sb.table("projects").insert({
+        project_data = {
             "user_id": uid,
             "input_type": "trend",
             "input_value": input_value,
             "status": "queued",
             "project_name": (title or "Video")[:255],
-        }).execute()
+        }
+        if channel_id:
+            project_data["channel_id"] = channel_id
+
+        project_row = sb.table("projects").insert(project_data).execute()
     except Exception as e:
         logger.error("Project creation failed: %s", e)
         raise RuntimeError(f"Failed to create project: {e}") from e
@@ -232,7 +240,7 @@ async def sora_create(prompt: str, duration_seconds: int = 8) -> str:
     if not settings.OPENAI_API_KEY:
         raise ValueError("OPENAI_API_KEY must be set in .env to use Sora video generation")
 
-    # Sora 2 only accepts 4, 8, or 12 seconds
+    # Sora 2 accepts 4, 8, or 12 seconds — all three are valid clip lengths.
     ALLOWED = [4, 8, 12]
     sec = min(ALLOWED, key=lambda x: abs(x - duration_seconds))
     max_sec = settings.SORA_MAX_DURATION_SECONDS
@@ -577,6 +585,16 @@ async def generate_single_frame(
         error_msg = str(e)
         logger.error("Frame %d generation failed: %s", frame_num, error_msg)
         update_frame_status(frame_id, "failed", error_message=error_msg)
+        
+        # Refund credits on failure
+        try:
+            from app.routes.payment import calculate_required_credits, refund_credits
+            project = get_project_with_frames_and_assets(project_id)
+            if project and project.get("user_id"):
+                credits_to_refund = calculate_required_credits(duration_seconds)
+                await refund_credits(project["user_id"], credits_to_refund)
+        except Exception as refund_err:
+            logger.error("Failed to refund credits for failed frame %d: %s", frame_num, refund_err)
         # Do NOT re-raise: this runs as a BackgroundTask, re-raising causes ASGI errors
 
 
@@ -797,3 +815,284 @@ async def combine_project(project_id: str) -> Dict[str, Any]:
         update_project_status(project_id, "failed")
         # Do NOT re-raise: this runs as a BackgroundTask
         return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# YouTube Upload
+# ---------------------------------------------------------------------------
+
+import random
+import re
+from collections import Counter
+
+def generate_hashtags_for_title(project: Dict[str, Any]) -> List[str]:
+    """
+    Deterministically generate up to 5 hashtags from the project:
+    - 1-2 general YouTube tags
+    - 1 niche tags from the topic
+    - 2 story tags from frame prompts/script
+    """
+    general_tags = ["#shorts", "#viral", "#trending", "#foryou", "#youtube"]
+    num_general = random.choice([1, 2])
+    selected_tags = random.sample(general_tags, num_general)
+    
+    topic = project.get("input_value") or project.get("project_name") or ""
+    words = re.findall(r'\b\w+\b', topic.lower())
+    stopwords = {"this", "that", "with", "from", "your", "what", "when", "where", "which", "there", "their", "about", "would", "could", "have", "make", "will", "some"}
+    
+    candidate_niche = [w for w in words if len(w) > 3 and w not in stopwords]
+    candidate_niche = sorted(candidate_niche, key=len, reverse=True)
+    
+    for w in candidate_niche:
+        tag = f"#{w}"
+        if tag not in selected_tags and len(selected_tags) < (num_general + 1):
+            selected_tags.append(tag)
+            
+    story_text = project.get("script", "")
+    for f in project.get("frames", []):
+        story_text += " " + f.get("ai_video_prompt", "")
+        story_text += " " + f.get("voiceover_text", "")
+        
+    story_words = re.findall(r'\b\w+\b', story_text.lower())
+    candidate_story = [w for w in story_words if len(w) > 4 and w not in stopwords and w not in candidate_niche]
+    
+    story_counts = Counter(candidate_story)
+    top_story = [w for w, c in story_counts.most_common(10)]
+    
+    current_len = len(selected_tags)
+    for w in top_story:
+        tag = f"#{w}"
+        if tag not in selected_tags and len(selected_tags) < (current_len + 2):
+            selected_tags.append(tag)
+            
+    return selected_tags[:5]
+
+
+async def _refresh_access_token(channel: Dict[str, Any]) -> Optional[str]:
+    """
+    Refresh YouTube access token using refresh_token.
+    Updates the database with the new token and expiry.
+    Returns the new access_token or None if failed.
+    """
+    refresh_token = channel.get("refresh_token")
+    if not refresh_token:
+        logger.error("No refresh token for channel %s", channel.get("channel_id"))
+        return None
+
+    try:
+        client = get_http_client()
+        response = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+            },
+            timeout=20.0,
+        )
+        
+        if response.status_code != 200:
+            logger.error("Token refresh failed: %s", response.text)
+            return None
+
+        token_data = response.json()
+        access_token = token_data.get("access_token")
+        expires_in = token_data.get("expires_in")
+        
+        if not access_token:
+            return None
+
+        # Update DB
+        if expires_in:
+            from datetime import timedelta
+            new_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+            sb = get_supabase()
+            sb.table("channels").update({
+                "access_token": access_token,
+                "token_expiry": new_expiry.isoformat(),
+            }).eq("channel_id", channel["channel_id"]).execute()
+        
+        return access_token
+    except Exception as e:
+        logger.error("Error refreshing token: %s", e)
+        return None
+
+
+def upload_video_file_to_youtube(
+    local_path: str,
+    title: str,
+    description: str,
+    channel: Dict[str, Any]
+) -> str:
+    """
+    Upload a local video file to YouTube using the channel's credentials.
+    RETURNS: The YouTube Video ID (str).
+    Blocking (synchronous) function - run in executor.
+    """
+    # 1. Build Credentials
+    creds = Credentials(
+        token=channel["access_token"],
+        refresh_token=channel.get("refresh_token"),
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+    )
+
+    # 2. Build Service
+    youtube = build("youtube", "v3", credentials=creds)
+
+    # 3. Prepare Metadata - Title only, no description, no explicit tags array
+    body = {
+        "snippet": {
+            "title": title[:100],  # Max 100 chars
+            "description": description,
+            "categoryId": "22"  # People & Blogs
+        },
+        "status": {
+            "privacyStatus": "public",
+            "selfDeclaredMadeForKids": False
+        }
+    }
+
+    # 4. Upload
+    logger.info("Starting YouTube upload: %s", title)
+    media = MediaFileUpload(local_path, chunksize=-1, resumable=True)
+    request = youtube.videos().insert(
+        part="snippet,status",
+        body=body,
+        media_body=media
+    )
+    
+    response = None
+    while response is None:
+        status, response = request.next_chunk()
+        if status:
+            logger.info("Upload progress: %d%%", int(status.progress() * 100))
+
+    if "id" in response:
+        logger.info("Upload complete! Video ID: %s", response["id"])
+        return response["id"]
+    else:
+        raise RuntimeError(f"Upload failed, no ID returned: {response}")
+
+
+async def upload_project_to_youtube(project_id: str):
+    """
+    Full workflow:
+    1. Fetch project & verify status.
+    2. Fetch channel credentials (refresh if needed).
+    3. Download 'final.mp4' from R2 to temp.
+    4. Upload to YouTube.
+    5. Update project metadata.
+    """
+    temp_file = None
+    try:
+        ensure_temp_dir()
+        
+        # 1. Get Project
+        project = get_project_with_frames_and_assets(project_id)
+        if not project:
+            raise ValueError("Project not found")
+
+        # Check status — only allow upload when video has been combined
+        project_status = project.get("status")
+        if project_status != "completed":
+            raise ValueError(
+                f"Project must be in 'completed' status to upload (current: '{project_status}'). "
+                f"Run 'combine' first if status is 'clips_ready'."
+            )
+
+        video_url = project.get("video_url")
+        if not video_url:
+            raise ValueError("Project has no video_url. Run 'combine' first.")
+
+        channel_id = project.get("channel_id")
+        user_id = project.get("user_id")
+        if not channel_id:
+             raise ValueError("No channel_id associated with this project.")
+
+        # 2. Get Channel & Token
+        sb = get_supabase()
+        res = sb.table("channels").select("*").eq("channel_id", channel_id).eq("user_id", user_id).execute()
+        if not res.data:
+            raise ValueError("Channel not found or does not belong to user.")
+        channel = res.data[0]
+
+        # Check expiry
+        import dateutil.parser
+        token_valid = False
+        if channel.get("token_expiry"):
+            expiry = dateutil.parser.isoparse(channel["token_expiry"])
+            if expiry > datetime.now(timezone.utc):
+                token_valid = True
+        
+        if not token_valid:
+            logger.info("Token expired/missing, refreshing for upload...")
+            new_token = await _refresh_access_token(channel)
+            if not new_token:
+                raise ValueError("Failed to refresh YouTube access token.")
+            channel["access_token"] = new_token  # Start using new token
+
+        # 3. Download from R2
+        temp_file = os.path.join(TEMP_DIR, f"upload_{project_id}.mp4")
+        logger.info("Downloading final video for upload: %s", video_url)
+        if not await download_clip_from_r2(video_url, temp_file):
+            raise ValueError("Failed to download video from R2 for upload.")
+
+        # 4. Upload to YouTube (in executor)
+        loop = asyncio.get_running_loop()
+        topic_title = project.get("input_value") or project.get("project_name", "AI Generated Video")
+        hashtags = generate_hashtags_for_title(project)
+        
+        # Build title with hashtags within 100 chars
+        base_title = topic_title[:75]
+        for tag in hashtags:
+            if len(base_title) + len(tag) + 1 <= 100:
+                base_title += f" {tag}"
+                
+        title = base_title.strip()
+        description = ""  # Explicitly empty per requirements
+        
+        youtube_id = await loop.run_in_executor(
+            None, 
+            upload_video_file_to_youtube, 
+            temp_file, 
+            title, 
+            description, 
+            channel
+        )
+
+        # 5. Update Project
+        # We use 'metadata' to store the ID and 'uploaded_at' from the schema
+        current_metadata = project.get("metadata") or {}
+        current_metadata["youtube_video_id"] = youtube_id
+        current_metadata["youtube_url"] = f"https://www.youtube.com/watch?v={youtube_id}"
+
+        sb.table("projects").update({
+            "metadata": current_metadata,
+            "uploaded_at": datetime.now(timezone.utc).isoformat()
+        }).eq("id", project_id).execute()
+        
+        logger.info("Project %s uploaded to YouTube successfully (ID: %s)", project_id, youtube_id)
+        return {"success": True, "youtube_id": youtube_id}
+
+    except Exception as e:
+        logger.error("Upload failed for project %s: %s", project_id, e)
+        # Update status to indicate upload failure? Or just log?
+        # Maybe don't change main status if it was 'completed', to avoid locking it.
+        # But we could have a separate 'upload_status' column if we wanted.
+        return {"error": str(e)}
+    finally:
+        if temp_file:
+            cleanup_temp_file(temp_file)
+
+def verify_channel_ownership(user_id: str, channel_id: str) -> bool:
+    """Verify that a YouTube channel belongs to a specific user (profiles.id)."""
+    try:
+        sb = get_supabase()
+        result = sb.table('channels').select('id').eq('channel_id', channel_id).eq('user_id', user_id).execute()
+        return len(result.data) > 0
+    except Exception as e:
+        logger.error("Error verifying channel ownership: %s", e)
+        return False

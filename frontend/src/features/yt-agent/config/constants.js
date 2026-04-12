@@ -1,0 +1,45 @@
+/**
+ * Application constants and configuration
+ * Adapted for Vite environment
+ */
+
+// API Configuration
+// Vite uses import.meta.env for environment variables
+export const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+export const API_VERSION = 'v1';
+export const API_PREFIX = `/api/${API_VERSION}`;
+
+// API Endpoints
+export const ENDPOINTS = {
+    HEALTH: `${API_PREFIX}/health`,
+    FETCH_TRENDS: `${API_PREFIX}/trends/fetch`,
+    VALIDATE_TOPIC: `${API_PREFIX}/topics/validate`,
+    SUGGEST_TOPICS: `${API_PREFIX}/topics/suggest`,
+    GENERATE_STORY: `${API_PREFIX}/stories/generate`,
+    VIDEO_CREATE_PROJECT: `${API_PREFIX}/video/projects`,
+    VIDEO_GET_PROJECT: (id) => `${API_PREFIX}/video/projects/${id}`,
+    VIDEO_GENERATE_ALL: (id) => `${API_PREFIX}/video/projects/${id}/generate`,
+    VIDEO_GENERATE_FRAME: (id) => `${API_PREFIX}/video/projects/${id}/generate-frame`,
+    VIDEO_COMBINE: (id) => `${API_PREFIX}/video/projects/${id}/combine`,
+    VIDEO_UPLOAD: (id) => `${API_PREFIX}/video/projects/${id}/upload`,
+    // Channel Endpoints (Legacy paths preserved for now, but routed through authenticated proxy if needed)
+    CHANNELS_LIST: '/api/channels/',
+    CHANNELS_STATS: (id) => `/api/channels/stats/${id}`,
+    CHANNELS_OAUTH: '/api/channels/oauth',
+    CHANNELS_REFRESH: '/api/channels/refresh',
+    // Analysis Endpoints
+    ANALYSIS_CHANNELS: '/api/analysis/channels',
+    ANALYSIS_ANALYTICS: (id) => `/api/analysis/analytics/${id}`,
+};
+
+// Application Settings
+export const APP_NAME = 'YT-Agent';
+export const APP_VERSION = '1.0.0';
+
+// Request Timeouts (in milliseconds)
+export const TIMEOUTS = {
+    DEFAULT: 60000,              // 60 seconds
+    STORY_GENERATION: 600000,    // 10 minutes for AI generation
+    VIDEO_OPERATION: 60000,      // 1 minute for video API calls
+    TOPIC_SUGGESTION: 90000,     // 90 seconds for trend+LLM pipeline
+};

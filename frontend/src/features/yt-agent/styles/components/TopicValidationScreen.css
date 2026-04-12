@@ -1,0 +1,328 @@
+.topic-validation-screen {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 40px 20px;
+}
+
+.topic-header {
+  margin-bottom: 32px;
+}
+
+.back-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1rem;
+  margin-bottom: 16px;
+  transition: all 0.2s;
+  color: var(--text-primary);
+}
+
+.back-btn:hover {
+  background: var(--input-bg);
+}
+
+.topic-header h2 {
+  font-size: 2.5rem;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.screen-subtitle {
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+}
+
+.topic-workspace {
+  background: var(--bg-card);
+  border-radius: 12px;
+  padding: 32px;
+  box-shadow: 0 2px 8px var(--shadow-color);
+  margin-bottom: 24px;
+  border: 1px solid var(--border-color);
+}
+
+.topic-input-section {
+  margin-bottom: 24px;
+}
+
+.topic-input-section label {
+  display: block;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.topic-textarea {
+  width: 100%;
+  padding: 16px;
+  font-size: 1rem;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  resize: vertical;
+  min-height: 120px;
+  font-family: inherit;
+  transition: border-color 0.3s;
+  background: var(--input-bg);
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+.topic-textarea:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.topic-textarea:disabled {
+  background: rgba(124, 130, 255, 0.05);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.input-hint {
+  margin-top: 8px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.validate-btn {
+  width: 100%;
+  padding: 16px;
+  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.validate-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.validate-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Validation Result Container */
+.validation-result {
+  background: var(--bg-card);
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 4px 20px var(--shadow-color);
+  border: 1px solid var(--border-color);
+  border-top: 4px solid;
+  animation: slideIn 0.3s ease-out;
+}
+
+.validation-result.valid {
+  border-top-color: #10b981;
+}
+
+.validation-result.invalid {
+  border-top-color: #ef4444;
+}
+
+/* Validation Header */
+.validation-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.validation-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.validation-title h3 {
+  font-size: 1.5rem;
+  color: var(--text-primary);
+  margin: 0 0 6px 0;
+}
+
+.validation-score {
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 20px;
+  display: inline-block;
+}
+
+.validation-score.good {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.validation-score.low {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* AI Analysis Card */
+.ai-analysis-card {
+  background: var(--input-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.ai-analysis-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  font-size: 0.95rem;
+}
+
+.ai-analysis-text {
+  margin: 0;
+  color: var(--text-primary);
+  line-height: 1.7;
+  font-size: 1.05rem;
+}
+
+/* Feedback Cards (Issues & Suggestions) */
+.feedback-card {
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border-color);
+}
+
+.feedback-card h4 {
+  margin: 0 0 14px 0;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.feedback-card li {
+  padding: 10px 0 10px 24px;
+  position: relative;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  font-size: 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.feedback-card li::before {
+  position: absolute;
+  left: 0;
+  font-weight: bold;
+}
+
+/* Issues Card */
+.issues-card {
+  background: rgba(239, 68, 68, 0.05);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.issues-card h4 {
+  color: #ef4444;
+}
+
+.issues-card li::before {
+  content: '✗';
+  color: #ef4444;
+}
+
+/* Suggestions Card */
+.suggestions-card {
+  background: rgba(59, 130, 246, 0.05);
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+.suggestions-card h4 {
+  color: #3b82f6;
+}
+
+.suggestions-card li::before {
+  content: '→';
+  color: #3b82f6;
+}
+
+/* Validation Actions */
+.validation-actions {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color);
+}
+
+.proceed-btn {
+  width: 100%;
+  padding: 18px 32px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 1.15rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+}
+
+.proceed-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+}
+
+.retry-hint {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  margin: 0;
+  padding: 12px;
+  background: var(--input-bg);
+  border-radius: 8px;
+}
+
+@media (max-width: 768px) {
+  .topic-header h2 {
+    font-size: 2rem;
+  }
+
+  .topic-workspace {
+    padding: 24px;
+  }
+
+  .validation-result {
+    padding: 20px;
+  }
+
+  .validation-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .validation-title h3 {
+    font-size: 1.3rem;
+  }
+}

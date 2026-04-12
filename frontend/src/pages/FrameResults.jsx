@@ -1,0 +1,463 @@
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import apiService from '../features/yt-agent/services/apiService';
+
+const POLL_BASE_MS = 4000;
+const POLL_MAX_MS = 15000;
+
+const Icon = ({ name, filled, className = '', style = {} }) => (
+  <span
+    className={`material-symbols-outlined ${className}`}
+    style={{ fontVariationSettings: filled ? "'FILL' 1" : "'FILL' 0", ...style }}
+  >{name}</span>
+);
+
+const FrameResults = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  
+  const [error, setError] = useState(null);
+  const [projectId, setProjectId] = useState(null);
+  const [project, setProject] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Generation specific states
+  const [generatingAll, setGeneratingAll] = useState(false);
+  const [generatingFrameId, setGeneratingFrameId] = useState(null);
+  const [combining, setCombining] = useState(false);
+  const [finalVideoUrl, setFinalVideoUrl] = useState(null);
+  const pollCountRef = useRef(0);
+  const isCreatingRef = useRef(false);
+
+  const [hoveredPrompts, setHoveredPrompts] = useState({});
+
+  // Original raw story data passed from NicheInput
+  const storyResultRaw = location.state?.data;
+  const rawStory = storyResultRaw?.story || storyResultRaw || {};
+  const rawFrames = Array.isArray(rawStory?.frames) ? rawStory.frames : [];
+
+  const getPollInterval = () => {
+    const count = pollCountRef.current;
+    if (count < 10) return POLL_BASE_MS;
+    if (count < 30) return 8000;
+    if (count < 60) return 12000;
+    return POLL_MAX_MS;
+  };
+
+  const fetchProject = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const res = await apiService.getVideoProject(projectId);
+      setProject(res.project);
+      if (res.final_video_url) setFinalVideoUrl(res.final_video_url);
+      setError(null);
+    } catch (e) {
+      console.error('Failed to fetch project', e);
+    }
+  }, [projectId]);
+
+  // Project Creation exactly once on mount
+  useEffect(() => {
+    if (!storyResultRaw || projectId || project || isCreatingRef.current) return;
+    
+    const createProjectBackend = async () => {
+      isCreatingRef.current = true;
+      setError(null);
+      setLoading(true);
+
+      const normalizeFrameNumber = (value, fallback) => {
+        const n = Number.parseInt(value, 10);
+        return Number.isFinite(n) && n >= 1 ? n : fallback;
+      };
+
+      const normalizeDuration = (value) => {
+        const allowed = [4, 8, 12];
+        const raw = Number(value);
+        if (!Number.isFinite(raw)) return 8;
+        return allowed.reduce((prev, curr) => Math.abs(curr - raw) < Math.abs(prev - raw) ? curr : prev);
+      };
+
+      const normalizedFrames = rawFrames
+        .map((f, idx) => ({
+          frame_num: normalizeFrameNumber(f?.frame_num, idx + 1),
+          ai_video_prompt: String(f?.ai_video_prompt ?? f?.video_prompt ?? f?.prompt ?? '').trim().slice(0, 5000),
+          scene_description: f?.scene_description ? String(f.scene_description) : null,
+          duration_seconds: normalizeDuration(f?.duration_seconds),
+        }))
+        .filter((f) => f.ai_video_prompt.length > 0);
+
+      if (normalizedFrames.length === 0) {
+        setError('No valid frames generated. Please go back and try another topic.');
+        setLoading(false);
+        return;
+      }
+
+      const normalizedTitle = String(rawStory?.title || 'Story Video').trim();
+      const payloadTitle = (normalizedTitle || 'Story Video').slice(0, 255);
+
+      try {
+        const res = await apiService.createVideoProject(payloadTitle, normalizedFrames, null);
+        setProjectId(res.project_id);
+      } catch (err) {
+        setError(err.message || 'Failed to initialize backend video project.');
+        setLoading(false);
+        isCreatingRef.current = false;
+      }
+    };
+    
+    createProjectBackend();
+  }, [storyResultRaw, projectId, project, rawFrames, rawStory]);
+
+  // Whenever projectId is obtained, load it once
+  useEffect(() => {
+    if (projectId && !project) {
+      fetchProject().then(() => setLoading(false));
+    }
+  }, [projectId, project, fetchProject]);
+
+  // Adaptive Polling
+  useEffect(() => {
+    if (!projectId || !project) return;
+    const status = project?.status;
+    const isActive = status === 'generating' || status === 'queued' || status === 'clips_ready';
+    const hasActiveFrames = (project?.frames || []).some((f) => f.status === 'generating');
+    
+    if (!isActive && !hasActiveFrames && !generatingAll && !generatingFrameId && !combining) {
+      pollCountRef.current = 0;
+      return;
+    }
+
+    const tick = () => {
+      pollCountRef.current += 1;
+      fetchProject();
+    };
+
+    let timeoutId = setTimeout(function poll() {
+      tick();
+      timeoutId = setTimeout(poll, getPollInterval());
+    }, getPollInterval());
+
+    return () => clearTimeout(timeoutId);
+  }, [projectId, project, fetchProject, generatingAll, generatingFrameId, combining]);
+
+  // Engine Status Checking
+  const liveFrames = useMemo(() => project?.frames || [], [project?.frames]);
+  const liveAssets = useMemo(() => project?.assets || [], [project?.assets]);
+  
+  const completedCount = liveFrames.filter((f) => f.status === 'completed').length;
+  const isGeneratingFull = project?.status === 'generating';
+  const allCompleted = liveFrames.length > 0 && completedCount === liveFrames.length;
+
+  useEffect(() => {
+    if (project?.status && project.status !== 'generating' && project.status !== 'queued' && project.status !== 'clips_ready') {
+      setGeneratingAll(false);
+    }
+    if (finalVideoUrl) {
+      setCombining(false);
+    }
+    if (generatingFrameId) {
+      const targetFrame = liveFrames.find((f) => f.id === generatingFrameId);
+      if (targetFrame && targetFrame.status !== 'generating') {
+        setGeneratingFrameId(null);
+      }
+    }
+  }, [project?.status, finalVideoUrl, generatingFrameId, liveFrames]);
+
+  // Generators
+  const handleGenerateAll = async () => {
+    if (!projectId) return;
+    setGeneratingAll(true);
+    setError(null);
+    try {
+      const res = await apiService.startGenerateAllFrames(projectId);
+      if (res.pending_count === 0) {
+        setGeneratingAll(false);
+        return;
+      }
+      await fetchProject();
+    } catch (e) {
+      setError(e.message || 'Failed to start bulk generation');
+      setGeneratingAll(false);
+    }
+  };
+
+  const handleGenerateFrame = async (frameId) => {
+    if (!projectId) return;
+    setGeneratingFrameId(frameId);
+    setError(null);
+    try {
+      await apiService.startGenerateFrame(projectId, frameId);
+      await fetchProject();
+    } catch (e) {
+      setError(e.message || 'Failed to generate specific frame');
+      setGeneratingFrameId(null);
+    }
+  };
+
+  const handleCompileVideo = async () => {
+    if (!projectId) return;
+    setCombining(true);
+    setError(null);
+    try {
+      const res = await apiService.combineVideoProject(projectId);
+      if (res.video_url) {
+        setFinalVideoUrl(res.video_url);
+        navigate('/final-video', { state: { videoUrl: res.video_url, projectTitle: project?.project_name || 'Generated Video' } });
+      }
+      await fetchProject();
+    } catch (e) {
+      setError(e.message || 'Failed to compile final video');
+      setCombining(false);
+    }
+  };
+
+  if (!storyResultRaw) {
+    return (
+      <div style={{ background: '#0c0e17', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f0f0fd' }}>
+        <p>No story context available. Please return to the Dashboard.</p>
+        <button onClick={() => navigate('/dashboard')} style={{ padding: '8px 16px', background: '#00E5FF', color: '#0c0e17', border: 'none', borderRadius: '4px', marginLeft: '16px', cursor: 'pointer', fontWeight: 'bold' }}>Dashboard</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: '#0c0e17', minHeight: '100vh', color: '#f0f0fd', fontFamily: "'Inter', sans-serif" }}>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } } 
+        .animate-spin { animation: spin 1s linear infinite; }
+        .glass-panel { background: rgba(34, 37, 50, 0.6); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+        .prompt-overlay { opacity: 0; transition: opacity 0.3s ease; }
+        .prompt-overlay.show { opacity: 1; pointer-events: auto; }
+      `}</style>
+      
+      {/* Top Navigation Anchor */}
+      <header style={{ position: 'sticky', top: 0, zIndex: 50, width: '100%', background: '#11131d', padding: '16px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(115,117,128,0.1)' }}>
+        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '24px', fontWeight: 900, color: '#00E5FF', letterSpacing: '-0.05em' }}>
+          YOUTOMIZE
+        </div>
+        <button onClick={() => navigate('/dashboard')} style={{ background: 'rgba(255,255,255,0.05)', color: '#aaaab7', border: '1px solid rgba(255,255,255,0.1)', padding: '6px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Icon name="arrow_back" style={{ fontSize: '14px' }} /> Dashboard
+        </button>
+      </header>
+
+      <main style={{ padding: '48px 24px', maxWidth: '1280px', margin: '0 auto' }}>
+        
+        {error && (
+          <div style={{ padding: '16px', background: 'rgba(255,113,108,0.1)', border: '1px solid rgba(255,113,108,0.2)', color: '#ff716c', borderRadius: '8px', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Icon name="error" /> {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '100px 0', color: '#81ecff' }}>
+            <Icon name="progress_activity" className="animate-spin" style={{ fontSize: '48px', marginBottom: '16px' }} />
+            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Initializing Project & Loading Layout...</h2>
+          </div>
+        ) : (
+          <>
+            {/* Generated Full Story Section */}
+            <section style={{ marginBottom: '48px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+                <Icon name="auto_awesome" style={{ color: '#00E5FF' }} />
+                <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '24px', fontWeight: 700, margin: 0 }}>Generated Full Story</h2>
+              </div>
+              <div className="glass-panel" style={{ padding: '32px', borderRadius: '12px', border: '1px solid rgba(115,117,128,0.1)', position: 'relative', overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', top: '-100px', right: '-100px', width: '256px', height: '256px', background: 'rgba(0,229,255,0.05)', filter: 'blur(100px)', pointerEvents: 'none' }}></div>
+                
+                <div style={{ color: '#aaaab7', lineHeight: 1.8, fontSize: '18px', fontWeight: 300, fontStyle: 'italic', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                  {rawStory?.content ? (
+                    rawStory.content.split('\\n').map((para, i) => para.trim() ? <p key={i}>{para}</p> : null)
+                  ) : (
+                    <p>{rawStory.title || 'Story script...'}</p>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            {/* Frame Storyboard Grid */}
+            <section style={{ marginBottom: '64px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '32px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <Icon name="dashboard_customize" style={{ color: '#00E5FF' }} />
+                  <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '24px', fontWeight: 700, margin: 0 }}>Frame Storyboard</h2>
+                </div>
+                <div style={{ fontSize: '14px', fontFamily: "'Manrope', sans-serif", color: '#737580', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>
+                  {liveFrames.length} Total Frames
+                </div>
+              </div>
+
+              {/* Master Generate Button */}
+              {!allCompleted && (
+                <div style={{ display: 'flex', justifyContent: 'center', margin: '32px 0 48px 0' }}>
+                  <button
+                    onClick={handleGenerateAll}
+                    disabled={generatingAll || isGeneratingFull}
+                    style={{
+                      background: 'linear-gradient(45deg, #00E5FF, #a68cff)', padding: '16px 48px', borderRadius: '12px', border: 'none',
+                      color: '#005762', fontFamily: "'Space Grotesk', sans-serif", fontSize: '16px', fontWeight: 700, textTransform: 'uppercase',
+                      letterSpacing: '0.1em', cursor: (generatingAll || isGeneratingFull) ? 'not-allowed' : 'pointer', transition: 'all 0.3s',
+                      boxShadow: '0 0 40px rgba(0,229,255,0.2)', display: 'flex', alignItems: 'center', gap: '12px', opacity: (generatingAll || isGeneratingFull) ? 0.7 : 1
+                    }}
+                  >
+                    {(generatingAll || isGeneratingFull) ? <Icon name="progress_activity" className="animate-spin" /> : <Icon name="movie" />}
+                    {(generatingAll || isGeneratingFull) ? 'Generating Scene Flow...' : 'Generate All Frames'}
+                  </button>
+                </div>
+              )}
+
+              {/* Grid Layout */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '32px' }}>
+                {liveFrames.map((frame, index) => {
+                  const isThisGenerating = generatingFrameId === frame.id || frame.status === 'generating';
+                  const isFailed = frame.status === 'failed';
+                  const isCompleted = frame.status === 'completed';
+                  
+                  const asset = liveAssets.find((a) => a.id === frame.asset_id);
+                  const clipUrl = asset?.file_url;
+
+                  return (
+                    <div key={frame.id} style={{
+                      background: '#1c1f2b', borderRadius: '12px', border: '1px solid rgba(115,117,128,0.1)', overflow: 'hidden',
+                      display: 'flex', flexDirection: 'column', transition: 'all 0.3s',
+                      boxShadow: isThisGenerating ? '0 0 20px rgba(0,229,255,0.1)' : 'none',
+                      borderColor: isThisGenerating ? 'rgba(0,229,255,0.3)' : 'rgba(115,117,128,0.1)'
+                    }}>
+                      <div style={{ padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(17,19,29,0.5)', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 900, fontFamily: "'Space Grotesk', sans-serif", color: '#00E5FF', padding: '4px 8px', background: 'rgba(0,229,255,0.1)', borderRadius: '4px' }}>FRAME {frame.frame_num}</span>
+                          <span style={{ color: '#f0f0fd', fontWeight: 500, fontSize: '14px' }}>{frame.duration_seconds}s Clip</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button 
+                            onMouseEnter={() => setHoveredPrompts(prev => ({ ...prev, [frame.id]: true }))}
+                            onMouseLeave={() => setHoveredPrompts(prev => ({ ...prev, [frame.id]: false }))}
+                            style={{ background: 'transparent', border: 'none', color: hoveredPrompts[frame.id] ? '#00E5FF' : '#737580', cursor: 'grab', transition: 'colors 0.3s', padding: '4px' }}>
+                            <Icon name="play_arrow" filled={hoveredPrompts[frame.id]} style={{ fontSize: '20px' }} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ padding: '24px', flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                        <p style={{ color: '#aaaab7', fontSize: '14px', lineHeight: 1.6, marginBottom: '24px', minHeight: '66px' }}>
+                          {frame.scene_description || 'Scene description ready for execution.'}
+                        </p>
+
+                        <div 
+                          className="relative"
+                          style={{
+                               aspectRatio: '16/9', borderRadius: '8px', overflow: 'hidden', marginBottom: '24px', position: 'relative',
+                               background: '#000', border: isCompleted ? '1px solid rgba(0,229,255,0.2)' : '2px dashed rgba(115,117,128,0.3)',
+                               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
+                          }}
+                        >
+                          {isCompleted && clipUrl ? (
+                            <video src={clipUrl} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }} />
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', color: '#737580' }}>
+                              <Icon name={isThisGenerating ? 'movie_edit' : 'video_call'} style={{ fontSize: '40px' }} />
+                              <span style={{ fontSize: '10px', fontFamily: "'Manrope', sans-serif", uppercase: true, fontWeight: 700, letterSpacing: '0.1em' }}>
+                                {isThisGenerating ? 'Rendering Engine Active' : 'No Video Generated'}
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Hover Prompt Overlay */}
+                          <div className={`prompt-overlay ${hoveredPrompts[frame.id] ? 'show' : ''}`} style={{
+                            position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(12,14,23,0.95)',
+                            padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+                            textAlign: 'center', zIndex: 10
+                          }}>
+                            <Icon name="psychiatry" style={{ color: '#00E5FF', fontSize: '32px', marginBottom: '12px' }} />
+                            <p style={{ fontSize: '11px', color: '#f0f0fd', fontFamily: "'Manrope', sans-serif", fontStyle: 'italic', lineHeight: 1.6 }}>
+                              "{frame.ai_video_prompt}"
+                            </p>
+                          </div>
+                          
+                          {/* Progress Badge */}
+                          {isThisGenerating && (
+                            <div style={{ position: 'absolute', bottom: '12px', left: '12px', padding: '4px 12px', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', borderRadius: '4px', border: '1px solid rgba(0,229,255,0.2)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                               <span className="pulse-dot" style={{ width: '6px', height: '6px', background: '#00E5FF', borderRadius: '50%', boxShadow: '0 0 10px #00E5FF', animation: 'pulse 1s infinite' }}></span>
+                               <span style={{ fontSize: '10px', color: '#00E5FF', fontFamily: "'Manrope', sans-serif", fontWeight: 700, textTransform: 'uppercase' }}>Generating</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {isFailed && <p style={{ color: '#ff716c', fontSize: '12px', marginBottom: '16px' }}>Error: {frame.error_message}</p>}
+
+                        <button
+                          onClick={() => handleGenerateFrame(frame.id)}
+                          disabled={isThisGenerating || generatingAll || isGeneratingFull}
+                          style={{
+                            width: '100%', padding: '16px', borderRadius: '8px', border: 'none',
+                            background: isCompleted ? 'rgba(255,255,255,0.05)' : (isThisGenerating ? '#1c1f2b' : 'linear-gradient(45deg, #00E5FF, #a68cff)'),
+                            color: isCompleted ? '#aaaab7' : (isThisGenerating ? '#00E5FF' : '#005762'),
+                            fontFamily: "'Space Grotesk', sans-serif", fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em',
+                            cursor: (isThisGenerating || generatingAll || isGeneratingFull) ? 'not-allowed' : 'pointer', transition: 'all 0.3s',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                            borderStyle: 'solid', borderWidth: '1px', borderColor: isCompleted ? 'rgba(255,255,255,0.1)' : (isThisGenerating ? 'rgba(0,229,255,0.3)' : 'transparent')
+                          }}
+                        >
+                          <Icon name={isThisGenerating ? 'progress_activity' : (isCompleted ? 'movie_filter' : 'movie')} className={isThisGenerating ? 'animate-spin' : ''} style={{ fontSize: '18px' }} />
+                          {isThisGenerating ? 'Waiting...' : (isCompleted ? 'Regenerate Video' : 'Generate Video')}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Final Action Button (Combine) */}
+            {allCompleted && !finalVideoUrl && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '64px', marginBottom: '80px', position: 'relative' }}>
+                <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '300px', height: '100px', background: 'rgba(0,229,255,0.1)', filter: 'blur(60px)', pointerEvents: 'none' }}></div>
+                
+                <button
+                  onClick={handleCompileVideo}
+                  disabled={combining}
+                  style={{
+                    width: '100%', maxWidth: '900px', padding: '24px', borderRadius: '16px', border: 'none',
+                    background: 'linear-gradient(90deg, #00E5FF, #a68cff, #00E5FF)', backgroundSize: '200% auto',
+                    color: '#003840', fontFamily: "'Space Grotesk', sans-serif", fontSize: '20px', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.2em',
+                    cursor: combining ? 'not-allowed' : 'pointer', transition: 'all 0.3s', boxShadow: '0 0 50px rgba(0,229,255,0.3)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px', opacity: combining ? 0.8 : 1
+                  }}
+                >
+                  {combining ? <Icon name="progress_activity" className="animate-spin" style={{ fontSize: '28px' }} /> : <Icon name="auto_videocam" style={{ fontSize: '28px' }} />}
+                  {combining ? 'Compiling Full Video...' : 'Compile Full Video'}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </main>
+
+      {/* FULL SCREEN COMPILE BLOCKER */}
+      {combining && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+          background: 'rgba(5, 7, 12, 0.9)', backdropFilter: 'blur(12px)',
+          zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <div style={{
+            width: '120px', height: '120px', borderRadius: '50%', border: '2px solid rgba(0,229,255,0.2)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '32px',
+            boxShadow: '0 0 50px rgba(0,229,255,0.1)', position: 'relative'
+          }}>
+             <div className="absolute inset-0 border-t-2 border-primary rounded-full animate-spin" style={{ borderTopColor: '#00E5FF' }}></div>
+             <Icon name="movie" style={{ fontSize: '40px', color: '#00E5FF' }} />
+          </div>
+          
+          <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '28px', fontWeight: 900, color: '#f0f0fd', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 16px 0' }}>
+            Compiling Final Video
+          </h2>
+          <p style={{ color: '#aaaab7', fontFamily: "'Inter', sans-serif", fontSize: '16px', maxWidth: '400px', textAlign: 'center', lineHeight: 1.6 }}>
+            Please wait while we stitch your beautiful frames and audio together. This shouldn't take long...
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default FrameResults;

@@ -1,0 +1,287 @@
+/* ===== YOUTOMIZE Cinema AI Design System ===== */
+
+/* Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Manrope:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+  /* Surface Hierarchy */
+  --surface: #0c0e17;
+  --surface-dim: #0c0e17;
+  --surface-bright: #282b3a;
+  --surface-container-lowest: #000000;
+  --surface-container-low: #11131d;
+  --surface-container: #171924;
+  --surface-container-high: #1c1f2b;
+  --surface-container-highest: #222532;
+  --surface-variant: #222532;
+
+  /* Primary */
+  --primary: #81ecff;
+  --primary-container: #00e3fd;
+  --primary-dim: #00d4ec;
+  --on-primary: #005762;
+  --on-primary-container: #004d57;
+
+  /* Secondary */
+  --secondary: #a68cff;
+  --secondary-container: #591adc;
+  --secondary-dim: #7e51ff;
+  --on-secondary: #25006b;
+
+  /* Tertiary */
+  --tertiary: #f3ffca;
+  --tertiary-container: #cafd00;
+  --tertiary-dim: #beee00;
+  --on-tertiary: #516700;
+
+  /* Error */
+  --error: #ff716c;
+  --error-container: #9f0519;
+  --on-error: #490006;
+
+  /* Text / On Surface */
+  --on-surface: #f0f0fd;
+  --on-surface-variant: #aaaab7;
+  --on-background: #f0f0fd;
+  --inverse-surface: #faf8ff;
+  --inverse-on-surface: #53545f;
+
+  /* Outline */
+  --outline: #737580;
+  --outline-variant: #464752;
+
+  /* Fonts */
+  --font-headline: 'Space Grotesk', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-label: 'Manrope', sans-serif;
+
+  /* Override old variables for backward-compat */
+  --bg-primary: #0c0e17;
+  --bg-secondary: #11131d;
+  --bg-card: rgba(28, 31, 43, 0.7);
+  --text-primary: #f0f0fd;
+  --text-secondary: #aaaab7;
+  --text-muted: #737580;
+  --border-color: rgba(70, 71, 82, 0.15);
+  --input-bg: #11131d;
+  --accent-primary: #81ecff;
+  --accent-secondary: #a68cff;
+  --shadow-color: rgba(0, 0, 0, 0.4);
+}
+
+[data-theme='light'] {
+  --bg-primary: #faf8ff;
+  --bg-secondary: #f1f5f9;
+  --bg-card: rgba(255, 255, 255, 0.8);
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --border-color: rgba(0, 0, 0, 0.1);
+  --input-bg: rgba(255, 255, 255, 0.9);
+  --accent-primary: #006976;
+  --accent-secondary: #591adc;
+  --shadow-color: rgba(0, 0, 0, 0.1);
+}
+
+@tailwind base;
+@tailwind components;
+
+/* ===== Global Reset & Defaults ===== */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--surface);
+  color: var(--on-surface);
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-headline);
+  letter-spacing: -0.02em;
+}
+
+/* ===== Animations ===== */
+@keyframes fade-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.5s ease-in-out;
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.4s ease-out;
+}
+
+@keyframes gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient 8s ease infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, var(--tertiary-dim) 0%, var(--tertiary) 50%, var(--tertiary-dim) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.1); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 4s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+@layer components {
+  /* Glass Card */
+  .card {
+    background: var(--bg-card);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: none;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08);
+    @apply p-6 rounded-2xl;
+  }
+
+  /* Ghost Border - felt, not seen */
+  .ghost-border {
+    border: 1px solid rgba(70, 71, 82, 0.15);
+  }
+
+  /* Inputs - No-Line Rule */
+  .input {
+    background: var(--surface-container-low);
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--on-surface);
+    font-family: var(--font-body);
+    box-sizing: border-box;
+    transition: border-color 0.3s ease;
+    @apply w-full p-3.5 rounded-lg outline-none;
+  }
+
+  .input:focus {
+    border-bottom-color: var(--primary-container);
+  }
+
+  .input::placeholder {
+    color: var(--outline);
+    font-family: var(--font-label);
+  }
+
+  /* Primary Gradient Button */
+  .btn-primary {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    font-family: var(--font-label);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    border: none;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    @apply w-full p-3.5 text-white transition rounded-xl shadow-lg hover:shadow-xl;
+  }
+
+  .btn-primary:hover {
+    transform: scale(0.98);
+    box-shadow: 0 0 30px rgba(129, 236, 255, 0.3);
+  }
+
+  /* Secondary / Ghost Button */
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid rgba(70, 71, 82, 0.15);
+    color: var(--primary);
+    font-family: var(--font-label);
+    font-weight: 600;
+    cursor: pointer;
+    @apply px-6 py-3 rounded-xl transition hover:bg-white/5;
+  }
+
+  /* Glass Button */
+  .btn-glass {
+    @apply flex items-center gap-2 px-4 py-2 text-white transition rounded-lg;
+    background: rgba(34, 37, 50, 0.6);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(70, 71, 82, 0.15);
+  }
+
+  .btn-glass:hover {
+    background: rgba(34, 37, 50, 0.8);
+  }
+
+  /* Section Label */
+  .section-label {
+    font-family: var(--font-label);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--on-surface-variant);
+  }
+  /* Glass Panel - Stitch Cinema AI */
+  .glass-panel {
+    background: rgba(34, 37, 50, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  /* Text Gradient - primary → secondary */
+  .text-gradient {
+    background: linear-gradient(45deg, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Button Gradient - primary → secondary */
+  .btn-gradient {
+    background: linear-gradient(45deg, var(--primary), var(--secondary));
+  }
+
+  /* Shimmer Slide - checkout button effect */
+  .shimmer-bg {
+    background: linear-gradient(90deg, transparent, rgba(129, 236, 255, 0.1), transparent);
+    background-size: 200% 100%;
+  }
+}
+
+@keyframes shimmer-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@tailwind utilities;
