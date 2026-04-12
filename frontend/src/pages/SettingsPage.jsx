@@ -20,6 +20,8 @@ const settingsNav = [
   { label: 'Preferences', items: ['Appearance', 'Accounts', 'Security', 'Billing'] },
 ];
 
+const sectionNames = ['Appearance', 'Accounts', 'Security', 'Billing'];
+
 const SettingsPage = () => {
   const navigate = useNavigate();
   const [darkMode, setDarkMode] = useState(true);
@@ -28,7 +30,6 @@ const SettingsPage = () => {
 
   /* Refs for scroll-spy */
   const sectionRefs = useRef({});
-  const sectionNames = ['Appearance', 'Accounts', 'Security', 'Billing'];
 
   /* Scroll-spy: highlight sidebar item when card reaches top */
   useEffect(() => {

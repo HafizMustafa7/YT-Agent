@@ -50,6 +50,7 @@ const CheckoutPage = () => {
   useEffect(() => {
     initializePaddle().then(() => setPaddleReady(true));
     fetchPackage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchPackage = async () => {

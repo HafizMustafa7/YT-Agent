@@ -33,8 +33,8 @@ const FrameResults = () => {
 
   // Original raw story data passed from NicheInput
   const storyResultRaw = location.state?.data;
-  const rawStory = storyResultRaw?.story || storyResultRaw || {};
-  const rawFrames = Array.isArray(rawStory?.frames) ? rawStory.frames : [];
+  const rawStory = useMemo(() => storyResultRaw?.story || storyResultRaw || {}, [storyResultRaw]);
+  const rawFrames = useMemo(() => Array.isArray(rawStory?.frames) ? rawStory.frames : [], [rawStory]);
 
   const getPollInterval = () => {
     const count = pollCountRef.current;
@@ -307,7 +307,7 @@ const FrameResults = () => {
 
               {/* Grid Layout */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '32px' }}>
-                {liveFrames.map((frame, index) => {
+                {liveFrames.map((frame) => {
                   const isThisGenerating = generatingFrameId === frame.id || frame.status === 'generating';
                   const isFailed = frame.status === 'failed';
                   const isCompleted = frame.status === 'completed';

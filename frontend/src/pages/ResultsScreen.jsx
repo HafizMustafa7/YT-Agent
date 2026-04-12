@@ -11,7 +11,6 @@ const Icon = ({ name, filled, className = '', style = {} }) => (
 );
 
 const ResultsScreen = () => {
-  const [topic, setTopic] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingTopic, setLoadingTopic] = useState('');

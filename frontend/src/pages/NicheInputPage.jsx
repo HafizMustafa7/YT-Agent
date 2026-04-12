@@ -13,14 +13,18 @@ const Icon = ({ name, filled, className = '', style = {} }) => (
 const NicheInputPage = () => {
   const [sessionReady, setSessionReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [nicheValue, setNicheValue] = useState('');
   const [error, setError] = useState(null);
-  
+
   // Results
   const [trends, setTrends] = useState([]);
   const [currentNiche, setCurrentNiche] = useState('Top Trending AI Video');
   const [loadingTopic, setLoadingTopic] = useState('');
+
+  // AI Suggestions
+  const [suggestedTopics, setSuggestedTopics] = useState([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [suggestionsError, setSuggestionsError] = useState(null);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -57,15 +61,20 @@ const NicheInputPage = () => {
       if (!sessionReady) return;
       setIsLoading(true);
       setError(null);
-      try {
-        const result = await apiService.fetchTrends('analyze_niche', 'Top Trending AI Videos');
-        setTrends(result?.trends || []);
-      } catch (err) {
-        setError('Failed to fetch initial trends.');
-      } finally {
-        setIsLoading(false);
-        setIsInitialLoad(false);
-      }
+      setIsLoadingSuggestions(true);
+      setSuggestionsError(null);
+
+      const trendsPromise = apiService.fetchTrends('analyze_niche', 'Top Trending AI Videos')
+        .then(result => setTrends(result?.trends || []))
+        .catch(() => setError('Failed to fetch initial trends.'))
+        .finally(() => setIsLoading(false));
+
+      const topicsPromise = apiService.suggestTopics('Top Trending AI Videos', 'search_trends', 0.01, 3)
+        .then(suggestionsData => setSuggestedTopics(suggestionsData?.topics || []))
+        .catch(() => setSuggestionsError('Failed to fetch suggested topics.'))
+        .finally(() => setIsLoadingSuggestions(false));
+
+      await Promise.all([trendsPromise, topicsPromise]);
     };
     if (sessionReady) {
       fetchInitialTrends();
@@ -81,28 +90,20 @@ const NicheInputPage = () => {
     setError(null);
     setCurrentNiche(niche);
 
-    try {
-      const result = await apiService.fetchTrends('analyze_niche', niche);
-      setTrends(result?.trends || []);
-    } catch (err) {
-      setError('Failed to fetch trends. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    setIsLoadingSuggestions(true);
+    setSuggestionsError(null);
 
-  const handleGeneralTrends = async () => {
-    setIsLoading(true);
-    setError(null);
-    setCurrentNiche('General Trends');
-    try {
-      const result = await apiService.fetchTrends('general_trends', '');
-      setTrends(result?.trends || []);
-    } catch (err) {
-      setError('Failed to fetch general trends.');
-    } finally {
-      setIsLoading(false);
-    }
+    const trendsPromise = apiService.fetchTrends('analyze_niche', niche)
+      .then(result => setTrends(result?.trends || []))
+      .catch(() => setError('Failed to fetch trends. Please try again.'))
+      .finally(() => setIsLoading(false));
+
+    const topicsPromise = apiService.suggestTopics(niche, 'search_trends', 0.01, 3)
+      .then(suggestionsData => setSuggestedTopics(suggestionsData?.topics || []))
+      .catch(() => setSuggestionsError('Failed to fetch suggested topics.'))
+      .finally(() => setIsLoadingSuggestions(false));
+
+    await Promise.all([trendsPromise, topicsPromise]);
   };
 
   const openModalForVideo = (videoTitle, videoObj) => {
@@ -118,7 +119,7 @@ const NicheInputPage = () => {
 
     try {
       const creativePreferences = {
-        duration_seconds: 44, 
+        duration_seconds: 44,
         target_audience: modalTargetAudience.toLowerCase(),
         tone: modalTone.toLowerCase(),
         visual_style: modalVisualStyle.toLowerCase(),
@@ -128,13 +129,13 @@ const NicheInputPage = () => {
       };
 
       const videoData = modalVideo || {
-          id: 'custom',
-          title: modalTopic,
-          description: '',
-          views: 0,
-          likes: 0,
-          tags: [],
-          ai_confidence: 0,
+        id: 'custom',
+        title: modalTopic,
+        description: '',
+        views: 0,
+        likes: 0,
+        tags: [],
+        ai_confidence: 0,
       };
 
       const result = await apiService.generateStory(
@@ -164,7 +165,7 @@ const NicheInputPage = () => {
     return num?.toString() || '0';
   };
 
-  if (!sessionReady || isInitialLoad) {
+  if (!sessionReady) {
     return (
       <div style={{ background: '#0c0e17', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Icon name="progress_activity" className="animate-spin" style={{ color: '#81ecff', fontSize: '32px' }} />
@@ -180,7 +181,7 @@ const NicheInputPage = () => {
       position: 'relative', overflowX: 'hidden'
     }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } } .animate-spin { animation: spin 1s linear infinite; }`}</style>
-      
+
       {/* Background Orbs */}
       <div style={{
         position: 'fixed', top: '-10%', left: '-5%', width: '50%', height: '50%',
@@ -204,10 +205,10 @@ const NicheInputPage = () => {
             >YOUTOMIZE</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
-             <button
+            <button
               onClick={() => navigate('/dashboard')}
               style={{
-                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', 
+                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
                 color: '#aaaab7', padding: '4px 12px', borderRadius: '6px',
                 cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
                 fontFamily: "'Inter', sans-serif", fontSize: '11px', transition: 'all 0.3s',
@@ -222,94 +223,66 @@ const NicheInputPage = () => {
       </header>
 
       <main style={{
-        flexGrow: 1, display: 'flex', maxWidth: '1920px', margin: '0 auto',
-        padding: '16px 24px', gap: '24px', width: '100%', alignItems: 'flex-start',
+        flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: '1920px', margin: '0 auto',
+        padding: '16px 24px', gap: '32px', width: '100%', alignItems: 'center',
         position: 'relative', zIndex: 10
       }}>
-        {/* CENTER CONTENT */}
-        <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', maxWidth: 'calc(100% - 300px)' }}>
-          
-          {/* Top Search Area */}
-          <section style={{ textAlign: 'center', marginBottom: '16px', maxWidth: '600px', width: '100%' }}>
-            <h1 style={{
-              fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700,
-              fontSize: '28px', letterSpacing: '-0.02em',
-              lineHeight: 1.1, marginBottom: '12px',
-              background: 'linear-gradient(to bottom, #f0f0fd, #aaaab7)',
-              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            }}>
-              Discover What's Viral
-            </h1>
-            
-            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <button
-                onClick={handleGeneralTrends}
-                disabled={isLoading && loadingTopic === ''}
+
+        {/* Top Search Area */}
+        <section style={{ textAlign: 'center', width: '100%', maxWidth: '600px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <h1 style={{
+            fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700,
+            fontSize: '28px', letterSpacing: '-0.02em',
+            lineHeight: 1.1, marginBottom: '24px',
+            background: 'linear-gradient(to bottom, #f0f0fd, #aaaab7)',
+            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+            backgroundClip: 'text',
+          }}>
+            Discover What's Viral
+          </h1>
+
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ position: 'relative' }}>
+              <form
+                onSubmit={e => { e.preventDefault(); handleSearch(nicheValue); }}
                 style={{
-                  width: '100%', padding: '10px 16px', borderRadius: '10px', border: 'none',
-                  background: 'linear-gradient(45deg, #00E5FF, #a68cff)',
-                  color: '#005762', fontFamily: "'Space Grotesk', sans-serif",
-                  fontWeight: 700, fontSize: '13px', textTransform: 'uppercase',
-                  letterSpacing: '0.15em', cursor: (isLoading) ? 'wait' : 'pointer',
-                  boxShadow: '0 0 20px rgba(0,229,255,0.1)',
-                  transition: 'all 0.3s', display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', gap: '8px',
-                  opacity: (isLoading) ? 0.7 : 1,
+                  display: 'flex', alignItems: 'center', background: '#11131d', borderRadius: '10px',
+                  padding: '4px 16px', border: '1px solid rgba(115,117,128,0.15)',
                 }}
-                onMouseEnter={e => { if (!isLoading) e.currentTarget.style.boxShadow = '0 0 30px rgba(0,229,255,0.3)'; }}
-                onMouseLeave={e => e.currentTarget.style.boxShadow = '0 0 20px rgba(0,229,255,0.1)'}
               >
-                <Icon name="trending_up" style={{ fontSize: '18px' }} />
-                {(isLoading && loadingTopic === '') ? 'Analyzing...' : 'Search General Trends'}
-              </button>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', textAlign: 'left' }}>
-                <label style={{
-                  fontFamily: "'Manrope', sans-serif", fontSize: '9px', fontWeight: 700,
-                  color: '#81ecff', textTransform: 'uppercase', letterSpacing: '0.1em',
-                  paddingLeft: '4px',
-                }}>Niche or Keyword Search</label>
-
-                <div style={{ position: 'relative' }}>
-                  <form
-                    onSubmit={e => { e.preventDefault(); handleSearch(nicheValue); }}
-                    style={{
-                      display: 'flex', alignItems: 'center', background: '#11131d', borderRadius: '10px',
-                      padding: '0 12px', border: '1px solid rgba(115,117,128,0.15)',
-                    }}
-                  >
-                    <Icon name="search" style={{ color: 'rgba(115,117,128,0.5)', fontSize: '18px', marginRight: '8px' }} />
-                    <input
-                      type="text"
-                      value={nicheValue}
-                      onChange={e => { setNicheValue(e.target.value); setError(null); }}
-                      placeholder="e.g. AI Workflow..."
-                      disabled={isLoading}
-                      style={{
-                        background: 'transparent', border: 'none', outline: 'none',
-                        width: '100%', padding: '10px 0', color: '#f0f0fd', fontFamily: "'Inter', sans-serif", fontSize: '12px',
-                      }}
-                    />
-                    {nicheValue.trim().length >= 3 && (
-                      <button type="submit" disabled={isLoading} style={{ background: 'transparent', border: 'none', color: '#81ecff', cursor: 'pointer' }}>
-                        <Icon name="arrow_forward" style={{ fontSize: '18px' }} />
-                      </button>
-                    )}
-                  </form>
-                </div>
-              </div>
+                <Icon name="search" style={{ color: 'rgba(115,117,128,0.5)', fontSize: '20px', marginRight: '12px' }} />
+                <input
+                  type="text"
+                  value={nicheValue}
+                  onChange={e => { setNicheValue(e.target.value); setError(null); }}
+                  placeholder="Enter a niche, e.g. AI Workflow..."
+                  disabled={isLoading}
+                  style={{
+                    background: 'transparent', border: 'none', outline: 'none',
+                    width: '100%', padding: '12px 0', color: '#f0f0fd', fontFamily: "'Inter', sans-serif", fontSize: '14px',
+                  }}
+                />
+                {nicheValue.trim().length >= 3 && (
+                  <button type="submit" disabled={isLoading} style={{ background: 'transparent', border: 'none', color: '#81ecff', cursor: 'pointer' }}>
+                    <Icon name="arrow_forward" style={{ fontSize: '20px' }} />
+                  </button>
+                )}
+              </form>
             </div>
-          </section>
+          </div>
+        </section>
+
+        {/* BOTTOM CONTENT AREA (Grid + Sidebar) */}
+        <div style={{ display: 'flex', width: '100%', gap: '24px', alignItems: 'flex-start', justifyContent: 'center' }}>
 
           {/* Results Area */}
-          <div style={{ width: '100%' }}>
+          <div style={{ flexGrow: 1, maxWidth: 'calc(100% - 304px)', display: 'flex', flexDirection: 'column' }}>
             {error && (
               <div style={{
                 padding: '10px', background: 'rgba(255,113,108,0.1)', border: '1px solid rgba(255,113,108,0.2)',
                 borderRadius: '8px', color: '#ff716c', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px'
               }}>
-                <Icon name="error" style={{ fontSize: '16px'}} /> {error}
+                <Icon name="error" style={{ fontSize: '16px' }} /> {error}
               </div>
             )}
 
@@ -320,7 +293,11 @@ const NicheInputPage = () => {
               </span>
             </div>
 
-            {trends.length === 0 && !isLoading ? (
+            {isLoading ? (
+              <div style={{ textAlign: 'center', padding: '60px', background: '#171924', borderRadius: '10px', border: '1px dashed rgba(115,117,128,0.2)' }}>
+                <Icon name="progress_activity" className="animate-spin" style={{ color: '#81ecff', fontSize: '32px' }} />
+              </div>
+            ) : trends.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '30px', background: '#171924', borderRadius: '10px', border: '1px dashed rgba(115,117,128,0.2)' }}>
                 <p style={{ color: '#aaaab7', fontSize: '12px' }}>No trending videos found. Try another keyword!</p>
               </div>
@@ -329,56 +306,70 @@ const NicheInputPage = () => {
                 /* EXACTLY 3 items in one row, but allowing multiple rows */
                 display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px'
               }}>
-                {/* Display exactly 15 items (5 rows of 3) */}
-                {trends.slice(0, 15).map((video, index) => {
-                  const badgeThemes = [
-                    { text: 'TRENDING #1', bg: 'rgba(0,229,255,0.1)', color: '#00E5FF' },
-                    { text: 'RISING FAST', bg: 'rgba(166,140,255,0.1)', color: '#a68cff' },
-                    { text: 'DEEP DIVE', bg: 'rgba(190,238,0,0.1)', color: '#beee00' },
-                  ];
-                  const badgeTheme = badgeThemes[index % 3];
-                  const isGeneratingThis = isLoading && loadingTopic === video.title;
-
+                {trends.slice(0, 15).map((video) => {
                   return (
                     <div key={video.id} className="group" style={{
                       background: '#1c1f2b', borderRadius: '10px', overflow: 'hidden',
                       transition: 'transform 0.3s, box-shadow 0.3s',
                       border: '1px solid rgba(115,117,128,0.1)', display: 'flex', flexDirection: 'column'
                     }}
-                    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.5)' }}
-                    onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none' }}
+                      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.5)' }}
+                      onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none' }}
                     >
                       {/* Image container using reduced Aspect Ratio or padding */}
                       <div style={{ height: '120px', position: 'relative', overflow: 'hidden' }}>
-                        <img 
-                          src={video.thumbnail} alt={video.title} 
+                        <img
+                          src={video.thumbnail} alt={video.title}
                           style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.5s' }}
                           onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.05)'}
                           onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
                         />
-                        <div style={{
-                            position: 'absolute', top: '8px', left: '8px',
-                            background: 'rgba(12, 14, 23, 0.8)', backdropFilter: 'blur(4px)',
-                            padding: '2px 6px', borderRadius: '4px', fontSize: '8px',
-                            fontFamily: "'Manrope', sans-serif", fontWeight: 700,
-                            color: badgeTheme.color, textTransform: 'uppercase', letterSpacing: '-0.02em'
-                        }}>{badgeTheme.text}</div>
+                        <button
+                          onClick={() => window.open(video.url || `https://youtube.com/shorts/${video.id}`, "_blank", "noopener,noreferrer")}
+                          title="Open Video in YouTube"
+                          style={{
+                            position: 'absolute', top: '8px', right: '8px',
+                            background: 'rgba(12, 14, 23, 0.7)', backdropFilter: 'blur(4px)',
+                            border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px',
+                            width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            cursor: 'pointer', outline: 'none', color: '#f0f0fd', transition: 'all 0.2s', zIndex: 2
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.background = '#81ecff'; e.currentTarget.style.color = '#0c0e17'; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(12, 14, 23, 0.7)'; e.currentTarget.style.color = '#f0f0fd'; }}
+                        >
+                          <Icon name="north_east" style={{ fontSize: '14px' }} />
+                        </button>
                       </div>
 
                       <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', flexGrow: 1 }}>
-                        <h3 style={{
-                          fontFamily: "'Space Grotesk', sans-serif", fontSize: '13px', fontWeight: 600,
-                          lineHeight: 1.2, margin: 0, transition: 'color 0.3s', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden'
-                        }}>{video.title}</h3>
-                        
+                        <div>
+                          <h3 style={{
+                            fontFamily: "'Space Grotesk', sans-serif", fontSize: '13px', fontWeight: 600,
+                            lineHeight: 1.2, margin: 0, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden'
+                          }}>{video.title}</h3>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '10px', color: '#737580', fontFamily: "'Inter', sans-serif", marginTop: '8px' }}>
+                            <span style={{ fontWeight: 800, color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '10px' }}>
+                              {video.channel}
+                            </span>
+                            <span style={{ flexShrink: 0 }}>
+                              {video.duration}
+                            </span>
+                          </div>
+                        </div>
+
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: 'auto' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="Views">
                             <Icon name="visibility" style={{ fontSize: '12px', color: '#737580' }} />
                             <span style={{ fontSize: '10px', fontFamily: "'Manrope', sans-serif", color: '#aaaab7' }}>{formatNumber(video.views)}</span>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="Likes">
                             <Icon name="favorite" filled style={{ fontSize: '12px', color: '#737580' }} />
                             <span style={{ fontSize: '10px', fontFamily: "'Manrope', sans-serif", color: '#aaaab7' }}>{formatNumber(video.likes)}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="Comments">
+                            <Icon name="chat_bubble" filled style={{ fontSize: '12px', color: '#737580' }} />
+                            <span style={{ fontSize: '10px', fontFamily: "'Manrope', sans-serif", color: '#aaaab7' }}>{formatNumber(video.comments)}</span>
                           </div>
                         </div>
 
@@ -394,8 +385,8 @@ const NicheInputPage = () => {
                             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
                             opacity: (isLoading) ? 0.5 : 1, marginTop: '4px'
                           }}
-                          onMouseEnter={e => { if(!isLoading) { e.currentTarget.style.background = '#81ecff'; e.currentTarget.style.color = '#005762'; } }}
-                          onMouseLeave={e => { if(!isLoading) { e.currentTarget.style.background = 'rgba(0,229,255,0.05)'; e.currentTarget.style.color = '#00E5FF'; } }}
+                          onMouseEnter={e => { if (!isLoading) { e.currentTarget.style.background = '#81ecff'; e.currentTarget.style.color = '#005762'; } }}
+                          onMouseLeave={e => { if (!isLoading) { e.currentTarget.style.background = 'rgba(0,229,255,0.05)'; e.currentTarget.style.color = '#00E5FF'; } }}
                         >
                           Select Topic
                         </button>
@@ -406,52 +397,57 @@ const NicheInputPage = () => {
               </div>
             )}
           </div>
+
+          {/* RIGHT SIDEBAR */}
+          <aside style={{ width: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ background: '#171924', borderRadius: '10px', padding: '16px', border: '1px solid rgba(115,117,128,0.15)' }}>
+              <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '16px', color: '#f0f0fd' }}>
+                Suggested Concepts
+              </h2>
+
+              {isLoadingSuggestions ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0' }}>
+                  <Icon name="progress_activity" className="animate-spin" style={{ color: '#81ecff', fontSize: '24px' }} />
+                </div>
+              ) : suggestionsError ? (
+                <div style={{ color: '#ff716c', fontSize: '11px', textAlign: 'center', padding: '10px' }}>{suggestionsError}</div>
+              ) : suggestedTopics.length === 0 ? (
+                <div style={{ color: '#aaaab7', fontSize: '11px', textAlign: 'center', padding: '10px' }}>No suggestions available.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {suggestedTopics.map((item, idx) => {
+                    const topicStr = typeof item === 'string' ? item : item.topic;
+                    return (
+                      <div key={idx} style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px', borderRadius: '6px', cursor: 'default'
+                      }} className="hover:bg-surface-container-high" onMouseEnter={e => e.currentTarget.style.background = '#1c1f2b'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                        <span style={{ fontSize: '12px', fontWeight: 500, color: '#f0f0fd', cursor: 'pointer' }} onClick={() => { setNicheValue(topicStr); handleSearch(topicStr); }}>{topicStr}</span>
+                        <button
+                          onClick={() => { setNicheValue(topicStr); handleSearch(topicStr); }} disabled={isLoading}
+                          style={{
+                            padding: '4px 8px', borderRadius: '4px', background: 'rgba(0,229,255,0.1)', color: '#00E5FF', fontSize: '9px', fontWeight: 700, fontFamily: "'Manrope', sans-serif", textTransform: 'uppercase', border: 'none', cursor: isLoading ? 'not-allowed' : 'pointer', opacity: (isLoading) ? 0.5 : 1
+                          }}
+                        >
+                          {isLoading && currentNiche === topicStr ? <Icon name="progress_activity" className="animate-spin" style={{ fontSize: '10px' }} /> : 'Search'}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div style={{ background: 'rgba(0,229,255,0.05)', borderRadius: '10px', padding: '16px', border: '1px solid rgba(0,229,255,0.2)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#00E5FF' }}>
+                <Icon name="lightbulb" filled style={{ fontSize: '16px' }} />
+                <span style={{ fontSize: '10px', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", textTransform: 'uppercase', letterSpacing: '0.1em' }}>Pro Tip</span>
+              </div>
+              <p style={{ fontSize: '11px', color: 'rgba(240,240,253,0.7)', lineHeight: 1.5, fontFamily: "'Inter', sans-serif", fontStyle: 'italic', margin: 0 }}>
+                Pick a trending video to automatically style your generation around its core audience and tone. High views map to proven formulas.
+              </p>
+            </div>
+          </aside>
         </div>
-
-        {/* RIGHT SIDEBAR */}
-        <aside style={{ width: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '20px' }}>
-           <div style={{ background: '#171924', borderRadius: '10px', padding: '16px', border: '1px solid rgba(115,117,128,0.15)' }}>
-             <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '16px', color: '#f0f0fd' }}>
-               Suggested
-             </h2>
-             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {[
-                  { topic: `${currentNiche.split(' ')[0] || 'AI'} Masterclass`, growth: '+140%' },
-                  { topic: `Truth About ${currentNiche.split(' ')[0] || 'Viral'}`, growth: '+85%' },
-                  { topic: `Beginner's Guide`, growth: '+112%' },
-                ].map((item, idx) => {
-                  const isGeneratingThis = isLoading && loadingTopic === item.topic;
-                  return (
-                  <div key={idx} style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px', borderRadius: '6px', cursor: 'default'
-                  }} className="hover:bg-surface-container-high" onMouseEnter={e => e.currentTarget.style.background = '#1c1f2b'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontSize: '12px', fontWeight: 500, color: '#f0f0fd' }}>{item.topic}</span>
-                      <span style={{ fontSize: '9px', color: '#737580' }}>Growth: {item.growth}</span>
-                    </div>
-                    <button
-                      onClick={() => { setNicheValue(item.topic); handleSearch(item.topic); }} disabled={isLoading}
-                      style={{
-                        padding: '4px 8px', borderRadius: '4px', background: 'rgba(0,229,255,0.1)', color: '#00E5FF', fontSize: '9px', fontWeight: 700, fontFamily: "'Manrope', sans-serif", textTransform: 'uppercase', border: 'none', cursor: isLoading ? 'not-allowed' : 'pointer', opacity: (isLoading) ? 0.5 : 1
-                      }}
-                    >
-                      {isLoading && currentNiche === item.topic ? <Icon name="progress_activity" className="animate-spin" style={{ fontSize: '10px' }} /> : 'Search'}
-                    </button>
-                  </div>
-                )})}
-             </div>
-           </div>
-
-           <div style={{ background: 'rgba(0,229,255,0.05)', borderRadius: '10px', padding: '16px', border: '1px solid rgba(0,229,255,0.2)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#00E5FF' }}>
-               <Icon name="lightbulb" filled style={{ fontSize: '16px' }} />
-               <span style={{ fontSize: '10px', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", textTransform: 'uppercase', letterSpacing: '0.1em' }}>Pro Tip</span>
-             </div>
-             <p style={{ fontSize: '11px', color: 'rgba(240,240,253,0.7)', lineHeight: 1.5, fontFamily: "'Inter', sans-serif", fontStyle: 'italic', margin: 0 }}>
-               Pick a trending video to automatically style your generation around its core audience and tone. High views map to proven formulas.
-             </p>
-           </div>
-        </aside>
       </main>
 
       {/* TOPIC INPUT MODAL */}
@@ -466,13 +462,13 @@ const NicheInputPage = () => {
             boxShadow: '0 20px 40px rgba(0,0,0,0.5)', padding: '24px', position: 'relative'
           }}>
             {!isLoading && (
-              <button 
+              <button
                 onClick={() => setIsModalOpen(false)}
                 style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#737580', cursor: 'pointer', fontSize: '20px' }}>
                 <Icon name="close" />
               </button>
             )}
-            
+
             <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '16px', fontWeight: 700, color: '#f0f0fd', textTransform: 'uppercase', letterSpacing: '0.2em', marginBottom: '24px' }}>
               Topic Input
             </h2>
@@ -482,7 +478,7 @@ const NicheInputPage = () => {
                 <label style={{ fontSize: '10px', fontFamily: "'Manrope', sans-serif", color: '#737580', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 700 }}>Enter Topic</label>
                 <div style={{ position: 'relative' }}>
                   <Icon name="search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#737580', fontSize: '16px' }} />
-                  <input 
+                  <input
                     type="text" value={modalTopic} onChange={(e) => setModalTopic(e.target.value)} disabled={isLoading}
                     style={{ width: '100%', background: '#1c1f2b', border: '1px solid rgba(115,117,128,0.1)', borderRadius: '8px', padding: '10px 10px 10px 36px', color: '#f0f0fd', fontSize: '12px', outline: 'none' }}
                   />
@@ -546,8 +542,8 @@ const NicheInputPage = () => {
                   fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: isLoading ? 'not-allowed' : 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
                 }}
-                onMouseEnter={e => { if(!isLoading) e.currentTarget.style.background = '#222532' }}
-                onMouseLeave={e => { if(!isLoading) e.currentTarget.style.background = '#1c1f2b' }}
+                onMouseEnter={e => { if (!isLoading) e.currentTarget.style.background = '#222532' }}
+                onMouseLeave={e => { if (!isLoading) e.currentTarget.style.background = '#1c1f2b' }}
               >
                 {isLoading ? <Icon name="progress_activity" className="animate-spin" style={{ fontSize: '16px' }} /> : null}
                 {isLoading ? 'WAITING...' : 'ENTER TOPIC'}

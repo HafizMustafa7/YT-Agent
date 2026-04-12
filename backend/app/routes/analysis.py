@@ -26,9 +26,9 @@ router = APIRouter()
 # Helper: fetch all channel videos
 # ---------------------------------------------------------------------------
 
-async def get_channel_videos(access_token: str, channel_id: str) -> List[Dict]:
-    """Fetch all videos from a YouTube channel with shared client and higher timeout."""
-    logger.info("Fetching videos for channel: %s", channel_id)
+async def get_channel_videos(access_token: str, channel_id: str, uploads_playlist_id: str) -> List[Dict]:
+    """Fetch all videos from a YouTube channel using the uploads playlist (1 quota unit) instead of search (100 quota units)."""
+    logger.info("Fetching videos for channel: %s using playlist %s", channel_id, uploads_playlist_id)
     videos: List[Dict] = []
     next_page_token: Optional[str] = None
     page_count = 0
@@ -38,33 +38,30 @@ async def get_channel_videos(access_token: str, channel_id: str) -> List[Dict]:
     while page_count < max_pages:
         params: Dict[str, Any] = {
             "part": "snippet",
-            "channelId": channel_id,
+            "playlistId": uploads_playlist_id,
             "maxResults": 50,
-            "order": "date",
-            "type": "video",
         }
         if next_page_token:
             params["pageToken"] = next_page_token
 
         logger.debug("Fetching video page %d", page_count + 1)
 
-        # Higher timeout for search API (60s)
         response = await client.get(
-            "https://www.googleapis.com/youtube/v3/search",
+            "https://www.googleapis.com/youtube/v3/playlistItems",
             headers={"Authorization": f"Bearer {access_token}"},
             params=params,
             timeout=60.0
         )
 
         if response.status_code != 200:
-            logger.warning("Search API failed on page %d: %s", page_count + 1, response.status_code)
+            logger.warning("PlaylistItems API failed on page %d: %s - %s", page_count + 1, response.status_code, response.text)
             break
 
         data = response.json()
         video_ids = [
-            item["id"]["videoId"]
+            item.get("snippet", {}).get("resourceId", {}).get("videoId")
             for item in data.get("items", [])
-            if item.get("id", {}).get("kind") == "youtube#video"
+            if item.get("snippet", {}).get("resourceId", {}).get("videoId")
         ]
 
         logger.debug("Found %d video IDs on page %d", len(video_ids), page_count + 1)
@@ -330,25 +327,29 @@ async def get_channel_analytics(
                 detail=f"YouTube API connectivity issue: {test_response.status_code}",
             )
 
-        # Get channel statistics
-        client = await get_google_http_client()
         channel_response = await client.get(
             "https://www.googleapis.com/youtube/v3/channels",
             headers={"Authorization": f"Bearer {access_token}"},
-            params={"part": "statistics,snippet", "id": channel_id},
+            params={"part": "statistics,snippet,contentDetails", "id": channel_id},
             timeout=30.0
         )
 
         channel_stats = {}
+        uploads_playlist_id = 'UU' + channel_id[2:] if channel_id.startswith('UC') else channel_id
+        
         if channel_response.status_code == 200:
             items = channel_response.json().get("items", [{}])
-            channel_stats = items[0].get("statistics", {}) if items else {}
+            if items:
+                channel_stats = items[0].get("statistics", {})
+                retrieved_uploads = items[0].get("contentDetails", {}).get("relatedPlaylists", {}).get("uploads")
+                if retrieved_uploads:
+                    uploads_playlist_id = retrieved_uploads
             logger.debug("Channel stats: %d metrics", len(channel_stats))
         else:
             logger.warning("Failed to get channel stats: %d", channel_response.status_code)
 
-        # Fetch all videos
-        videos_data = await get_channel_videos(access_token, channel_id)
+        # Fetch all videos using the highly efficient playlistItems endpoint
+        videos_data = await get_channel_videos(access_token, channel_id, uploads_playlist_id)
 
         processed_videos = []
         total_views = 0

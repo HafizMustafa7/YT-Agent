@@ -1,4 +1,4 @@
-import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import AuthPage from "./pages/AuthPage";
 import NicheInputPage from "./pages/NicheInputPage";
@@ -20,7 +20,6 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 
 function App() {
   const navigate = useNavigate();
-  const location = useLocation();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 

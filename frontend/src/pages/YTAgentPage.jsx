@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Header from '../features/yt-agent/components/Header.jsx';
 
 import ErrorBoundary from '../features/yt-agent/components/ErrorBoundary.jsx';
@@ -16,7 +16,6 @@ import '../features/yt-agent/styles/App.css';
 
 function YTAgentPage() {
     const navigate = useNavigate();
-    const location = useLocation();
     const [searchParams, setSearchParams] = useSearchParams();
     const currentScreen = searchParams.get('step') || 'home';
     const [trendsData, setTrendsData] = useState(null);
@@ -32,7 +31,6 @@ function YTAgentPage() {
     const [suggestions, setSuggestions] = useState([]);
     const [suggestionsLoading, setSuggestionsLoading] = useState(false);
     const [suggestionsError, setSuggestionsError] = useState(null);
-    const [lastSuggestionNiche, setLastSuggestionNiche] = useState(null);
 
     // API calls now handled by apiService
 
@@ -49,7 +47,6 @@ function YTAgentPage() {
 
             // ── Auto-trigger topic suggestions in the background ─────────
             const nicheForSuggestions = niche || 'trending AI shorts';
-            setLastSuggestionNiche(nicheForSuggestions);
             setSuggestionsLoading(true);
             setSuggestionsError(null);
             apiService

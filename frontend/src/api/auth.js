@@ -1,6 +1,6 @@
 import axios from "axios";
 import { supabase } from "../supabaseClient";
-import { showErrorToast, showSuccessToast, getFriendlyErrorMessage } from "../lib/errorUtils";
+import { showErrorToast } from "../lib/errorUtils";
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
@@ -13,7 +13,7 @@ const api = axios.create({
 // 🔹 Attach Supabase access token on every request
 api.interceptors.request.use(async (config) => {
   try {
-    const { data: { session }, error } = await supabase.auth.getSession();
+    const { data: { session } } = await supabase.auth.getSession();
 
     if (session?.access_token) {
       config.headers.Authorization = `Bearer ${session.access_token}`;

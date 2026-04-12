@@ -5,6 +5,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/auth';
+import pricingBg from '../assets/pricing_bg.jpg';
 
 /* ── Material icon helper ── */
 const Icon = ({ name, filled, className = '', style = {} }) => (
@@ -297,7 +298,7 @@ const PricingPage = () => {
               }}>
                 <img
                   alt="Cinematic abstract"
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuDqMe45HNZGZ-XzX2X6a76qdyDgAqTk4yiIUZHIDv3LHoSaEPMFyFwaWNJF9ASHQXsgjMTGTz8TbjsXIXMdIncD4W6HHIyQ7kw5Q4p5v4waTPwgoh1NvrbC5b0ViL3rKfdW6TIcdOv1POfrcULE5Cgv3ngIXVKRSnxvuX3qy5BfEbDkfuiIUPDVg-6JfxG4YWBu-aU11L-ZJ71NKPARtZDO1xkHKqjfgEbnyBJT8Rvkti5hwxRnqdrZ0kjrF20pPDQUQWYZQfIG1c4"
+                  src={pricingBg}
                   style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '24px 0 0 24px' }}
                 />
               </div>

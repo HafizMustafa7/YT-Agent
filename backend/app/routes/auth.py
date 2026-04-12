@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header
 from app.models.auth import SignupRequest, LoginRequest
 from app.core.config import supabase
 from app.utils.errors import handle_error
+from app.core_yt.redis_cache import redis_cache
 
 router = APIRouter(tags=["Auth"])
 logger = logging.getLogger(__name__)
@@ -179,6 +180,8 @@ async def login(payload: LoginRequest):
 # Dependency: get_current_user
 # ---------------------------------------------------------------------------
 
+_token_locks = {}
+
 async def get_current_user(authorization: str = Header(None)) -> dict:
     """
     Verify Bearer token via Supabase and return user dict.
@@ -189,58 +192,78 @@ async def get_current_user(authorization: str = Header(None)) -> dict:
         raise HTTPException(status_code=401, detail="Missing authorization header")
 
     token = authorization.split(" ", 1)[1] if " " in authorization else authorization
+    
+    # Check cache fast-path without lock first
+    cache_key = f"auth_token_cache:{token}"
+    cached_user = redis_cache.get(cache_key)
+    if cached_user:
+        return cached_user
+        
     loop = asyncio.get_running_loop()
 
-    try:
-        # 1. Verify token (blocking SDK call → executor)
+    # Create lock if missing (atomic enough for this use case since GIL)
+    if token not in _token_locks:
+        _token_locks[token] = asyncio.Lock()
+        
+    async with _token_locks[token]:
+        # Double-check cache inside lock
+        cached_user = redis_cache.get(cache_key)
+        if cached_user:
+            return cached_user
+
         try:
-            user = await loop.run_in_executor(None, _sync_get_user, token)
-        except httpx.ReadError:
-            logger.warning("[AUTH] Network read error during token verification")
-            raise HTTPException(status_code=500, detail="Network error during authentication")
-        except httpx.ConnectError:
-            logger.warning("[AUTH] Connection error during token verification")
-            raise HTTPException(status_code=500, detail="Connection error during authentication")
-        except OSError as e:
-            winerror = getattr(e, "winerror", None)
-            if winerror == 10035:
-                logger.warning("[AUTH] Socket would-block error during token verification")
-                raise HTTPException(status_code=500, detail="Network timeout during authentication")
-            logger.warning("[AUTH] OS error during token verification: %s", e)
-            raise HTTPException(status_code=500, detail="Network error during authentication")
+            # 1. Verify token (blocking SDK call → executor)
+            try:
+                user = await loop.run_in_executor(None, _sync_get_user, token)
+            except httpx.ReadError:
+                logger.warning("[AUTH] Network read error during token verification")
+                raise HTTPException(status_code=500, detail="Network error during authentication")
+            except httpx.ConnectError:
+                logger.warning("[AUTH] Connection error during token verification")
+                raise HTTPException(status_code=500, detail="Connection error during authentication")
+            except OSError as e:
+                winerror = getattr(e, "winerror", None)
+                if winerror == 10035:
+                    logger.warning("[AUTH] Socket would-block error during token verification")
+                    raise HTTPException(status_code=500, detail="Network timeout during authentication")
+                logger.warning("[AUTH] OS error during token verification: %s", e)
+                raise HTTPException(status_code=500, detail="Network error during authentication")
 
-        if not user:
-            logger.warning("[AUTH] Token verification returned no user")
-            raise HTTPException(status_code=401, detail="Invalid token")
+            if not user:
+                logger.warning("[AUTH] Token verification returned no user")
+                raise HTTPException(status_code=401, detail="Invalid token")
 
-        user_id = _user_attr(user, "id")
-        email = _user_attr(user, "email")
+            user_id = _user_attr(user, "id")
+            email = _user_attr(user, "email")
 
-        if not user_id:
-            logger.error("[AUTH] Extracted user has no ID: %s", user)
-            raise HTTPException(status_code=401, detail="Malformed token data")
+            if not user_id:
+                logger.error("[AUTH] Extracted user has no ID: %s", user)
+                raise HTTPException(status_code=401, detail="Malformed token data")
 
-        # 2. Fetch profile (blocking SDK call → executor)
-        profile = await loop.run_in_executor(None, _sync_get_profile, user_id)
+            # 2. Fetch profile (blocking SDK call → executor)
+            profile = await loop.run_in_executor(None, _sync_get_profile, user_id)
 
-        return {
-            "id": user_id,
-            "email": email,
-            "full_name": (
-                profile.get("full_name")
-                if profile
-                else (email.split("@")[0] if email else "User")
-            ),
-            "oauth_provider": profile.get("oauth_provider") if profile else None,
-            "profile": profile,
-        }
+            user_dict = {
+                "id": user_id,
+                "email": email,
+                "full_name": (
+                    profile.get("full_name")
+                    if profile
+                    else (email.split("@")[0] if email else "User")
+                ),
+                "oauth_provider": profile.get("oauth_provider") if profile else None,
+                "profile": profile,
+            }
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("[AUTH ERROR] Unexpected error in get_current_user: %s", e, exc_info=True)
-        raise HTTPException(status_code=401, detail="Authentication failed")
+            # Cache the resolved user identity payload for 60 seconds
+            redis_cache.set(cache_key, user_dict, ttl=60)
+            return user_dict
 
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("[AUTH ERROR] Unexpected error in get_current_user: %s", e, exc_info=True)
+            raise HTTPException(status_code=401, detail="Authentication failed")
 
 async def get_optional_user(authorization: str = Header(None)):
     """Try to get user; return None instead of raising 401 if unauthenticated."""

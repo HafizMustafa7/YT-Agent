@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Chart } from 'chart.js/auto';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../features/yt-agent/services/apiService';
-import { supabase } from '../supabaseClient';
 import { tokenService } from '../services/tokenService';
+import { showErrorToast } from '../lib/errorUtils';
 
 const Analytics = () => {
   const navigate = useNavigate();
@@ -11,10 +11,7 @@ const Analytics = () => {
   const [selectedChannel, setSelectedChannel] = useState('');
   const [videosData, setVideosData] = useState([]);
   const [selectedVideo, setSelectedVideo] = useState(null);
-  const [statsData, setStatsData] = useState({ totalVideos: 0, totalViews: 0, totalSubscribers: 0, avgEngagement: 0 });
-  const [showStats, setShowStats] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const chartsRef = useRef({});
 
   useEffect(() => {
@@ -26,23 +23,21 @@ const Analytics = () => {
     try {
       const data = await apiService.listChannels();
       setChannels(data || []);
-      if (!data?.length) setError('No channels found.');
-    } catch { setError('Failed to load channels.'); }
+      if (!data?.length) console.warn('No channels found.');
+    } catch { console.error('Failed to load channels.'); }
   };
 
   const loadChannelAnalytics = async () => {
     if (!selectedChannel) return;
-    setLoading(true); setError('');
+    setLoading(true);
     try {
-      setVideosData([]); setShowStats(false);
+      setVideosData([]);
       const data = await apiService.getChannelAnalytics(selectedChannel);
       if (!data?.videos) throw new Error('No data received.');
       setVideosData(data.videos || []);
-      const avgEng = data.videos.length > 0 ? data.videos.reduce((s, v) => s + (v.engagement_rate || 0), 0) / data.videos.length : 0;
-      setStatsData({ totalVideos: data.total_videos || 0, totalViews: data.total_views || 0, totalSubscribers: data.total_subscribers || 0, avgEngagement: avgEng });
-      setShowStats(true);
     } catch (err) {
-      setError(`Failed: ${err.message || 'Unknown'}`); setShowStats(false);
+      console.error('Failed:', err.message || 'Unknown');
+      showErrorToast(err.message || 'Failed to load analytics data. Please make sure your YouTube channel is properly connected.');
     } finally { setLoading(false); }
   };
 
@@ -54,12 +49,12 @@ const Analytics = () => {
 
   useEffect(() => {
     if (selectedVideo) setTimeout(() => createCharts(), 500);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedVideo]);
 
   const createCharts = () => {
     if (!selectedVideo) return;
     const v = selectedVideo;
-    const avgViews = videosData.reduce((s, vid) => s + (vid.views || 0), 0) / videosData.length;
 
     const perfCanvas = document.getElementById('perfChart');
     if (perfCanvas) {
@@ -90,11 +85,7 @@ const Analytics = () => {
   };
 
   const handleLogout = async () => { await tokenService.logout(); };
-  const activeChannel = channels.find(c => c.channel_id === selectedChannel);
   const engRate = selectedVideo ? ((((selectedVideo.likes || 0) + (selectedVideo.comments || 0)) / Math.max(selectedVideo.views || 1, 1)) * 100).toFixed(1) : '0.0';
-
-  // Performance vs avg for benchmarks
-  const maxViews = Math.max(...videosData.map(v => v.views || 0), 1);
 
   return (
     <div style={{ minHeight: '100vh', background: '#0c0e17', color: '#f0f0fd', fontFamily: "'Inter', sans-serif" }}>
@@ -113,7 +104,7 @@ const Analytics = () => {
             <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#591adc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px' }}>📺</div>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               <span style={{ fontFamily: "'Manrope', sans-serif", fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#aaaab7' }}>Active Channel</span>
-              <select value={selectedChannel} onChange={e => { setSelectedChannel(e.target.value); setShowStats(false); setVideosData([]); setSelectedVideo(null); }}
+              <select value={selectedChannel} onChange={e => { setSelectedChannel(e.target.value); setVideosData([]); setSelectedVideo(null); }}
                 style={{ background: 'transparent', border: 'none', color: '#f0f0fd', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '14px', letterSpacing: '-0.02em', outline: 'none', cursor: 'pointer', padding: 0 }}>
                 <option value="" style={{ background: '#1c1f2b' }}>Select Channel</option>
                 {channels.map(ch => <option key={ch.channel_id} value={ch.channel_id} style={{ background: '#1c1f2b' }}>{ch.channel_name || `Channel ${ch.channel_id}`}</option>)}

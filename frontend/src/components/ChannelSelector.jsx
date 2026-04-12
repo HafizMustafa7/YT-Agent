@@ -1,10 +1,10 @@
+import { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient";
 import apiService from "../features/yt-agent/services/apiService";
 
 function ChannelSelector({ selectedChannel, setSelectedChannel }) {
   const [channels, setChannels] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [sessionReady, setSessionReady] = useState(false);
 
   useEffect(() => {
     const initializeSession = async () => {
@@ -14,7 +14,6 @@ function ChannelSelector({ selectedChannel, setSelectedChannel }) {
           console.error("[CHANNEL SELECTOR] No session found");
           return;
         }
-        setSessionReady(true);
         fetchChannels();
       } catch (err) {
         console.error("[CHANNEL SELECTOR] Session verification failed:", err);

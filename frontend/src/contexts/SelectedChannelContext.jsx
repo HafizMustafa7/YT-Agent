@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useState } from "react";
 import apiService from "../features/yt-agent/services/apiService";
 import { supabase } from "../supabaseClient";
@@ -5,7 +6,7 @@ import { supabase } from "../supabaseClient";
 const SelectedChannelContext = createContext({
   channels: [],
   selectedChannelId: null,
-  setSelectedChannelId: (id) => { },
+  setSelectedChannelId: () => { },
   refreshChannels: async () => { },
   loading: false,
 });

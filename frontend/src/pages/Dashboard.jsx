@@ -3,21 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import apiService from "../features/yt-agent/services/apiService";
 import { showErrorToast } from '../lib/errorUtils';
-import { useTheme } from '../contexts/ThemeContext';
 import { useSelectedChannel } from '../contexts/SelectedChannelContext';
-import { tokenService } from '../services/tokenService';
+import dashboardBg from '../assets/dashboard_bg.jpg';
 
 const Dashboard = () => {
   const {
     channels, selectedChannelId, setSelectedChannelId,
-    refreshChannels, loading: channelsLoading
+    refreshChannels
   } = useSelectedChannel();
-
-  const [username, setUsername] = useState('User');
   const [credits, setCredits] = useState(null);
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
   const [isChannelDropdownOpen, setIsChannelDropdownOpen] = useState(false);
-  const { isDarkTheme, toggleTheme } = useTheme();
+  // remove unused useTheme and toggleTheme
   const [sessionReady, setSessionReady] = useState(false);
   const navigate = useNavigate();
   const channelDropdownRef = useRef(null);
@@ -38,7 +35,7 @@ const Dashboard = () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.user) { navigate("/"); return; }
-        setUsername(session.user.email?.split('@')[0] || 'User');
+        // Username unused, removed
         setSessionReady(true);
         try {
           const resp = await fetch(
@@ -47,7 +44,7 @@ const Dashboard = () => {
           );
           if (resp.ok) { const d = await resp.json(); setCredits(d.credits); }
         } catch (e) { console.error('[Dashboard] Credits fetch failed:', e); }
-      } catch (err) { navigate("/"); }
+      } catch { navigate("/"); }
     };
     initializeSession();
   }, [navigate]);
@@ -62,8 +59,6 @@ const Dashboard = () => {
       window.location.href = data.url;
     } catch (err) { showErrorToast(err); }
   };
-
-  const handleLogout = async () => { await tokenService.logout(); };
 
   return (
     <div style={{
@@ -97,26 +92,32 @@ const Dashboard = () => {
             borderBottom: '2px solid #00E5FF', paddingBottom: '4px',
             textDecoration: 'none',
           }}>Dashboard</a>
-          <a href="#" onClick={e => { e.preventDefault(); navigate('/pricing'); }} style={{
+          <div style={{
             fontFamily: "'Space Grotesk', sans-serif", letterSpacing: '-0.02em',
-            color: '#94a3b8', fontWeight: 500, textDecoration: 'none',
-            transition: 'color 0.3s',
-          }}
-            onMouseEnter={e => e.target.style.color = '#fff'}
-            onMouseLeave={e => e.target.style.color = '#94a3b8'}
-          >Pricing</a>
-          <a href="#" onClick={e => { e.preventDefault(); }} style={{
-            fontFamily: "'Space Grotesk', sans-serif", letterSpacing: '-0.02em',
-            color: '#94a3b8', fontWeight: 500, textDecoration: 'none',
-            transition: 'color 0.3s',
-          }}
-            onMouseEnter={e => e.target.style.color = '#fff'}
-            onMouseLeave={e => e.target.style.color = '#94a3b8'}
-          >Credits: {credits ?? '...'}</a>
+            color: '#00E5FF', fontWeight: 700, padding: '4px 12px',
+            background: 'rgba(0, 229, 255, 0.1)', borderRadius: '8px',
+            border: '1px solid rgba(0, 229, 255, 0.2)', display: 'flex', alignItems: 'center'
+          }}>
+            Credits: {credits ?? '...'}
+          </div>
         </div>
 
         {/* Right: Channel Switcher + Settings */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+          {/* Upgrade Button */}
+          <button onClick={() => navigate('/pricing')} style={{
+            background: 'linear-gradient(45deg, #81ecff 0%, #a68cff 100%)',
+            color: '#3b00a0', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700,
+            fontSize: '14px', padding: '8px 16px', borderRadius: '8px',
+            border: 'none', cursor: 'pointer', transition: 'transform 0.2s',
+            boxShadow: '0 4px 15px rgba(129,236,255,0.2)',
+          }}
+            onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.05)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+          >
+            Upgrade
+          </button>
+
           {/* Channel Switcher */}
           <div ref={channelDropdownRef} style={{ position: 'relative' }}>
             <div onClick={() => setIsChannelDropdownOpen(!isChannelDropdownOpen)} style={{
@@ -212,7 +213,7 @@ const Dashboard = () => {
           onMouseEnter={() => setIsSidebarHovered(true)}
           onMouseLeave={() => setIsSidebarHovered(false)}
           style={{
-            height: '100vh', 
+            height: '100vh',
             width: isSidebarHovered ? '256px' : '64px',
             transition: 'width 0.3s ease',
             position: 'fixed', left: 0, top: 0,
@@ -325,7 +326,7 @@ const Dashboard = () => {
             <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
               <img
                 alt="abstract flowing liquid metal textures in deep electric cyan and dark purple with cinematic lighting"
-                src="https://lh3.googleusercontent.com/aida-public/AB6AXuBR84F9zNszXoJWytklKIbDKmIKgJqFawBl7oRGt0UpX4kYKVDSoS8Hf4T0KK8pMdB1Amt-jMIsC40AXf8EFyMj4wKeT5t5nWfx2FTeETCz37LP3LqelaYXRY9IjYA973yPXme-eBX0wMtm-M-n4f1SVMYypoJBqlJZlDx7XQDBYlgs2OZTZFSC2VPLTPymA10oSf-wqfBig4YF4tC-ZmcykOaOwz63GTnO_x3cfoVXv9bEOI9Kf-kHIZWXCOU9If7IoYN0kyrt0mM"
+                src={dashboardBg}
                 style={{
                   width: '100%', height: '100%', objectFit: 'cover',
                   opacity: 0.4, mixBlendMode: 'overlay',
@@ -389,7 +390,7 @@ const Dashboard = () => {
                   onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.05)'}
                   onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
                 >
-                  ⚡ Generate Video
+                  Generate Video
                 </button>
 
                 <button onClick={() => navigate('/analytics')} style={{
@@ -403,7 +404,7 @@ const Dashboard = () => {
                   onMouseEnter={e => e.currentTarget.style.background = '#222532'}
                   onMouseLeave={e => e.currentTarget.style.background = '#1c1f2b'}
                 >
-                  📊 View Analytics
+                  View Analytics
                 </button>
               </div>
             </div>
@@ -421,10 +422,10 @@ const Dashboard = () => {
               { icon: '🎨', iconBg: 'rgba(243,255,202,0.1)', iconColor: '#f3ffca', hoverBg: '#f3ffca', title: 'High Visual Video', desc: 'Apply cinematic color grading and brand assets instantly.' },
               { icon: '🚀', iconBg: 'rgba(255,113,108,0.1)', iconColor: '#ff716c', hoverBg: '#ff716c', title: 'Auto Uploading', desc: 'Schedule and deploy content across multiple channels.' },
             ].map((card, i) => (
-              <div key={i} onClick={() => navigate('/generate-video')}
+              <div key={i}
                 style={{
                   background: '#1c1f2b', padding: '24px', borderRadius: '16px',
-                  cursor: 'pointer', transition: 'all 0.2s',
+                  transition: 'all 0.2s',
                   border: '1px solid rgba(255,255,255,0.05)',
                 }}
                 onMouseEnter={e => {

@@ -1,6 +1,16 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import dashboardPreview from '../assets/dashboard_preview.jpg';
+import analysisPreview from '../assets/analysis_preview.jpg';
+import trendsPreview from '../assets/trends_preview.jpg';
+import scriptingPreview from '../assets/scripting_preview.jpg';
+import cinematicPreview from '../assets/cinematic_preview.jpg';
+import uploadPreview from '../assets/upload_preview.jpg';
+import icon1 from '../assets/icon_1.jpg';
+import icon2 from '../assets/icon_2.jpg';
+import icon3 from '../assets/icon_3.jpg';
+
 const WelcomePage = () => {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
@@ -85,7 +95,7 @@ const WelcomePage = () => {
           <div style={{ position: 'relative' }}>
             <div style={{ position: 'absolute', inset: '-16px', background: 'rgba(129,236,255,0.1)', filter: 'blur(48px)', borderRadius: '9999px' }} />
             <div style={{ position: 'relative', borderRadius: '24px', overflow: 'hidden', border: '1px solid rgba(70,71,82,0.2)', aspectRatio: '16/9', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }}>
-              <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuCC2GYUjKeVHBy0NIylwx4tYvhcSNyIv5Ju8OEfKDVmTKWuv77yC3nMDr-B_IJeFCIYQBOsvxJfzZwd8mrKBBjnE25ddf7GUlNTkc5BTT-IeLn6K2aqW7BKCS0wJhkwSNYdvUv4d7cwZi6XGfrdIOt--3T-dmji9Muj5l3qf7OxraIQBoLyLqWVMSxt4k_bL8QDObDSVLkW-Xl6kjq5kE083W-FYmt2Exak0xyprhQJonWTKGJM-FNVk8-dnpG8OCBud4C-mthBFeA" alt="Dashboard" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img src={dashboardPreview} alt="Dashboard" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             </div>
           </div>
           <div>
@@ -117,7 +127,7 @@ const WelcomePage = () => {
           <div style={{ position: 'relative' }}>
             <div style={{ position: 'absolute', inset: '-16px', background: 'rgba(166,140,255,0.1)', filter: 'blur(48px)', borderRadius: '9999px' }} />
             <div style={{ position: 'relative', borderRadius: '24px', overflow: 'hidden', border: '1px solid rgba(70,71,82,0.2)', aspectRatio: '16/9', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }}>
-              <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuAIp4k2GUr5TkocY6dUyWYK28e2Sfj2maGqGDC4L-M8ogExfx5_oo5dykUN0ACpgMahpMO5SWIfF2q3XDJfxP-Vm5RSnnLmqBK-e8uOpcrOzflu_un7Ew0BdFQ3q0929pvhD7DaCqKbuEqu4VR0cc51HbFR7xLoSGhqOK9qBIv-MZ2UIJHKti8AsSxotT1ERtfEJLz3WanH1q_9Fju2UjhihkJm9ohgnTn1D9mlzMKrfPW07V5P3GbVeBz1m9jZ4BRuGn9-agrgA2w" alt="Analysis" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img src={analysisPreview} alt="Analysis" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             </div>
           </div>
         </div>
@@ -126,7 +136,7 @@ const WelcomePage = () => {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '64px', alignItems: 'center' }}>
           <div style={{ position: 'relative' }}>
             <div style={{ position: 'relative', borderRadius: '24px', overflow: 'hidden', border: '1px solid rgba(70,71,82,0.2)', aspectRatio: '16/9', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }}>
-              <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuCOcaqvqaLkx9bsjhtO79JfAOIjd8N2Q771O1EnqqJTciVMrD-_vH8t0QZ7VU2xjGK-w1YyBPq257mOBGfAzOPKPQ8idwfRyb5lu8vs4SR2PpoMmYCaMBDRkUr3aaAZuEUtMAZpCqn0kuuqbMzPYFZs7kWtiXEhm3e-fqiqDUL24vT67Bx9GWTXQrFD_9GLfzctr4PgrSgTtRrMV7SI1qfLQWKKRjuEmHNGHBW0-yC_1Efv8nIZTtAg-p6SDP0-qmdNNd7ZzYvFMGc" alt="Trends" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img src={trendsPreview} alt="Trends" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             </div>
           </div>
           <div>
@@ -152,7 +162,7 @@ const WelcomePage = () => {
           <div style={{ position: 'relative' }}>
             <div style={{ position: 'absolute', inset: '-16px', background: 'rgba(166,140,255,0.1)', filter: 'blur(48px)', borderRadius: '9999px' }} />
             <div style={{ position: 'relative', borderRadius: '24px', overflow: 'hidden', border: '1px solid rgba(70,71,82,0.2)', aspectRatio: '16/9', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }}>
-              <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuAU_UQMfSP3XM0lGm1dPkxjopCbOVOOqXEm5GCUl-Wio1ETJ0xZso-h80kJ1ff0N0ZBynxTqAPu9sB3ogTvyJjxrXQnSpmucAYu4VmNyVcjC5o1WpwCD8S9mndT8lU6BQ_PG5THh_sbLf4T_LXV987jfxHZAnc68Adg6-8QmeQd7R17cLmWudk51sHhkLsmY-hA_js0RgE8Azc_EbES_-MSZ15OGbrvEfYZgcJhXM2aD187LtyLdRbi2hKkbfVpZGI_9WjJAxe8cLE" alt="Scripting" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img src={scriptingPreview} alt="Scripting" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             </div>
           </div>
         </div>
@@ -162,7 +172,7 @@ const WelcomePage = () => {
           <div style={{ position: 'relative' }}>
             <div style={{ position: 'absolute', inset: '-16px', background: 'rgba(129,236,255,0.1)', filter: 'blur(48px)', borderRadius: '9999px' }} />
             <div style={{ position: 'relative', borderRadius: '24px', overflow: 'hidden', border: '1px solid rgba(70,71,82,0.2)', aspectRatio: '16/9', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }}>
-              <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuC09szvPqaJcEEq5gjlVwxatIqDDRI_fhVhby1y8U0vofV9i-ZY67EmzYyLzM7LjJR0NsD87lY90_odnP-pB9sVo0-2UqLItti4Hd989c-CCHrzzoybnpdb0VPSLAjijM-DLncyaSiruDtpTie_Lim2-Pgoj3ziAvxd0yTknNreNE1GvHNzJOxg09LYc39kSL1trzdLq_pF7nawSzSyUQTsIqRa8bSfrjbKG3-50JPP2HE9d0wHhTu4jzcckxn8-bzNVwnOiXbVlQo" alt="Cinematic" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img src={cinematicPreview} alt="Cinematic" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             </div>
           </div>
           <div>
@@ -181,10 +191,7 @@ const WelcomePage = () => {
             <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '2.5rem', color: '#a68cff', letterSpacing: '-0.02em', marginBottom: '24px' }}>Auto Upload & Integration</h3>
             <p style={{ color: '#aaaab7', fontSize: '1.125rem', lineHeight: 1.7, marginBottom: '32px' }}>Set and forget. Instant multi-channel integration schedules your content for optimal peak viewing times globally across all major social platforms.</p>
             <div style={{ display: 'flex', gap: '16px' }}>
-              {['https://lh3.googleusercontent.com/aida-public/AB6AXuD6Zu9eYQBQZBGGY_C69KDOD-yQ93k70ayrlMWyklNvfuMGHnr6G8qRJf4C73_tbZVoWLwdivcewOfMgLOBgkwa_jteU1oxh4iwHCU3tzYM_CSymQso8jQ9uhZclk2ILq8230JONgn2Sw5_GORH7rHN5VAmFqFXDpGM4OVJOWtdBNiRDwZLp13PZc6LuKXiJsv8hmPMd40mHgMxE8nKuGBACwqpMSd228CInnmgdlUYslJGT2g-qN8xyan8uNAWnZ7mn2X4ykCK1qI',
-                'https://lh3.googleusercontent.com/aida-public/AB6AXuBk88ovDSwTFABYVUhmPxr_POiXZ2fnRe4qGk-p-mroOQQJDnhCjwWt0JTMB7VnJeppJ2DMMSTtAvfGY3L10ddjlR1h3A4Fw3mBEEBwqQZM-P89d7BkrQZxo_NHsj3cvtkOvMv30jK3aLgFA019LgddWVKs-Qi8dIOO_A05FzuZMMzmXEzXXp9IPDnK8nj_YHMj0_89KPynbmu45aGy7pJ9W3XTULYTRBAxLNH51CGphm69ctCaEISUfKpWT5PCC8wYUJ1auvWeM5g',
-                'https://lh3.googleusercontent.com/aida-public/AB6AXuCSnhbBbv20UF6OUHdOZ2kTrILodz9fAJtM9DFQ2api3DNsdzrYMBURRBFOKSdQRlVNKRL8Kj9m0NtNKIQPG8RQ4CW1Qb55avm3zBOzmuLgIVuKntdUlmkDj_bjbBa15p69Wzd1IUd11DaaeZBh58JpFUvanBHZG2cqiKE8dqms4jFnryAqI43iXKkH7aaj5I_MnhlLCdUAiZ-q6jfuBN7fdIkvF8T8BZ5ONPcNF1s_C9X1FLK_lZDPEHmw9uidGM0DJKcb-U6PJkg'
-              ].map((src, i) => (
+              {[icon1, icon2, icon3].map((src, i) => (
                 <div key={i} style={{
                   width: 64, height: 64, borderRadius: '16px',
                   background: 'rgba(34,37,50,0.6)', backdropFilter: 'blur(20px)',
@@ -199,7 +206,7 @@ const WelcomePage = () => {
           <div style={{ position: 'relative' }}>
             <div style={{ position: 'absolute', inset: '-16px', background: 'rgba(166,140,255,0.1)', filter: 'blur(48px)', borderRadius: '9999px' }} />
             <div style={{ position: 'relative', borderRadius: '24px', overflow: 'hidden', border: '1px solid rgba(70,71,82,0.2)', aspectRatio: '16/9', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }}>
-              <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuCkOZ1apuOhZUeTjzK96vJRAZgpKPi1AvabzaO-PZDTE8GPAyzs1Oin3cIdigqESgKBGgI_bEiIaV3Ml5PBNQ1QdTrUySNZugEzfCea3XWg1CEFWLO1guZUHbZap4Pvcin8gVyFPnTDzV8QGif98y7v0-CR-W2MfT5LOqHQQCuKld6wu1bAWKdKmIhJlMBCR5qZRbDX3kY2Y1UUwxesPjgxHuTZcWgjj0Kht1NkCGuGiFw3g5xA5O5NmfRgAf1Cn2_gF4KEBbFtGT8" alt="Upload" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img src={uploadPreview} alt="Upload" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             </div>
           </div>
         </div>
