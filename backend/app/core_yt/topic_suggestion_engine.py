@@ -1,10 +1,10 @@
 """
 Topic Suggestion Engine
 
-Calls MegaLLM with a trend summary and returns the Top-N ranked topic
+Calls Gemini with a trend summary and returns the Top-N ranked topic
 suggestions for YouTube Shorts content.
 
-Uses the same shared MegaLLM client singleton and JSON-guard pattern
+Uses the same shared Gemini client singleton and JSON-guard pattern
 as topic_validator.py.
 """
 import json
@@ -13,7 +13,7 @@ import re
 from typing import List, Dict, Any, Optional
 
 from app.core.config import settings
-from app.core_yt.llm_client import get_megallm_client
+from app.core_yt.llm_client import get_gemini_model
 
 logger = logging.getLogger(__name__)
 
@@ -96,34 +96,28 @@ async def generate_topic_suggestions(
         List of dicts: [{ rank, topic, rationale, score }, ...]
         Returns empty list if LLM is unavailable or parsing fails.
     """
-    client = get_megallm_client()
+    model = get_gemini_model(
+        system_instruction=(
+            "You are a helpful assistant that responds only in valid JSON format. "
+            "Do not include any text before or after the JSON."
+        ),
+        temperature=0.85, # Higher = more creative, less robotic topic output
+        max_tokens=2048,
+        json_mode=True
+    )
 
-    if not client:
-        logger.warning("MegaLLM client not available — returning empty suggestions")
+    if not model:
+        logger.warning("Gemini client not available — returning empty suggestions")
         return []
 
     prompt = _build_suggestion_prompt(trend_summary, niche, top_n)
 
     try:
-        logger.info("Calling MegaLLM for topic suggestions (niche=%s, top_n=%d)", niche, top_n)
+        logger.info("Calling Gemini for topic suggestions (niche=%s, top_n=%d)", niche, top_n)
 
-        response = client.chat.completions.create(
-            model=settings.MEGALLM_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a helpful assistant that responds only in valid JSON format. "
-                        "Do not include any text before or after the JSON."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.85,   # Higher = more creative, less robotic topic output
-            max_tokens=2048,
-        )
+        response = model.generate_content(prompt)
 
-        response_text = response.choices[0].message.content.strip()
+        response_text = response.text.strip()
         logger.debug("LLM suggestion response (first 300 chars): %s", response_text[:300])
 
         # Parse JSON — with fallback extraction guard (same pattern as topic_validator.py)

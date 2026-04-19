@@ -141,7 +141,7 @@ async def suggest_topics(
       1. Fetch trending Shorts via YouTube API (get_trending_shorts)
       2. Filter videos by engagement ratio (likes+comments)/views
       3. Build a compact trend summary for the LLM
-      4. Call MegaLLM to generate ranked topic suggestions
+      4. Call Gemini to generate ranked topic suggestions
       5. Return Top-N topics with rationale and virality scores
 
     Results are cached in Redis for 30 minutes (configurable).

@@ -421,14 +421,14 @@ const NicheInputPage = () => {
                       <div key={idx} style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px', borderRadius: '6px', cursor: 'default'
                       }} className="hover:bg-surface-container-high" onMouseEnter={e => e.currentTarget.style.background = '#1c1f2b'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                        <span style={{ fontSize: '12px', fontWeight: 500, color: '#f0f0fd', cursor: 'pointer' }} onClick={() => { setNicheValue(topicStr); handleSearch(topicStr); }}>{topicStr}</span>
+                        <span style={{ fontSize: '12px', fontWeight: 500, color: '#f0f0fd', cursor: 'pointer' }} onClick={() => openModalForVideo(topicStr, null)}>{topicStr}</span>
                         <button
-                          onClick={() => { setNicheValue(topicStr); handleSearch(topicStr); }} disabled={isLoading}
+                          onClick={() => openModalForVideo(topicStr, null)} disabled={isLoading}
                           style={{
                             padding: '4px 8px', borderRadius: '4px', background: 'rgba(0,229,255,0.1)', color: '#00E5FF', fontSize: '9px', fontWeight: 700, fontFamily: "'Manrope', sans-serif", textTransform: 'uppercase', border: 'none', cursor: isLoading ? 'not-allowed' : 'pointer', opacity: (isLoading) ? 0.5 : 1
                           }}
                         >
-                          {isLoading && currentNiche === topicStr ? <Icon name="progress_activity" className="animate-spin" style={{ fontSize: '10px' }} /> : 'Search'}
+                          Select
                         </button>
                       </div>
                     )
@@ -477,10 +477,14 @@ const NicheInputPage = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '10px', fontFamily: "'Manrope', sans-serif", color: '#737580', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 700 }}>Enter Topic</label>
                 <div style={{ position: 'relative' }}>
-                  <Icon name="search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#737580', fontSize: '16px' }} />
-                  <input
-                    type="text" value={modalTopic} onChange={(e) => setModalTopic(e.target.value)} disabled={isLoading}
-                    style={{ width: '100%', background: '#1c1f2b', border: '1px solid rgba(115,117,128,0.1)', borderRadius: '8px', padding: '10px 10px 10px 36px', color: '#f0f0fd', fontSize: '12px', outline: 'none' }}
+                  <textarea
+                    value={modalTopic} onChange={(e) => setModalTopic(e.target.value)} disabled={isLoading}
+                    rows={3}
+                    style={{
+                      width: '100%', background: '#1c1f2b', border: '1px solid rgba(115,117,128,0.1)',
+                      borderRadius: '8px', padding: '10px 12px', color: '#f0f0fd', fontSize: '12px',
+                      outline: 'none', resize: 'vertical', lineHeight: '1.4'
+                    }}
                   />
                 </div>
               </div>

@@ -26,7 +26,7 @@ import json
 import re
 
 from app.core.config import settings
-from app.core_yt.llm_client import get_megallm_client
+from app.core_yt.llm_client import get_gemini_model
 
 logger = logging.getLogger(__name__)
 
@@ -155,61 +155,58 @@ def extract_json_object_from_text(text: str) -> Dict[str, Any]:
 
 
 # ===========================================================================
-# MegaLLM call helpers (unchanged)
+# Gemini call helpers
 # ===========================================================================
 
-def _call_megallm_sync(prompt: str, json_mode: bool = False) -> str:
-    """Synchronous MegaLLM call (internal; use call_megallm() instead)."""
-    client = get_megallm_client()
-    if not client:
-        raise HTTPException(status_code=500, detail="MegaLLM API key not configured")
-
-    messages = []
+def _call_gemini_sync(prompt: str, json_mode: bool = False) -> str:
+    """Synchronous Gemini call (internal; use call_gemini() instead)."""
+    system_instruction = None
     if json_mode:
-        messages.append({
-            "role": "system",
-            "content": (
-                "You are a helpful assistant that responds only in valid JSON format. "
-                "Do not include any text before or after the JSON. "
-                "Ensure all JSON is properly formatted with correct syntax."
-            )
-        })
-    messages.append({"role": "user", "content": prompt})
+        system_instruction = (
+            "You are a helpful assistant that responds only in valid JSON format. "
+            "Do not include any text before or after the JSON. "
+            "Ensure all JSON is properly formatted with correct syntax."
+        )
 
-    logger.info("Calling MegaLLM with model: %s", settings.MEGALLM_MODEL)
-    response = client.chat.completions.create(
-        model=settings.MEGALLM_MODEL,
-        messages=messages,
+    model = get_gemini_model(
+        system_instruction=system_instruction,
         temperature=0.7,
-        max_tokens=8192
+        max_tokens=8192,
+        json_mode=json_mode
     )
 
-    if not response.choices or not response.choices[0].message.content:
-        logger.error("MegaLLM returned empty response. Response: %s", response)
-        raise HTTPException(status_code=500, detail="MegaLLM API returned empty response")
+    if not model:
+        raise HTTPException(status_code=500, detail="Gemini API key not configured")
 
-    result = response.choices[0].message.content.strip()
-    logger.debug("MegaLLM response length: %d chars", len(result))
+    logger.info("Calling Gemini with model: %s", settings.GEMINI_MODEL)
+    response = model.generate_content(prompt)
+
+    if not response.text:
+        logger.error("Gemini returned empty response. Response: %s", response)
+        raise HTTPException(status_code=500, detail="Gemini API returned empty response")
+
+    result = response.text.strip()
+    logger.debug("Gemini response length: %d chars", len(result))
     return result
 
 
-async def call_megallm(prompt: str, json_mode: bool = False) -> str:
-    """Call MegaLLM API without blocking the event loop."""
+async def call_gemini(prompt: str, json_mode: bool = False) -> str:
+    """Call Gemini API without blocking the event loop."""
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _call_megallm_sync, prompt, json_mode)
+    return await loop.run_in_executor(None, _call_gemini_sync, prompt, json_mode)
 
 
-async def call_megallm_json_with_retry(
+async def call_gemini_json_with_retry(
     step_name: str,
     prompt: str,
     retries: int = 2,
     retry_delay_seconds: float = 1.0,
 ) -> Dict[str, Any]:
-    """Call MegaLLM in JSON mode with step-local retries."""
+    """Call Gemini in JSON mode with step-local retries."""
     last_error: Optional[Exception] = None
     for attempt in range(retries + 1):
         try:
-            raw = await call_megallm(prompt, json_mode=True)
+            raw = await call_gemini(prompt, json_mode=True)
             parsed = extract_json_object_from_text(raw)
             if not parsed:
                 raise ValueError(f"{step_name}: empty/invalid JSON object")
@@ -225,6 +222,7 @@ async def call_megallm_json_with_retry(
             else:
                 logger.error("%s failed after %d attempts: %s", step_name, retries + 1, e)
     raise ValueError(f"{step_name} failed after retries: {last_error}")
+
 
 
 # ===========================================================================
@@ -353,8 +351,8 @@ async def generate_story_and_frames(
       8) Visual Prompt Generation  (lock injected; Sora format)
          Final Assembly            (pure code)
     """
-    if not settings.MEGALLM_API_KEY:
-        raise HTTPException(status_code=500, detail="MegaLLM API key not configured")
+    if not settings.GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="Gemini API key not configured")
 
     try:
         selected_video = video_to_dict(selected_video)
@@ -402,7 +400,7 @@ Return JSON only:
 }}
 Return JSON only."""
 
-        stage1 = await call_megallm_json_with_retry("STAGE 1: Topic Enrichment", stage1_prompt)
+        stage1 = await call_gemini_json_with_retry("STAGE 1: Topic Enrichment", stage1_prompt)
         if not stage1:
             raise ValueError("STAGE 1 failed: invalid topic enrichment output.")
 
@@ -447,7 +445,7 @@ Return JSON only:
 }}
 Return JSON only."""
 
-        stage2 = await call_megallm_json_with_retry("STAGE 2: Story Definition", stage2_prompt)
+        stage2 = await call_gemini_json_with_retry("STAGE 2: Story Definition", stage2_prompt)
         if not stage2:
             raise ValueError("STAGE 2 failed: invalid story definition output.")
 
@@ -494,7 +492,7 @@ Return JSON only:
 }}
 Return JSON only."""
 
-        stage3 = await call_megallm_json_with_retry("STAGE 3: Character Identification", stage3_prompt)
+        stage3 = await call_gemini_json_with_retry("STAGE 3: Character Identification", stage3_prompt)
         characters_locked: List[Dict[str, Any]] = stage3.get("characters", [])
         if not isinstance(characters_locked, list):
             characters_locked = []
@@ -546,7 +544,7 @@ Return JSON only:
 }}
 Return JSON only."""
 
-        stage4 = await call_megallm_json_with_retry("STAGE 4: Object & Environment Registry", stage4_prompt)
+        stage4 = await call_gemini_json_with_retry("STAGE 4: Object & Environment Registry", stage4_prompt)
         objects_locked: List[Dict[str, Any]] = stage4.get("objects", [])
         if not isinstance(objects_locked, list):
             objects_locked = []
@@ -599,7 +597,7 @@ Rules:
 - Setup and resolution scenes are short beats; crux is the most expanded scene.
 Return JSON only."""
 
-        stage5 = await call_megallm_json_with_retry("STAGE 5: Scene Segmentation", stage5_prompt)
+        stage5 = await call_gemini_json_with_retry("STAGE 5: Scene Segmentation", stage5_prompt)
         scenes: List[Dict[str, Any]] = stage5.get("scenes", [])
         if not isinstance(scenes, list) or not scenes:
             raise ValueError("STAGE 5 failed: no scenes generated.")
@@ -643,7 +641,7 @@ Return JSON only:
 }}
 Return JSON only."""
 
-        stage6 = await call_megallm_json_with_retry("STAGE 6: Scene Importance Scoring", stage6_prompt)
+        stage6 = await call_gemini_json_with_retry("STAGE 6: Scene Importance Scoring", stage6_prompt)
         scene_scores_raw: List[Dict[str, Any]] = stage6.get("scene_scores", [])
 
         # Build importance map: scene_id -> total_importance
@@ -735,7 +733,7 @@ Rules:
 - Live-action photorealistic only. No animation.
 Return JSON only."""
 
-        stage7 = await call_megallm_json_with_retry("STAGE 7: Shot Planning", stage7_prompt)
+        stage7 = await call_gemini_json_with_retry("STAGE 7: Shot Planning", stage7_prompt)
         shot_plan: List[Dict[str, Any]] = stage7.get("shot_plan", [])
         if not isinstance(shot_plan, list) or not shot_plan:
             raise ValueError("STAGE 7 failed: no shot plan generated.")
@@ -882,7 +880,7 @@ Return JSON only:
 }}
 Return JSON only."""
 
-        stage8 = await call_megallm_json_with_retry("STAGE 8: Visual Prompt Generation", stage8_prompt)
+        stage8 = await call_gemini_json_with_retry("STAGE 8: Visual Prompt Generation", stage8_prompt)
         visual_prompts: List[Dict[str, Any]] = stage8.get("visual_prompts", [])
         if not isinstance(visual_prompts, list) or not visual_prompts:
             raise ValueError("STAGE 8 failed: no visual prompts generated.")
@@ -1016,7 +1014,7 @@ Return JSON only."""
                     "views": selected_video.get("views", 0),
                     "ai_confidence": selected_video.get("ai_confidence", 0),
                 },
-                "ai_model": settings.MEGALLM_MODEL,
+                "ai_model": settings.GEMINI_MODEL,
             },
         }
 

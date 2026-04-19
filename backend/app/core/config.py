@@ -39,12 +39,11 @@ class Settings:
     
     # API Keys
     YOUTUBE_API_KEY: str = os.getenv("YOUTUBE_API_KEY", "")
-    MEGALLM_API_KEY: str = os.getenv("MEGALLM_API_KEY", "")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     
-    # MegaLLM API Settings
-    MEGALLM_BASE_URL: str = os.getenv("MEGALLM_BASE_URL", "https://ai.megallm.io/v1")
-    MEGALLM_MODEL: str = os.getenv("MEGALLM_MODEL", "openai-gpt-oss-20b")
+    # Gemini API Settings
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
     
     # Application Settings
     APP_NAME: str = "YouTube Trend Analyzer API"
@@ -91,7 +90,6 @@ class Settings:
     # Supabase Settings (Reusing existing env vars where possible)
     SUPABASE_URL: str = SUPABASE_URL
     SUPABASE_SERVICE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
-    VIDEO_DEFAULT_USER_ID: str = os.getenv("VIDEO_DEFAULT_USER_ID", "")
 
     # Paddle Payment Settings
     PADDLE_API_KEY: str = os.getenv("PADDLE_API_KEY", "")

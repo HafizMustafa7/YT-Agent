@@ -1,5 +1,5 @@
 """
-LLM-based topic validation using MegaLLM.
+LLM-based topic validation using Gemini.
 Validates topics for YouTube Shorts content with AI-powered analysis.
 """
 import json
@@ -8,7 +8,7 @@ import re
 from typing import Dict, Any, Optional
 
 from app.core.config import settings
-from app.core_yt.llm_client import get_megallm_client
+from app.core_yt.llm_client import get_gemini_model
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +57,13 @@ async def validate_topic(topic: str, niche_hint: Optional[str] = None) -> Dict[s
     normalized = normalize_topic(topic)
     
     # If no API key, return basic validation
-    client = get_megallm_client()
-    if not client:
+    model = get_gemini_model(
+        system_instruction="You are a helpful assistant that responds only in valid JSON format. Do not include any text before or after the JSON.",
+        temperature=0.3, # Lower temperature for more consistent validation
+        max_tokens=1024,
+        json_mode=True
+    )
+    if not model:
         return {
             "valid": True,
             "score": 70,
@@ -106,20 +111,9 @@ Respond with JSON only:"""
     try:
         logger.debug("Validating topic with LLM: %s...", topic[:50])
         
-        response = client.chat.completions.create(
-            model=settings.MEGALLM_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant that responds only in valid JSON format. Do not include any text before or after the JSON."
-                },
-                {"role": "user", "content": validation_prompt}
-            ],
-            temperature=0.3,  # Lower temperature for more consistent validation
-            max_tokens=1024
-        )
+        response = model.generate_content(validation_prompt)
         
-        response_text = response.choices[0].message.content.strip()
+        response_text = response.text.strip()
         logger.debug("LLM validation response: %s...", response_text[:200])
         
         # Parse JSON response
