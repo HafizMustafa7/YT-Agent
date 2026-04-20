@@ -28,13 +28,15 @@ class TopicValidationRequest(BaseModel):
 
 
 class CreativePreferencesRequest(BaseModel):
-    """Request model for creative preferences."""
-    tone: str = Field(..., description="Tone of the video (e.g., dynamic, calm)")
-    target_audience: str = Field(..., description="Target audience")
-    visual_style: str = Field(..., description="Visual style preference")
-    camera_movement: str = Field(..., description="Camera movement style")
-    effects: str = Field(..., description="Visual effects preference")
-    story_format: str = Field(..., description="Story format (e.g., narrative, documentary)")
+    """Request model for creative preferences using Veo specification."""
+    resolution: str = Field(..., description="Video resolution")
+    aspect_ratio: str = Field(..., description="Video aspect ratio")
+    duration: int = Field(..., description="Target duration in seconds")
+    style: str = Field(..., description="Visual style")
+    camera_motion: str = Field(..., description="Camera motion technique")
+    composition: str = Field(..., description="Scene composition")
+    focus_and_lens: str = Field(..., description="Camera focus and lens type")
+    ambiance: str = Field(..., description="Lighting and atmosphere")
 
 
 class GenerateStoryRequest(BaseModel):
@@ -58,7 +60,7 @@ class FrameInput(BaseModel):
     frame_num: int = Field(..., ge=1)
     ai_video_prompt: str = Field(..., min_length=1, max_length=5000)
     scene_description: Optional[str] = None
-    duration_seconds: Literal[4, 8, 12] = Field(8, description="Must be a valid Sora duration: 4, 8, or 12")
+    duration_seconds: Literal[8, 15, 32, 46, 60] = Field(8, description="Target duration specified by Veo")
 
 
 class CreateVideoProjectRequest(BaseModel):

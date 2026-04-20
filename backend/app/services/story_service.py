@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Sora-valid clip durations (seconds). 4s re-enabled for non-crux scenes.
 # ---------------------------------------------------------------------------
-ALLOWED_FRAME_DURATIONS: List[int] = [4, 8, 12]
+ALLOWED_FRAME_DURATIONS: List[int] = [8, 15, 32, 46, 60]
 
 
 # ===========================================================================
@@ -359,12 +359,14 @@ async def generate_story_and_frames(
         clean_topic = _validate_user_topic(user_topic)
 
         # Extract creative brief settings with sensible defaults
-        tone = creative_brief.get("tone", "dynamic") if creative_brief else "dynamic"
-        visual_style = creative_brief.get("visual_style", "cinematic realism") if creative_brief else "cinematic realism"
-        camera_movement = creative_brief.get("camera_movement", "smooth tracking") if creative_brief else "smooth tracking"
-        story_format = creative_brief.get("story_format", "narrative") if creative_brief else "narrative"
-        target_audience = creative_brief.get("target_audience", "General") if creative_brief else "General"
-        color_grading = (creative_brief.get("effects") if creative_brief else None) or "natural cinematic color grading"
+        target_total_duration = creative_brief.get("duration", 15) if creative_brief else 15
+        style = creative_brief.get("style", "cinematic") if creative_brief else "cinematic"
+        camera_motion = creative_brief.get("camera_motion", "dolly shot") if creative_brief else "dolly shot"
+        composition = creative_brief.get("composition", "wide shot") if creative_brief else "wide shot"
+        focus_and_lens = creative_brief.get("focus_and_lens", "shallow depth of field") if creative_brief else "shallow depth of field"
+        ambiance = creative_brief.get("ambiance", "cool blue tones") if creative_brief else "cool blue tones"
+        resolution = creative_brief.get("resolution", "720p") if creative_brief else "720p"
+        aspect_ratio = creative_brief.get("aspect_ratio", "16:9") if creative_brief else "16:9"
 
         # ===================================================================
         # STAGE 1 — Topic Enrichment (LLM Call #1)
@@ -373,12 +375,12 @@ async def generate_story_and_frames(
         stage1_prompt = f"""You are a cinematic content strategist specializing in visual storytelling.
 
 User topic: "{clean_topic}"
-Visual tone: {tone}
-Style: {visual_style}
-Target audience: {target_audience}
+Visual Style: {style}
+Target Scene Composition: {composition}
+Ambiance: {ambiance}
 
 Task:
-Expand this topic into a rich visual scenario optimized for a short-form video (16 to 44 seconds long).
+Expand this topic into a rich visual scenario optimized for a short-form video exactly {target_total_duration} seconds long.
 Infer and define all environmental details that a cinematographer would need.
 
 Return JSON only:
@@ -565,8 +567,8 @@ Story arc:
 {json.dumps(stage2, ensure_ascii=True)}
 
 Narrative constraints:
-- Total video duration: between 16 and 44 seconds (dynamically determined by story needs)
-- Tone: {tone}
+- Total video duration: exactly {target_total_duration} seconds.
+- Visual Style: {style}
 - The crux scene is: "{stage2.get('crux', '')}"
 
 Task:
@@ -682,17 +684,17 @@ Scenes with Importance Scores (higher score = longer screen time, more shots):
 {json.dumps(scenes_with_importance, ensure_ascii=True)}
 
 Creative config:
-  tone={tone} | style={visual_style} | camera_preference={camera_movement} | grade={color_grading}
+  style={style} | camera_preference={camera_motion} | focus={focus_and_lens} | grade={ambiance}
 
 Task:
 For EACH scene, plan its shots. Each shot is one continuous camera clip.
-The total sum of ALL shots' duration across ALL scenes must be between 16 and 44 seconds.
+The total sum of ALL shots' duration across ALL scenes must be exactly {target_total_duration} seconds.
 
 Duration & Pacing Rules (CRITICAL):
-  - Shot durations must ONLY be 4, 8, or 12.
-  - Prioritize 4s and 8s shots to keep the pacing dynamic, fast, and attractive. Avoid 12s shots unless absolutely necessary for a long sweeping move.
-  - The Crux scene MUST have the longest total duration (e.g. 2-3 shots summing to 12-24s).
-  - Setup and Resolution scenes MUST be brief (e.g. 1 shot of 4s or 8s).
+  - Shot durations must ONLY be from these valid intervals: {', '.join(map(str, ALLOWED_FRAME_DURATIONS))}.
+  - Prioritize standard length shots to keep the pacing dynamic.
+  - The Crux scene MUST have the longest total duration.
+  - Setup and Resolution scenes MUST be brief.
   - Maintain consistent camera angles and visual continuity between shots within the same scene.
 
 State-machine rule:
@@ -739,10 +741,10 @@ Return JSON only."""
             raise ValueError("STAGE 7 failed: no shot plan generated.")
 
         # ===================================================================
-        # POST-STAGE 7 — Dynamic Duration Safeguard (16s - 44s)
-        # We asked the LLM to stay within 16-44s. If it fails, we enforce it here.
+        # POST-STAGE 7 — Dynamic Duration Safeguard
+        # We asked the LLM to stay within exact {target_total_duration}s. If it fails, we enforce it here.
         # ===================================================================
-        logger.info("Enforcing dynamic duration bounds (16-44s) on shot plan...")
+        logger.info(f"Enforcing exact duration ({target_total_duration}s) on shot plan...")
         
         # Ensure all durations are valid Sora lengths
         for shot in shot_plan:
@@ -753,8 +755,8 @@ Return JSON only."""
         def get_total_duration():
             return sum(s["duration_seconds"] for s in shot_plan)
 
-        # Trimmer loop (> 44s)
-        while get_total_duration() > 44 and len(shot_plan) > 1:
+        # Trimmer loop
+        while get_total_duration() > target_total_duration and len(shot_plan) > 1:
             # Find the shot in the LEAST important scene that is currently the SHORTEST.
             # We sort by: Importance (Ascending), Duration (Ascending)
             shot_plan.sort(key=lambda s: (
@@ -763,35 +765,33 @@ Return JSON only."""
             ))
             # Remove the first one
             dropped = shot_plan.pop(0)
-            logger.debug("Overshot > 44s: dropped shot %s (dur %ds) from scene %s", 
-                         dropped.get("shot_id"), dropped["duration_seconds"], dropped.get("scene_id"))
+            logger.debug(f"Overshot > {target_total_duration}s: dropped shot {dropped.get('shot_id')} (dur {dropped['duration_seconds']}s) from scene {dropped.get('scene_id')}")
 
-        # Padding loop (< 16s)
-        while get_total_duration() < 16:
-            # Find the shot in the MOST important scene that we can extend (up to max 12s)
+        # Padding loop
+        while get_total_duration() < target_total_duration:
+            # Find the shot in the MOST important scene that we can extend
             # Sort by: Importance (Descending)
             shot_plan.sort(key=lambda s: importance_map.get(s.get("scene_id", ""), 5), reverse=True)
             
             extended = False
             for shot in shot_plan:
                 current_dur = shot["duration_seconds"]
-                if current_dur < 12:
-                    # Bump to next valid Sora duration
-                    next_dur = 8 if current_dur <= 4 else 12
-                    logger.debug("Undershot < 16s: extended shot %s from %ds to %ds", 
-                                 shot.get("shot_id"), current_dur, next_dur)
+                
+                # Check if we can increment to the next allowed duration
+                current_idx = ALLOWED_FRAME_DURATIONS.index(current_dur) if current_dur in ALLOWED_FRAME_DURATIONS else 0
+                if current_idx < len(ALLOWED_FRAME_DURATIONS) - 1:
+                    next_dur = ALLOWED_FRAME_DURATIONS[current_idx + 1]
+                    logger.debug(f"Undershot < {target_total_duration}s: extended shot {shot.get('shot_id')} from {current_dur}s to {next_dur}s")
                     shot["duration_seconds"] = next_dur
                     extended = True
                     break
             
             if not extended:
-                # If all shots are already 12s and we are still < 16s (meaning there's only 1 shot total)
-                # Duplicate the shot as a fallback to reach 16s (2x8s or 12s+4s etc)
-                # This is an extreme edge case.
-                logger.debug("Edge case fallback: duplicating a shot to hit 16s minimum.")
+                # If all shots are maxed out, duplicate one.
+                logger.debug("Edge case fallback: duplicating a shot to hit minimum.")
                 dup = dict(shot_plan[0])
                 dup["shot_id"] = f"{dup['shot_id']}_dup"
-                dup["duration_seconds"] = 4
+                dup["duration_seconds"] = ALLOWED_FRAME_DURATIONS[0]
                 shot_plan.append(dup)
 
         # Restore strict original temporal order (which might be lost by sorting)
@@ -815,7 +815,7 @@ Return JSON only."""
 {lock_preamble}
 
 Creative config (flavor the prose, do NOT label these):
-  tone={tone} | style={visual_style} | color={color_grading}
+  style={style} | ambiance={ambiance} | focus={focus_and_lens} | camera={camera_motion}
 
 Shot plan:
 {json.dumps(shot_plan, ensure_ascii=True)}
@@ -835,7 +835,7 @@ Camera shot: [exact shot type and angle from shot plan]
 Lens: [lens from shot plan]
 Lighting + palette: [key source, fill, rim description + 3-5 palette anchor colors]
 Depth of field: [shallow/deep as planned]
-Mood: [single evocative tone word matching {tone}]
+Mood: [single evocative tone word matching the style ({style})]
 
 Actions:
 - [Beat 1: specific, timed action e.g. "takes four steps toward the crane, stops"]

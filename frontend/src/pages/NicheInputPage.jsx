@@ -10,6 +10,44 @@ const Icon = ({ name, filled, className = '', style = {} }) => (
   >{name}</span>
 );
 
+const CustomSelect = ({ label, value, options, onChange, isOpen, onToggle }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', position: 'relative' }}>
+    <label style={{ fontSize: '11px', fontFamily: "'Space Grotesk', sans-serif", color: '#f0f0fd', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>{label}</label>
+    <div 
+      onClick={onToggle}
+      style={{
+        background: 'rgba(0,0,0,0.2)', border: isOpen ? '1px solid #00E5FF' : '1px solid rgba(115,117,128,0.2)',
+        color: '#f0f0fd', padding: '12px 14px', borderRadius: '10px', fontSize: '13px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.2s', textTransform: 'capitalize'
+      }}
+    >
+      {value}
+      <Icon name={isOpen ? "expand_less" : "expand_more"} style={{ fontSize: '18px', color: isOpen ? '#00E5FF' : '#737580' }} />
+    </div>
+    {isOpen && (
+      <>
+        <div onClick={(e) => { e.stopPropagation(); onToggle(); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1999 }} />
+        <div className="creative-scrollbar" style={{
+          position: 'absolute', top: '100%', left: 0, width: '100%', background: '#1c1f2b',
+          border: '1px solid rgba(115,117,128,0.2)', borderRadius: '10px', marginTop: '6px',
+          zIndex: 2000, boxShadow: '0 10px 30px rgba(0,0,0,0.5)', overflowY: 'auto', maxHeight: '220px'
+        }}>
+          {options.map(opt => (
+            <div
+              key={opt}
+              onClick={() => { onChange(opt); onToggle(); }}
+              style={{ padding: '10px 14px', fontSize: '12px', color: value === opt ? '#00E5FF' : '#aaaab7', background: value === opt ? 'rgba(0,229,255,0.05)' : 'transparent', cursor: 'pointer', textTransform: 'capitalize', transition: 'background 0.2s' }}
+              onMouseEnter={e => { if(value !== opt) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
+              onMouseLeave={e => { if(value !== opt) e.currentTarget.style.background = 'transparent' }}
+            >
+              {opt}
+            </div>
+          ))}
+        </div>
+      </>
+    )}
+  </div>
+);
+
 const NicheInputPage = () => {
   const [sessionReady, setSessionReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -30,10 +68,15 @@ const NicheInputPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalVideo, setModalVideo] = useState(null);
   const [modalTopic, setModalTopic] = useState('');
-  const [modalTone, setModalTone] = useState('Professional & Informative');
-  const [modalCameraMotion, setModalCameraMotion] = useState('Steady & Static');
-  const [modalTargetAudience, setModalTargetAudience] = useState('Gen-Z');
-  const [modalVisualStyle, setModalVisualStyle] = useState('Cyberpunk Noir');
+  const [modalResolution, setModalResolution] = useState('720p');
+  const [modalAspectRatio, setModalAspectRatio] = useState('16:9');
+  const [modalDuration, setModalDuration] = useState(15);
+  const [modalStyle, setModalStyle] = useState('cinematic');
+  const [modalCameraMotion, setModalCameraMotion] = useState('dolly shot');
+  const [modalComposition, setModalComposition] = useState('wide shot');
+  const [modalFocus, setModalFocus] = useState('shallow depth of field');
+  const [modalAmbiance, setModalAmbiance] = useState('cool blue tones');
+  const [activeDropdown, setActiveDropdown] = useState(null);
 
   const navigate = useNavigate();
 
@@ -119,13 +162,14 @@ const NicheInputPage = () => {
 
     try {
       const creativePreferences = {
-        duration_seconds: 44,
-        target_audience: modalTargetAudience.toLowerCase(),
-        tone: modalTone.toLowerCase(),
-        visual_style: modalVisualStyle.toLowerCase(),
-        camera_movement: modalCameraMotion.toLowerCase(),
-        effects: 'subtle',
-        story_format: 'shorts'
+        resolution: modalResolution,
+        aspect_ratio: modalAspectRatio,
+        duration: modalDuration,
+        style: modalStyle,
+        camera_motion: modalCameraMotion,
+        composition: modalComposition,
+        focus_and_lens: modalFocus,
+        ambiance: modalAmbiance
       };
 
       const videoData = modalVideo || {
@@ -180,7 +224,14 @@ const NicheInputPage = () => {
       fontFamily: "'Inter', sans-serif", display: 'flex', flexDirection: 'column',
       position: 'relative', overflowX: 'hidden'
     }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } } .animate-spin { animation: spin 1s linear infinite; }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } } 
+        .animate-spin { animation: spin 1s linear infinite; }
+        .creative-scrollbar::-webkit-scrollbar { width: 6px; }
+        .creative-scrollbar::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.1); border-radius: 10px; }
+        .creative-scrollbar::-webkit-scrollbar-thumb { background: rgba(129, 236, 255, 0.2); border-radius: 10px; }
+        .creative-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0, 229, 255, 0.5); }
+      `}</style>
 
       {/* Background Orbs */}
       <div style={{
@@ -399,7 +450,26 @@ const NicheInputPage = () => {
           </div>
 
           {/* RIGHT SIDEBAR */}
-          <aside style={{ width: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <aside style={{ width: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '24px', marginTop: '4px' }}>
+            
+            <button
+              onClick={() => openModalForVideo('', null)}
+              disabled={isLoading}
+              style={{
+                width: '100%', padding: '12px', borderRadius: '8px', border: '1px dashed rgba(0,229,255,0.4)',
+                background: 'rgba(0,229,255,0.05)', color: '#00E5FF', fontFamily: "'Manrope', sans-serif",
+                fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em',
+                cursor: isLoading ? 'not-allowed' : 'pointer', transition: 'all 0.3s',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                opacity: isLoading ? 0.5 : 1
+              }}
+              onMouseEnter={e => { if (!isLoading) { e.currentTarget.style.background = '#81ecff'; e.currentTarget.style.color = '#005762'; e.currentTarget.style.borderStyle = 'solid'; } }}
+              onMouseLeave={e => { if (!isLoading) { e.currentTarget.style.background = 'rgba(0,229,255,0.05)'; e.currentTarget.style.color = '#00E5FF'; e.currentTarget.style.borderStyle = 'dashed'; } }}
+            >
+              <Icon name="edit" style={{ fontSize: '14px' }} />
+              Enter Custom Topic
+            </button>
+
             <div style={{ background: '#171924', borderRadius: '10px', padding: '16px', border: '1px solid rgba(115,117,128,0.15)' }}>
               <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '16px', color: '#f0f0fd' }}>
                 Suggested Concepts
@@ -455,102 +525,143 @@ const NicheInputPage = () => {
         <div style={{
           position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
           background: 'rgba(5, 7, 12, 0.85)', backdropFilter: 'blur(10px)',
-          zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px',
         }}>
           <div style={{
-            background: '#11131d', width: '360px', borderRadius: '16px', border: '1px solid rgba(115,117,128,0.2)',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.5)', padding: '24px', position: 'relative'
+            background: 'linear-gradient(135deg, #11131d 0%, #171924 100%)', width: '800px', maxWidth: '95%', borderRadius: '20px', border: '1px solid rgba(129,236,255,0.15)',
+            boxShadow: '0 30px 60px rgba(0,0,0,0.6)', padding: '32px', position: 'relative', display: 'flex', flexDirection: 'column', maxHeight: '90vh'
           }}>
             {!isLoading && (
               <button
                 onClick={() => setIsModalOpen(false)}
-                style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#737580', cursor: 'pointer', fontSize: '20px' }}>
-                <Icon name="close" />
+                style={{ position: 'absolute', top: '24px', right: '24px', background: 'rgba(255,255,255,0.05)', border: 'none', color: '#aaaab7', cursor: 'pointer', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#fff' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#aaaab7' }}>
+                <Icon name="close" style={{ fontSize: '18px' }} />
               </button>
             )}
 
-            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '16px', fontWeight: 700, color: '#f0f0fd', textTransform: 'uppercase', letterSpacing: '0.2em', marginBottom: '24px' }}>
-              Topic Input
+            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '20px', fontWeight: 700, color: '#00E5FF', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Icon name="tune" /> Creative Studio
             </h2>
+            <p style={{ fontFamily: "'Inter', sans-serif", fontSize: '12px', color: '#737580', marginBottom: '24px' }}>Fine-tune the creative direction parameters for your AI generated content.</p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '10px', fontFamily: "'Manrope', sans-serif", color: '#737580', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 700 }}>Enter Topic</label>
-                <div style={{ position: 'relative' }}>
-                  <textarea
-                    value={modalTopic} onChange={(e) => setModalTopic(e.target.value)} disabled={isLoading}
-                    rows={3}
-                    style={{
-                      width: '100%', background: '#1c1f2b', border: '1px solid rgba(115,117,128,0.1)',
-                      borderRadius: '8px', padding: '10px 12px', color: '#f0f0fd', fontSize: '12px',
-                      outline: 'none', resize: 'vertical', lineHeight: '1.4'
-                    }}
+            <div className="creative-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '70vh', overflowY: 'auto', paddingRight: '4px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <label style={{ fontSize: '11px', fontFamily: "'Space Grotesk', sans-serif", color: '#f0f0fd', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Enter Topic</label>
+                <textarea
+                  value={modalTopic} onChange={(e) => setModalTopic(e.target.value)} disabled={isLoading}
+                  placeholder="Describe your video idea..."
+                  rows={2}
+                  style={{
+                    width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(129,236,255,0.1)',
+                    borderRadius: '10px', padding: '14px 16px', color: '#f0f0fd', fontSize: '14px', fontFamily: "'Inter', sans-serif",
+                    outline: 'none', resize: 'vertical', lineHeight: '1.5', transition: 'border 0.2s',
+                  }}
+                  onFocus={e => e.currentTarget.style.borderColor = '#00E5FF'}
+                  onBlur={e => e.currentTarget.style.borderColor = 'rgba(129,236,255,0.1)'}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '16px', marginTop: '4px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ fontSize: '11px', fontFamily: "'Space Grotesk', sans-serif", color: '#f0f0fd', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Resolution</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {["720p"].map(o => (
+                      <button key={o} disabled={isLoading} onClick={() => setModalResolution(o)}
+                        style={{ padding: '6px 12px', borderRadius: '16px', fontSize: '11px', fontWeight: 600, fontFamily: "'Inter', sans-serif", textTransform: 'none', border: modalResolution === o ? '1px solid #00E5FF' : '1px solid rgba(115,117,128,0.2)', background: modalResolution === o ? 'rgba(0,229,255,0.15)' : 'rgba(255,255,255,0.02)', color: modalResolution === o ? '#00E5FF' : '#aaaab7', cursor: isLoading ? 'not-allowed' : 'pointer', transition: 'all 0.2s' }}>
+                        {o}</button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ fontSize: '11px', fontFamily: "'Space Grotesk', sans-serif", color: '#f0f0fd', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Aspect Ratio</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {["16:9", "9:16"].map(o => (
+                      <button key={o} disabled={isLoading} onClick={() => setModalAspectRatio(o)}
+                        style={{ padding: '6px 12px', borderRadius: '16px', fontSize: '11px', fontWeight: 600, fontFamily: "'Inter', sans-serif", textTransform: 'none', border: modalAspectRatio === o ? '1px solid #00E5FF' : '1px solid rgba(115,117,128,0.2)', background: modalAspectRatio === o ? 'rgba(0,229,255,0.15)' : 'rgba(255,255,255,0.02)', color: modalAspectRatio === o ? '#00E5FF' : '#aaaab7', cursor: isLoading ? 'not-allowed' : 'pointer', transition: 'all 0.2s' }}
+                        onMouseEnter={e => { if(!isLoading && modalAspectRatio !== o) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#f0f0fd'; } }}
+                        onMouseLeave={e => { if(!isLoading && modalAspectRatio !== o) { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; e.currentTarget.style.color = '#aaaab7'; } }}>
+                        {o}</button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ fontSize: '11px', fontFamily: "'Space Grotesk', sans-serif", color: '#f0f0fd', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Duration</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {[8, 15, 32, 46, 60].map(o => (
+                      <button key={o} disabled={isLoading} onClick={() => setModalDuration(o)}
+                        style={{ padding: '6px 12px', borderRadius: '16px', fontSize: '11px', fontWeight: 600, fontFamily: "'Inter', sans-serif", textTransform: 'none', border: modalDuration === o ? '1px solid #00E5FF' : '1px solid rgba(115,117,128,0.2)', background: modalDuration === o ? 'rgba(0,229,255,0.15)' : 'rgba(255,255,255,0.02)', color: modalDuration === o ? '#00E5FF' : '#aaaab7', cursor: isLoading ? 'not-allowed' : 'pointer', transition: 'all 0.2s' }}
+                        onMouseEnter={e => { if(!isLoading && modalDuration !== o) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#f0f0fd'; } }}
+                        onMouseLeave={e => { if(!isLoading && modalDuration !== o) { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; e.currentTarget.style.color = '#aaaab7'; } }}>
+                        {o}s</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '24px', marginTop: '8px' }}>
+                <CustomSelect 
+                  label="Visual Style" 
+                  value={modalStyle} 
+                  options={["cinematic", "film noir", "sci-fi", "horror film", "animated", "3D cartoon", "surreal", "vintage", "futuristic", "hyperrealistic", "whimsical"]}
+                  isOpen={activeDropdown === 'style'}
+                  onToggle={() => setActiveDropdown(activeDropdown === 'style' ? null : 'style')}
+                  onChange={setModalStyle}
+                />
+                <CustomSelect 
+                  label="Camera Motion" 
+                  value={modalCameraMotion} 
+                  options={["dolly shot", "tracking shot", "aerial view", "POV shot", "panning", "slowly pulls back", "slowly flies"]}
+                  isOpen={activeDropdown === 'camera_motion'}
+                  onToggle={() => setActiveDropdown(activeDropdown === 'camera_motion' ? null : 'camera_motion')}
+                  onChange={setModalCameraMotion}
+                />
+                <CustomSelect 
+                  label="Composition" 
+                  value={modalComposition} 
+                  options={["wide shot", "close-up", "medium shot", "eye-level", "low angle", "top-down shot", "worm's eye"]}
+                  isOpen={activeDropdown === 'composition'}
+                  onToggle={() => setActiveDropdown(activeDropdown === 'composition' ? null : 'composition')}
+                  onChange={setModalComposition}
+                />
+                <CustomSelect 
+                  label="Focus & Lens" 
+                  value={modalFocus} 
+                  options={["shallow depth of field", "deep focus", "macro lens", "wide-angle lens"]}
+                  isOpen={activeDropdown === 'focus'}
+                  onToggle={() => setActiveDropdown(activeDropdown === 'focus' ? null : 'focus')}
+                  onChange={setModalFocus}
+                />
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <CustomSelect 
+                    label="Ambiance" 
+                    value={modalAmbiance} 
+                    options={["cool blue tones", "warm tones", "natural light", "sunlight", "sunrise", "sunset", "night", "torchlight flickering", "neon glow", "moonlit"]}
+                    isOpen={activeDropdown === 'ambiance'}
+                    onToggle={() => setActiveDropdown(activeDropdown === 'ambiance' ? null : 'ambiance')}
+                    onChange={setModalAmbiance}
                   />
                 </div>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '10px', fontFamily: "'Manrope', sans-serif", color: '#737580', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 700 }}>Tone</label>
-                <select value={modalTone} onChange={(e) => setModalTone(e.target.value)} disabled={isLoading}
-                  style={{ width: '100%', background: '#1c1f2b', border: 'none', color: '#f0f0fd', padding: '10px 12px', borderRadius: '8px', fontSize: '12px', outline: 'none', cursor: 'pointer' }}>
-                  <option>Professional & Informative</option>
-                  <option>High-Energy & Viral</option>
-                  <option>Dark Cinematic</option>
-                  <option>Casual & Relatable</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '10px', fontFamily: "'Manrope', sans-serif", color: '#737580', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 700 }}>Camera Motion</label>
-                <select value={modalCameraMotion} onChange={(e) => setModalCameraMotion(e.target.value)} disabled={isLoading}
-                  style={{ width: '100%', background: '#1c1f2b', border: 'none', color: '#f0f0fd', padding: '10px 12px', borderRadius: '8px', fontSize: '12px', outline: 'none', cursor: 'pointer' }}>
-                  <option>Steady & Static</option>
-                  <option>Dynamic Handheld</option>
-                  <option>FPV Drone Aesthetic</option>
-                  <option>Slow Pan / Tilt</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '10px', fontFamily: "'Manrope', sans-serif", color: '#737580', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 700 }}>Target Audience</label>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {['Gen-Z', 'Techies', 'Creatives'].map(aud => (
-                    <button key={aud} disabled={isLoading} onClick={() => setModalTargetAudience(aud)}
-                      style={{
-                        padding: '6px 16px', borderRadius: '24px', border: 'none', fontSize: '11px', fontWeight: 700, cursor: isLoading ? 'not-allowed' : 'pointer',
-                        background: modalTargetAudience === aud ? 'rgba(0,229,255,0.1)' : '#1c1f2b',
-                        color: modalTargetAudience === aud ? '#00E5FF' : '#f0f0fd',
-                      }}>
-                      {aud}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '10px', fontFamily: "'Manrope', sans-serif", color: '#737580', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 700 }}>Visual Style</label>
-                <select value={modalVisualStyle} onChange={(e) => setModalVisualStyle(e.target.value)} disabled={isLoading}
-                  style={{ width: '100%', background: '#1c1f2b', border: 'none', color: '#f0f0fd', padding: '10px 12px', borderRadius: '8px', fontSize: '12px', outline: 'none', cursor: 'pointer' }}>
-                  <option>Cyberpunk Noir</option>
-                  <option>Clean Minimalist</option>
-                  <option>Gritty Industrial</option>
-                  <option>Retro Synthwave</option>
-                </select>
               </div>
 
               <button
                 onClick={submitModalForm} disabled={isLoading}
                 style={{
-                  width: '100%', padding: '16px', marginTop: '12px', borderRadius: '8px', border: '1px solid rgba(115,117,128,0.2)',
-                  background: '#1c1f2b', color: isLoading ? '#81ecff' : '#f0f0fd', fontFamily: "'Manrope', sans-serif", fontSize: '12px',
-                  fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: isLoading ? 'not-allowed' : 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+                  width: '100%', padding: '16px', marginTop: '24px', borderRadius: '12px', border: 'none',
+                  background: isLoading ? 'rgba(0,229,255,0.2)' : 'linear-gradient(90deg, #00E5FF 0%, #00B4D8 100%)', 
+                  color: isLoading ? '#81ecff' : '#0c0e17', fontFamily: "'Space Grotesk', sans-serif", fontSize: '14px',
+                  fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.15em', cursor: isLoading ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: isLoading ? 'none' : '0 8px 16px rgba(0,229,255,0.3)',
+                  transition: 'all 0.3s'
                 }}
-                onMouseEnter={e => { if (!isLoading) e.currentTarget.style.background = '#222532' }}
-                onMouseLeave={e => { if (!isLoading) e.currentTarget.style.background = '#1c1f2b' }}
+                onMouseEnter={e => { if (!isLoading) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 12px 24px rgba(0,229,255,0.4)'; } }}
+                onMouseLeave={e => { if (!isLoading) { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,229,255,0.3)'; } }}
               >
-                {isLoading ? <Icon name="progress_activity" className="animate-spin" style={{ fontSize: '16px' }} /> : null}
-                {isLoading ? 'WAITING...' : 'ENTER TOPIC'}
+                {isLoading ? <Icon name="progress_activity" className="animate-spin" style={{ fontSize: '20px' }} /> : <Icon name="auto_awesome" />}
+                {isLoading ? 'GENERATING STORY...' : 'GENERATE STORY'}
               </button>
             </div>
           </div>
