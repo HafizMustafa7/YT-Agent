@@ -18,8 +18,7 @@ from app.schemas.models import (
 )
 from app.services.youtube_service import get_trending_shorts
 from app.core_yt.topic_validator import validate_topic
-from app.core_yt.creative_builder import build_creative_brief
-from app.services.story_service import generate_story_and_frames
+from app.services.story_service import generate_story
 from app.core_yt.engagement_filter import filter_by_engagement, rank_by_engagement
 from app.core_yt.trend_summary_builder import build_trend_summary
 from app.core_yt.topic_suggestion_engine import generate_topic_suggestions
@@ -228,50 +227,49 @@ async def suggest_topics(
 
 
 @router.post("/stories/generate")
-async def generate_story(request: GenerateStoryRequest, current_user: dict = Depends(get_current_user)) -> Dict[str, Any]:
+async def generate_story_endpoint(
+    request: GenerateStoryRequest,
+    current_user: dict = Depends(get_current_user),
+) -> Dict[str, Any]:
     """
-    Generate story and frames with creative brief.
-    
-    Args:
-        request: GenerateStoryRequest with topic, video, and creative preferences
-        
-    Returns:
-        Generated story with frames and creative brief
+    Generate a Veo 3.1 frame-by-frame video script.
+
+    Accepts topic + creative preferences, returns a validated story JSON
+    with full_story overview and frame-by-frame Veo prompts.
     """
+    prefs = request.creative_preferences
     try:
-        # Build creative brief from preferences
-        creative_brief = build_creative_brief(request.creative_preferences.model_dump())
-        
-        # Generate story with creative brief — timeout after 300s
-        # (multi-stage LLM pipeline; needs higher ceiling to avoid mid-run cutoff)
         story_result = await asyncio.wait_for(
-            generate_story_and_frames(
-                selected_video=request.selected_video,
-                user_topic=request.topic,
-                creative_brief=creative_brief,
+            generate_story(
+                topic=request.topic,
+                duration=prefs.duration,
+                style=prefs.style,
+                camera_motion=prefs.camera_motion,
+                composition=prefs.composition,
+                focus_and_lens=prefs.focus_and_lens,
+                ambiance=prefs.ambiance,
             ),
             timeout=settings.STORY_GENERATION_TIMEOUT,
         )
-        
-        return {
-            "success": True,
-            "story": story_result,
-            "creative_brief": creative_brief,
-        }
-        
+        return {"success": True, "story": story_result}
+
     except asyncio.TimeoutError:
-        logger.error("Story generation timed out after %ds for topic: %s", settings.STORY_GENERATION_TIMEOUT, request.topic[:50])
+        logger.error(
+            "Story generation timed out after %ds for topic: %s",
+            settings.STORY_GENERATION_TIMEOUT,
+            request.topic[:50],
+        )
         raise HTTPException(
             status_code=504,
-            detail="Story generation timed out. The AI service is taking too long. Please try again."
+            detail="Story generation timed out. Please try again.",
         )
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Error generating story: %s", e)
         raise HTTPException(
-            status_code=500, 
-            detail="Story generation failed. Please try again later."
+            status_code=500,
+            detail="Story generation failed. Please try again later.",
         )
 
 

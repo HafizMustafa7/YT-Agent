@@ -161,6 +161,13 @@ const NicheInputPage = () => {
     setLoadingTopic(modalTopic);
 
     try {
+      // 1. Validate Topic First
+      const validationResponse = await apiService.validateTopic(modalTopic.trim(), currentNiche);
+      if (!validationResponse.success || !validationResponse.valid) {
+        throw new Error(validationResponse.reason || "This topic is invalid or violates guidelines.");
+      }
+
+      // 2. Build preferences & payload
       const creativePreferences = {
         resolution: modalResolution,
         aspect_ratio: modalAspectRatio,
@@ -546,6 +553,16 @@ const NicheInputPage = () => {
             </h2>
             <p style={{ fontFamily: "'Inter', sans-serif", fontSize: '12px', color: '#737580', marginBottom: '24px' }}>Fine-tune the creative direction parameters for your AI generated content.</p>
 
+            {error && (
+              <div style={{ padding: '12px 16px', background: 'rgba(255, 113, 108, 0.1)', border: '1px solid rgba(255, 113, 108, 0.3)', borderRadius: '10px', marginBottom: '24px', display: 'flex', alignItems: 'flex-start', gap: '10px', color: '#ff716c' }}>
+                <Icon name="error_outline" style={{ fontSize: '18px', flexShrink: 0 }} />
+                <span style={{ fontSize: '12px', fontFamily: "'Inter', sans-serif", lineHeight: 1.5 }}>
+                  <strong style={{ display: 'block', marginBottom: '4px', textTransform: 'uppercase', fontSize: '10px', letterSpacing: '0.05em', fontFamily: "'Space Grotesk', sans-serif" }}>Validation Failed</strong>
+                  {error}
+                </span>
+              </div>
+            )}
+
             <div className="creative-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '70vh', overflowY: 'auto', paddingRight: '4px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <label style={{ fontSize: '11px', fontFamily: "'Space Grotesk', sans-serif", color: '#f0f0fd', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Enter Topic</label>
@@ -591,7 +608,7 @@ const NicheInputPage = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   <label style={{ fontSize: '11px', fontFamily: "'Space Grotesk', sans-serif", color: '#f0f0fd', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Duration</label>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {[8, 15, 32, 46, 60].map(o => (
+                    {[15, 32, 46, 60].map(o => (
                       <button key={o} disabled={isLoading} onClick={() => setModalDuration(o)}
                         style={{ padding: '6px 12px', borderRadius: '16px', fontSize: '11px', fontWeight: 600, fontFamily: "'Inter', sans-serif", textTransform: 'none', border: modalDuration === o ? '1px solid #00E5FF' : '1px solid rgba(115,117,128,0.2)', background: modalDuration === o ? 'rgba(0,229,255,0.15)' : 'rgba(255,255,255,0.02)', color: modalDuration === o ? '#00E5FF' : '#aaaab7', cursor: isLoading ? 'not-allowed' : 'pointer', transition: 'all 0.2s' }}
                         onMouseEnter={e => { if(!isLoading && modalDuration !== o) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#f0f0fd'; } }}

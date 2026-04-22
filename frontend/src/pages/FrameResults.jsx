@@ -71,18 +71,18 @@ const FrameResults = () => {
       };
 
       const normalizeDuration = (value) => {
-        const allowed = [4, 8, 12];
         const raw = Number(value);
-        if (!Number.isFinite(raw)) return 8;
-        return allowed.reduce((prev, curr) => Math.abs(curr - raw) < Math.abs(prev - raw) ? curr : prev);
+        // Accept any positive whole number ≥ 4 (covers 7s extension frames + 8s first frames)
+        // Fall back to 8 only if value is missing or non-numeric
+        return (Number.isFinite(raw) && Number.isInteger(raw) && raw >= 4) ? raw : 8;
       };
 
       const normalizedFrames = rawFrames
         .map((f, idx) => ({
-          frame_num: normalizeFrameNumber(f?.frame_num, idx + 1),
-          ai_video_prompt: String(f?.ai_video_prompt ?? f?.video_prompt ?? f?.prompt ?? '').trim().slice(0, 5000),
+          frame_num: normalizeFrameNumber(f?.frame_num ?? f?.frame_number, idx + 1),
+          ai_video_prompt: String(f?.prompt ?? f?.ai_video_prompt ?? f?.video_prompt ?? '').trim().slice(0, 5000),
           scene_description: f?.scene_description ? String(f.scene_description) : null,
-          duration_seconds: normalizeDuration(f?.duration_seconds),
+          duration_seconds: Number(f?.duration ?? f?.duration_seconds ?? 8),
         }))
         .filter((f) => f.ai_video_prompt.length > 0);
 
@@ -92,7 +92,8 @@ const FrameResults = () => {
         return;
       }
 
-      const normalizedTitle = String(rawStory?.title || 'Story Video').trim();
+      // Use topic as title (new story JSON), fallback to legacy title or default
+      const normalizedTitle = String(rawStory?.topic || rawStory?.title || 'Story Video').trim();
       const payloadTitle = (normalizedTitle || 'Story Video').slice(0, 255);
 
       try {
@@ -265,10 +266,12 @@ const FrameResults = () => {
                 <div style={{ position: 'absolute', top: '-100px', right: '-100px', width: '256px', height: '256px', background: 'rgba(0,229,255,0.05)', filter: 'blur(100px)', pointerEvents: 'none' }}></div>
                 
                 <div style={{ color: '#aaaab7', lineHeight: 1.8, fontSize: '18px', fontWeight: 300, fontStyle: 'italic', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                  {rawStory?.content ? (
-                    rawStory.content.split('\\n').map((para, i) => para.trim() ? <p key={i}>{para}</p> : null)
+                  {rawStory?.full_story ? (
+                    <p>{rawStory.full_story}</p>
+                  ) : rawStory?.content ? (
+                    rawStory.content.split('\n').map((para, i) => para.trim() ? <p key={i}>{para}</p> : null)
                   ) : (
-                    <p>{rawStory.title || 'Story script...'}</p>
+                    <p>{rawStory?.topic || rawStory?.title || 'Story script...'}</p>
                   )}
                 </div>
               </div>

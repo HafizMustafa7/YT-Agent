@@ -29,25 +29,25 @@ class TopicValidationRequest(BaseModel):
 
 class CreativePreferencesRequest(BaseModel):
     """Request model for creative preferences using Veo specification."""
-    resolution: str = Field(..., description="Video resolution")
-    aspect_ratio: str = Field(..., description="Video aspect ratio")
-    duration: int = Field(..., description="Target duration in seconds")
-    style: str = Field(..., description="Visual style")
-    camera_motion: str = Field(..., description="Camera motion technique")
-    composition: str = Field(..., description="Scene composition")
-    focus_and_lens: str = Field(..., description="Camera focus and lens type")
-    ambiance: str = Field(..., description="Lighting and atmosphere")
+    duration: int = Field(..., description="Target duration in seconds", ge=1)
+    resolution: str = Field("720p", description="Video resolution")
+    aspect_ratio: str = Field("16:9", description="Video aspect ratio")
+    style: Optional[str] = Field(None, description="Visual style")
+    camera_motion: Optional[str] = Field(None, description="Camera motion technique")
+    composition: Optional[str] = Field(None, description="Scene composition")
+    focus_and_lens: Optional[str] = Field(None, description="Camera focus and lens type")
+    ambiance: Optional[str] = Field(None, description="Lighting and atmosphere")
 
 
 class GenerateStoryRequest(BaseModel):
     """Request model for story generation."""
     topic: str = Field(..., description="Topic for the story", max_length=500)
     selected_video: Dict[str, Any] = Field(
-        ..., 
+        ...,
         description="Selected video data or custom video object"
     )
     creative_preferences: CreativePreferencesRequest = Field(
-        ..., 
+        ...,
         description="Creative direction preferences"
     )
 
@@ -60,7 +60,7 @@ class FrameInput(BaseModel):
     frame_num: int = Field(..., ge=1)
     ai_video_prompt: str = Field(..., min_length=1, max_length=5000)
     scene_description: Optional[str] = None
-    duration_seconds: Literal[8, 15, 32, 46, 60] = Field(8, description="Target duration specified by Veo")
+    duration_seconds: int = Field(8, description="Clip duration in seconds", ge=4, le=60)
 
 
 class CreateVideoProjectRequest(BaseModel):
