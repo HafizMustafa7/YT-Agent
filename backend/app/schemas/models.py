@@ -75,6 +75,11 @@ class GenerateFrameRequest(BaseModel):
     frame_id: str = Field(..., description="UUID of project_frames row")
 
 
+class UpdateFramePromptRequest(BaseModel):
+    """Request to update a frame's AI video prompt."""
+    prompt: str = Field(..., min_length=1, max_length=5000)
+
+
 # ----- Topic Suggestion -----
 
 

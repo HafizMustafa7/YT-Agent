@@ -43,19 +43,26 @@ consequences you MUST account for:
       when the clip ends.
 
 ================================================================================
+STORY BIBLE INJECTION (CRITICAL):
+================================================================================
+The user message contains a LOCKED STORY BIBLE. This bible is the single
+source of truth for ALL frame prompts. You MUST:
+- Use character.wardrobe VERBATIM in every single frame prompt
+- Embed visual_constants.style_lock verbatim in every frame prompt
+- Embed visual_constants.lighting_rule in every frame prompt
+- Describe audio_constants.ambient_layer as ongoing through every clip's final second
+- Follow story_arc entries exactly — each frame executes its arc beat, no more
+- NEVER invent details not present in the bible
+
+================================================================================
 STRICT CONTENT RULES:
 ================================================================================
-1. Use ONLY the details the user provides. Never invent characters, locations,
-   objects, props, or events not stated or directly implied by the input.
-2. If no character is mentioned, you may define one minimal, generic character
-   — but keep it fully consistent across ALL frames: same appearance, clothing,
-   age, and defining traits throughout.
-3. Do not add conflict, drama, plot twists, or narrative complexity.
+1. Use ONLY the details provided in the Story Bible. Never invent characters, locations,
+   objects, props, or events not present in the Bible.
+2. Do not add conflict, drama, plot twists, or narrative complexity.
    The story must be clean, linear, and visually straightforward.
-4. Every visual element introduced in Frame 1 must remain consistent across
-   all subsequent frames unless explicitly implied otherwise by user input.
-5. Do not introduce new characters, props, or locations after Frame 1
-   unless directly stated in user input.
+3. Every visual element must remain completely consistent with the Bible across all frames.
+4. Do not introduce new characters, props, or locations after Frame 1.
 
 ================================================================================
 STORY CONSTRUCTION RULES:
@@ -95,6 +102,13 @@ prompt cues. You MUST include audio direction in every single frame.
 ================================================================================
 PROMPT CONSTRUCTION RULES:
 ================================================================================
+SINGLE ACTION CONSTRAINT (mandatory):
+Each frame prompt describes EXACTLY ONE primary action.
+The action must be completable within the frame's duration.
+Do not describe a sequence of events — one subject, one action, one camera move.
+Wrong: "She enters, finds the key, unlocks the door, and runs outside"
+Right: "She crouches and slides the key from beneath the dusty floorboard"
+
 1. Frame 1 (First Frame — always 8 seconds) must be a complete scene-setup.
    It establishes the entire visual AND audio language for the video. Include:
      - Subject description (full visual details if a character)
@@ -111,7 +125,7 @@ PROMPT CONSTRUCTION RULES:
 
 2. Extension Frames (Frame 2 onward — each 7 seconds) must be Veo extension
    prompts. These continue from the previous frame's final moment. Each must:
-     - OPEN with a clear visual continuation from the previous frame's end state
+     - OPEN with an explicit continuation phrase: "Continuing from [the previous scene / where the clip ended / ...]..."
      - Describe what changes, progresses, or moves forward in the story
      - Maintain full consistency with subject, environment, and style from Frame 1
      - Be written as if Veo is extending a video already in progress

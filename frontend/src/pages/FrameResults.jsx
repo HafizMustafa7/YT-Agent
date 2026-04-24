@@ -29,7 +29,9 @@ const FrameResults = () => {
   const pollCountRef = useRef(0);
   const isCreatingRef = useRef(false);
 
-  const [hoveredPrompts, setHoveredPrompts] = useState({});
+  const [editingPromptId, setEditingPromptId] = useState(null);
+  const [editedPromptValue, setEditedPromptValue] = useState("");
+  const [savingPromptId, setSavingPromptId] = useState(null);
 
   // Original raw story data passed from NicheInput
   const storyResultRaw = location.state?.data;
@@ -329,21 +331,67 @@ const FrameResults = () => {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                           <span style={{ fontSize: '12px', fontWeight: 900, fontFamily: "'Space Grotesk', sans-serif", color: '#00E5FF', padding: '4px 8px', background: 'rgba(0,229,255,0.1)', borderRadius: '4px' }}>FRAME {frame.frame_num}</span>
                           <span style={{ color: '#f0f0fd', fontWeight: 500, fontSize: '14px' }}>{frame.duration_seconds}s Clip</span>
+                          <span style={{ fontSize: '12px', fontWeight: 600, color: frame.status === 'completed' ? '#00E5FF' : frame.status === 'failed' ? '#ff3b3b' : '#aaaab7', textTransform: 'uppercase', padding: '2px 6px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px' }}>
+                            {frame.status}
+                          </span>
                         </div>
-                        <div style={{ display: 'flex', gap: '8px' }}>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                           <button 
-                            onMouseEnter={() => setHoveredPrompts(prev => ({ ...prev, [frame.id]: true }))}
-                            onMouseLeave={() => setHoveredPrompts(prev => ({ ...prev, [frame.id]: false }))}
-                            style={{ background: 'transparent', border: 'none', color: hoveredPrompts[frame.id] ? '#00E5FF' : '#737580', cursor: 'grab', transition: 'colors 0.3s', padding: '4px' }}>
-                            <Icon name="play_arrow" filled={hoveredPrompts[frame.id]} style={{ fontSize: '20px' }} />
+                            title="Edit Prompt"
+                            onClick={() => {
+                              setEditingPromptId(frame.id);
+                              setEditedPromptValue(frame.ai_video_prompt);
+                            }}
+                            disabled={isThisGenerating || isCompleted}
+                            style={{ background: 'transparent', border: 'none', color: '#737580', cursor: (isThisGenerating || isCompleted) ? 'not-allowed' : 'pointer', transition: 'color 0.3s', padding: '4px', opacity: (isThisGenerating || isCompleted) ? 0.3 : 1 }}
+                            onMouseEnter={(e) => !isThisGenerating && !isCompleted && (e.currentTarget.style.color = '#00E5FF')}
+                            onMouseLeave={(e) => !isThisGenerating && !isCompleted && (e.currentTarget.style.color = '#737580')}>
+                            <Icon name="edit" style={{ fontSize: '18px' }} />
+                          </button>
+                          <button 
+                            title="Copy Prompt"
+                            onClick={() => navigator.clipboard.writeText(frame.ai_video_prompt)}
+                            style={{ background: 'transparent', border: 'none', color: '#737580', cursor: 'pointer', transition: 'color 0.3s', padding: '4px' }}
+                            onMouseEnter={(e) => e.currentTarget.style.color = '#00E5FF'}
+                            onMouseLeave={(e) => e.currentTarget.style.color = '#737580'}>
+                            <Icon name="content_copy" style={{ fontSize: '18px' }} />
                           </button>
                         </div>
                       </div>
 
                       <div style={{ padding: '24px', flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-                        <p style={{ color: '#aaaab7', fontSize: '14px', lineHeight: 1.6, marginBottom: '24px', minHeight: '66px' }}>
-                          {frame.scene_description || 'Scene description ready for execution.'}
-                        </p>
+                        {editingPromptId === frame.id ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+                            <textarea 
+                              value={editedPromptValue} 
+                              onChange={(e) => setEditedPromptValue(e.target.value)} 
+                              disabled={savingPromptId === frame.id}
+                              style={{ width: '100%', minHeight: '120px', background: 'rgba(0,0,0,0.3)', color: '#fff', border: '1px solid #00E5FF', borderRadius: '4px', padding: '12px', fontSize: '14px', lineHeight: 1.6, resize: 'vertical' }} 
+                            />
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                              <button onClick={() => setEditingPromptId(null)} disabled={savingPromptId === frame.id} style={{ background: 'transparent', color: '#aaaab7', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>Cancel</button>
+                              <button onClick={async () => {
+                                  try {
+                                    setSavingPromptId(frame.id);
+                                    await apiService.updateFramePrompt(projectId, frame.id, editedPromptValue);
+                                    const projData = await apiService.getVideoProject(projectId);
+                                    setProject(projData.project);
+                                    setEditingPromptId(null);
+                                  } catch (err) {
+                                    console.error('Failed to save prompt', err);
+                                  } finally {
+                                    setSavingPromptId(null);
+                                  }
+                              }} disabled={savingPromptId === frame.id} style={{ background: '#00E5FF', color: '#000', border: 'none', borderRadius: '4px', padding: '6px 16px', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>
+                                {savingPromptId === frame.id ? 'Saving...' : 'Save'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p style={{ color: '#aaaab7', fontSize: '14px', lineHeight: 1.6, marginBottom: '24px', minHeight: '66px' }}>
+                            {frame.ai_video_prompt}
+                          </p>
+                        )}
 
                         <div 
                           className="relative"
@@ -364,17 +412,6 @@ const FrameResults = () => {
                             </div>
                           )}
 
-                          {/* Hover Prompt Overlay */}
-                          <div className={`prompt-overlay ${hoveredPrompts[frame.id] ? 'show' : ''}`} style={{
-                            position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(12,14,23,0.95)',
-                            padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
-                            textAlign: 'center', zIndex: 10
-                          }}>
-                            <Icon name="psychiatry" style={{ color: '#00E5FF', fontSize: '32px', marginBottom: '12px' }} />
-                            <p style={{ fontSize: '11px', color: '#f0f0fd', fontFamily: "'Manrope', sans-serif", fontStyle: 'italic', lineHeight: 1.6 }}>
-                              "{frame.ai_video_prompt}"
-                            </p>
-                          </div>
                           
                           {/* Progress Badge */}
                           {isThisGenerating && (

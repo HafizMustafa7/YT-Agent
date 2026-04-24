@@ -115,7 +115,14 @@ async def generate_topic_suggestions(
     try:
         logger.info("Calling Gemini for topic suggestions (niche=%s, top_n=%d)", niche, top_n)
 
-        response = model.generate_content(prompt)
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
+        
+        response = model.generate_content(prompt, safety_settings=safety_settings)
 
         response_text = response.text.strip()
         logger.debug("LLM suggestion response (first 300 chars): %s", response_text[:300])

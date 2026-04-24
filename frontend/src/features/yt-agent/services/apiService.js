@@ -13,13 +13,14 @@ const buildApiUrl = (endpoint) => {
 };
 
 /**
- * Generic API POST call function
+ * Generic API call function
  * @param {string} endpoint - API endpoint path
  * @param {object} payload - Request payload
  * @param {number} timeout - Request timeout in milliseconds
+ * @param {string} method - HTTP method (default: 'POST')
  * @returns {Promise<object>} - API response data
  */
-const callApi = async (endpoint, payload, timeout = TIMEOUTS.DEFAULT) => {
+const callApi = async (endpoint, payload, timeout = TIMEOUTS.DEFAULT, method = 'POST') => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
@@ -29,7 +30,7 @@ const callApi = async (endpoint, payload, timeout = TIMEOUTS.DEFAULT) => {
 
     try {
         const response = await fetch(buildApiUrl(endpoint), {
-            method: 'POST',
+            method,
             headers: {
                 'Content-Type': 'application/json',
                 ...(token && { 'Authorization': `Bearer ${token}` })
@@ -226,6 +227,22 @@ export const startGenerateFrame = async (projectId, frameId) => {
         ENDPOINTS.VIDEO_GENERATE_FRAME(projectId),
         { frame_id: frameId },
         TIMEOUTS.VIDEO_OPERATION
+    );
+};
+
+/**
+ * Update a single frame's AI video prompt
+ * @param {string} projectId 
+ * @param {string} frameId 
+ * @param {string} prompt 
+ * @returns {Promise<object>}
+ */
+export const updateFramePrompt = async (projectId, frameId, prompt) => {
+    return callApi(
+        ENDPOINTS.VIDEO_UPDATE_FRAME_PROMPT(projectId, frameId),
+        { prompt },
+        TIMEOUTS.VIDEO_OPERATION,
+        'PATCH'
     );
 };
 

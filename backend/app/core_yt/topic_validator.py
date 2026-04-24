@@ -111,7 +111,15 @@ Respond with JSON only:"""
     try:
         logger.debug("Validating topic with LLM: %s...", topic[:50])
         
-        response = model.generate_content(validation_prompt)
+        # Lower safety settings to allow analysis of fantasy/edgy topics without abruptly crashing
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
+        
+        response = model.generate_content(validation_prompt, safety_settings=safety_settings)
         
         response_text = response.text.strip()
         logger.debug("LLM validation response: %s...", response_text[:200])

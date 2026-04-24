@@ -17,6 +17,33 @@
     "total_frames": 3
   },
   "output": {
+    "story_bible": {
+      "character": {
+        "name": "The Meditator",
+        "appearance": "woman with dark hair tied loosely back",
+        "wardrobe": "soft sage-green linen top and charcoal grey wide-leg trousers",
+        "signature_prop": "none"
+      },
+      "world": {
+        "location": "shoreline of a still forest lake",
+        "time_of_day": "sunrise",
+        "environment": "flat mossy rock, glassy lake surface, ancient tall pines and birches"
+      },
+      "visual_constants": {
+        "color_palette": "pale gold, rose light, sage green, cool dawn blue",
+        "lighting_rule": "The first light of sunrise casting a delicate warm glow",
+        "style_lock": "Cinematic style, shallow depth of field, gentle slow pacing"
+      },
+      "audio_constants": {
+        "ambient_layer": "soft layer of birdsong and faint ripple of the lake shoreline",
+        "music": null
+      },
+      "story_arc": [
+        "Frame 1 (8s): [establish beat] — A woman sits in deep meditation on a rock at the lake edge",
+        "Frame 2 (7s): [beat 2] — A single leaf drifts down to the lake surface as the light warms",
+        "Frame 3 (7s): [beat 3] — The view reveals the vast forest as sunrise floods the canopy"
+      ]
+    },
     "topic": "a woman meditating peacefully beside a still forest lake at sunrise",
     "total_duration": 22,
     "pacing": "slow",

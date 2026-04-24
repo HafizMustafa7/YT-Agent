@@ -14,6 +14,21 @@ PROMPTS_DIR = Path(__file__).parent
 EXAMPLES_DIR = PROMPTS_DIR / "examples"
 
 
+def load_bible_system_prompt() -> str:
+    """
+    Load the system prompt specifically designed for generating the internal Story Bible.
+    """
+    path = PROMPTS_DIR / "bible_system_prompt.txt"
+    if not path.exists():
+        raise FileNotFoundError(f"Bible system prompt not found: {path}. Ensure it exists.")
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read().strip()
+    if not content:
+        raise ValueError("bible_system_prompt.txt is empty.")
+    logger.debug("Bible system prompt loaded (%d chars).", len(content))
+    return content
+
+
 def load_system_prompt() -> str:
     """
     Load the system prompt from system_prompt.txt.

@@ -17,6 +17,33 @@
     "total_frames": 3
   },
   "output": {
+    "story_bible": {
+      "character": {
+        "name": "The Barista",
+        "appearance": "young woman, late twenties, dark hair pulled back neatly",
+        "wardrobe": "fitted black apron over a white shirt",
+        "signature_prop": "small white ceramic espresso cup"
+      },
+      "world": {
+        "location": "modern minimalist cafe",
+        "time_of_day": "daytime",
+        "environment": "raw concrete surfaces, light oak shelving, warm Edison-style pendant lights"
+      },
+      "visual_constants": {
+        "color_palette": "rich amber, cream tones, black, light oak",
+        "lighting_rule": "warm Edison lights hanging at different heights above the counter",
+        "style_lock": "Hyperrealistic style, shallow depth of field, warm tone"
+      },
+      "audio_constants": {
+        "ambient_layer": "quiet murmur of background cafe atmosphere",
+        "music": null
+      },
+      "story_arc": [
+        "Frame 1 (8s): [establish beat] — Barista loads portafilter and pulls an espresso shot",
+        "Frame 2 (7s): [beat 2] — Barista steams oat milk to silky microfoam",
+        "Frame 3 (7s): [beat 3] — Barista pours latte art and serves the drink"
+      ]
+    },
     "topic": "a skilled barista crafting a specialty coffee drink in a modern minimalist cafe",
     "total_duration": 22,
     "pacing": "medium",

@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from typing import Dict, Any, Optional
 
 from app.core.config import settings
-from app.schemas.models import CreateVideoProjectRequest, GenerateFrameRequest
+from app.schemas.models import CreateVideoProjectRequest, GenerateFrameRequest, UpdateFramePromptRequest
 from app.services import video_service
 from app.routes.auth import get_current_user
 from app.routes.payment import calculate_required_credits, check_and_deduct_credits
@@ -259,6 +259,44 @@ async def generate_one_frame(
         raise
     except Exception as e:
         logger.error("Error starting frame generation: %s", e)
+        handle_error(e)
+
+
+@router.patch("/projects/{project_id}/frames/{frame_id}")
+async def update_frame_prompt_route(
+    project_id: str,
+    frame_id: str,
+    body: UpdateFramePromptRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Update a pending frame's prompt before generation."""
+    _validate_uuid(project_id, "project_id")
+    _validate_uuid(frame_id, "frame_id")
+    
+    try:
+        proj = video_service.get_project_with_frames_and_assets(project_id)
+        if not proj:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        if proj.get("user_id") != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Not authorized to access this project")
+
+        frame = next(
+            (f for f in (proj.get("frames") or []) if str(f.get("id")) == frame_id),
+            None,
+        )
+        if not frame:
+            raise HTTPException(status_code=404, detail="Frame not found in this project")
+
+        if frame.get("status") not in ("pending", "failed"):
+            raise HTTPException(status_code=400, detail="Cannot edit a frame that is currently generating or completed")
+
+        video_service.update_frame_prompt(frame["id"], body.prompt)
+        return {"success": True, "message": "Frame prompt updated successfully."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error updating frame prompt: %s", e)
         handle_error(e)
 
 

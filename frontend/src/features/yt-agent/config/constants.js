@@ -20,6 +20,7 @@ export const ENDPOINTS = {
     VIDEO_GET_PROJECT: (id) => `${API_PREFIX}/video/projects/${id}`,
     VIDEO_GENERATE_ALL: (id) => `${API_PREFIX}/video/projects/${id}/generate`,
     VIDEO_GENERATE_FRAME: (id) => `${API_PREFIX}/video/projects/${id}/generate-frame`,
+    VIDEO_UPDATE_FRAME_PROMPT: (projectId, frameId) => `${API_PREFIX}/video/projects/${projectId}/frames/${frameId}`,
     VIDEO_COMBINE: (id) => `${API_PREFIX}/video/projects/${id}/combine`,
     VIDEO_UPLOAD: (id) => `${API_PREFIX}/video/projects/${id}/upload`,
     // Channel Endpoints (Legacy paths preserved for now, but routed through authenticated proxy if needed)

@@ -17,6 +17,33 @@
     "total_frames": 3
   },
   "output": {
+    "story_bible": {
+      "character": {
+        "name": "The Racer",
+        "appearance": "Athletic build, fully enclosed helmet",
+        "wardrobe": "full red-and-black racing suit and helmet",
+        "signature_prop": "1000cc racing motorbike"
+      },
+      "world": {
+        "location": "narrow winding mountain road",
+        "time_of_day": "sunset",
+        "environment": "Rugged mountain cliffs, cracked tarmac, loose gravel"
+      },
+      "visual_constants": {
+        "color_palette": "amber, burnt orange, blood red, dark asphalt",
+        "lighting_rule": "Sunset orange floods the scene from ahead with long dramatic shadows",
+        "style_lock": "Cinematic style, wide-angle lens, fast dynamic motion"
+      },
+      "audio_constants": {
+        "ambient_layer": "wind rush and tyre roar blending into the open-air soundscape",
+        "music": null
+      },
+      "story_arc": [
+        "Frame 1 (8s): [establish beat] — The racer launches hard from a standstill on a mountain road",
+        "Frame 2 (7s): [beat 2] — The racer speeds down a straight stretch directly into the sunset",
+        "Frame 3 (7s): [beat 3] — The racer crests the final mountain ridge silhouetted against the sky"
+      ]
+    },
     "topic": "a motorbike racer speeding through mountain roads at sunset",
     "total_duration": 22,
     "pacing": "fast",

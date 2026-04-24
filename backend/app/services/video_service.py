@@ -228,6 +228,19 @@ def update_frame_status(frame_id: str, status: str, asset_id: Optional[str] = No
         logger.error("Failed to update frame %s status: %s", frame_id, e)
 
 
+def update_frame_prompt(frame_id: str, new_prompt: str) -> None:
+    """Update frame's ai_video_prompt in the database."""
+    sb = get_supabase()
+    try:
+        sb.table("project_frames").update({
+            "ai_video_prompt": new_prompt[:5000],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", frame_id).execute()
+    except Exception as e:
+        logger.error("Failed to update frame %s prompt: %s", frame_id, e)
+        raise RuntimeError(f"Failed to update prompt: {e}") from e
+
+
 # ---------------------------------------------------------------------------
 # Sora API (async)
 # ---------------------------------------------------------------------------
