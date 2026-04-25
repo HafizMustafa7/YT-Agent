@@ -36,36 +36,37 @@
       },
       "audio_constants": {
         "ambient_layer": "soft layer of birdsong and faint ripple of the lake shoreline",
-        "music": null
+        "music": null,
+        "dialogue_style": "internal voiceover"
       },
       "story_arc": [
-        "Frame 1 (8s): [establish beat] — A woman sits in deep meditation on a rock at the lake edge",
-        "Frame 2 (7s): [beat 2] — A single leaf drifts down to the lake surface as the light warms",
-        "Frame 3 (7s): [beat 3] — The view reveals the vast forest as sunrise floods the canopy"
+        "Frame 1 (8s): [meditate] — Woman sits in deep meditation as the sun rises, internal voiceover begins.",
+        "Frame 2 (7s): [leaf] — A single leaf drifts down to the lake surface.",
+        "Frame 3 (7s): [reveal] — The camera slowly pans up to reveal the vast sunlit forest."
       ]
     },
     "topic": "a woman meditating peacefully beside a still forest lake at sunrise",
     "total_duration": 22,
     "pacing": "slow",
-    "full_story": "A woman sits in deep meditation on the shoreline of a still forest lake as the first pale light of sunrise touches the water. The scene breathes with her — shallow breaths visible in cool morning air, the lake perfectly mirrored and motionless. The camera gently pulls back to reveal the full scope of the forest surrounding her, a solitary figure absorbed completely into the natural world.",
+    "full_story": "A woman meditates by a still forest lake at sunrise, finding inner peace. A single leaf drifts onto the glassy water, rippling the reflection. The sequence ends with a wide view of the vast, sunlit forest canopy.",
     "frames": [
       {
         "frame_number": 1,
         "type": "first",
         "duration": 8,
-        "prompt": "Eye-level cinematic shot of a woman with dark hair tied loosely back, dressed in a soft sage-green linen top and charcoal grey wide-leg trousers, seated cross-legged on a flat mossy rock at the edge of a perfectly still forest lake. Her hands rest open on her knees, her spine gently upright, eyes closed, expression serene. Shallow depth of field renders her the sole sharp element — the glassy lake surface behind her dissolves into a soft luminous bokeh of reflected pale gold and rose light. The first light of sunrise brushes the tree canopy on the far shore, casting a delicate warm glow that spreads slowly across the still water. Cool wisps of morning mist drift a few centimetres above the lake surface. The camera holds completely still at the start, then begins an imperceptibly slow backward pull, drawing away from her face with deliberate calm. Cinematic style, gentle slow pacing, the scene breathing with the stillness of early morning. The soundscape is the forest at dawn — a continuous soft layer of birdsong rising gradually from the trees, a lone thrush calling gently in the middle distance, the faint ripple of the lake shoreline against the mossy rock, and the barely audible slow breath of the woman settling deeper into stillness, all sounds sustained and present through to the end of this clip."
+        "prompt": "Cinematic wide shot of a woman with dark hair tied loosely back, wearing a soft sage-green linen top and charcoal grey wide-leg trousers, meditating on a flat mossy rock at the shoreline of a still forest lake at sunrise. She sits perfectly still, eyes closed, hands resting on her knees. Woman: (calm voiceover) \"In the stillness, I find my center.\" The glassy lake surface reflects ancient tall pines and birches. Cinematic style, shallow depth of field, gentle slow pacing. The first light of sunrise casting a delicate warm glow. A soft layer of birdsong and faint ripple of the lake shoreline continues to the end of the clip."
       },
       {
         "frame_number": 2,
         "type": "extend",
         "duration": 7,
-        "prompt": "Continuing from the opening frame, the slow backward pull continues at the same unhurried pace, the woman growing fractionally smaller in the frame as the full shoreline mossy rock and the still water surrounding it come into view on both sides of her. The lake's mirror surface now reflects the sunrise sky in full — soft amber, pale rose, and the faintest blue-white of the dawn horizon, perfectly doubled in the water below. A single leaf detaches from a branch above and drifts down in slow motion, touching the lake surface with a whisper and sending one tiny ring of ripples outward into the otherwise undisturbed reflection. The woman does not move. The morning light deepens almost imperceptibly warmer. The eye-level position is maintained, shallow depth of field keeping the woman in soft focus as the wider world sharpens around her. The continuous birdsong from the previous moment carries forward unbroken — a second bird joins from the left side of the forest, their calls layering softly over the ambient lake sounds and the gentle rustle of the canopy above, the soundscape remaining full and present through the final second of this clip."
+        "prompt": "Continuing from the meditation, the camera slowly pushes past the woman's shoulder toward the water just as a single golden leaf drifts down from the canopy and settles onto the glassy lake surface. Woman: (calm voiceover) \"Letting go of the noise.\" The soft birdsong and faint ripple of the lake shoreline persist continuously to the final second of the clip."
       },
       {
         "frame_number": 3,
         "type": "extend",
         "duration": 7,
-        "prompt": "Extending from the widening pull-back, the camera continues its slow retreat and begins a barely perceptible upward tilt, revealing the full arc of the forest canopy framing the sky above the lake. The woman is now a small, still figure centered in a vast natural frame — the mirrored lake stretching wide on both sides, ancient tall pines and birches rising to form a cathedral of trees around the water, their canopy tips catching the first direct rays of the risen sun in warm gold. The sunrise light floods horizontally across the treetops and spills down toward the water in slow-moving shafts of warm mist. The scene holds in this wide, still final composition — the woman, the lake, the forest, the sky, perfectly unified. Slow pacing releases fully into this single vast held frame. The layered birdsong continues as a full, rich ambient chorus now — multiple species calling simultaneously from the canopy, the lake surface catching faint wind ripple, and the continuous breath of the forest filling the entire soundscape through to the very last second of the clip."
+        "prompt": "Extending from the floating leaf, the camera slowly tilts up from the lake surface to reveal the vast expanse of the ancient forest as the sunrise fully crests the horizon, flooding the canopy with pale gold light. Woman: (calm voiceover) \"Awake to the morning.\" The soft birdsong and faint ripple of the lake shoreline remain unbroken to the very end of the clip."
       }
     ]
   }

@@ -36,36 +36,37 @@
       },
       "audio_constants": {
         "ambient_layer": "wind rush and tyre roar blending into the open-air soundscape",
-        "music": null
+        "music": null,
+        "dialogue_style": "purely ambient"
       },
       "story_arc": [
-        "Frame 1 (8s): [establish beat] — The racer launches hard from a standstill on a mountain road",
-        "Frame 2 (7s): [beat 2] — The racer speeds down a straight stretch directly into the sunset",
-        "Frame 3 (7s): [beat 3] — The racer crests the final mountain ridge silhouetted against the sky"
+        "Frame 1 (8s): [launch] — The racer dumps the clutch and aggressively launches the bike, tearing into the first hairpin bend.",
+        "Frame 2 (7s): [straight] — The racer tucks low over the tank and blasts down a straight stretch into the blazing sunset.",
+        "Frame 3 (7s): [crest] — The racer crests the mountain ridge, launching the front wheel briefly against the sky."
       ]
     },
     "topic": "a motorbike racer speeding through mountain roads at sunset",
     "total_duration": 22,
     "pacing": "fast",
-    "full_story": "A lone motorbike racer launches onto a winding mountain road at golden hour, carving tight bends with aggressive speed. The chase intensifies as the rider pushes through a long straight stretch with the sun blazing directly ahead. The sequence closes as the racer crests the final mountain ridge, silhouetted against a burning sunset sky.",
+    "full_story": "A lone motorbike racer aggressively launches onto a winding mountain road, carving a tight bend. Pushing maximum speed down a straight stretch, they race directly into the blazing sunset. The sequence ends as the racer blasts over the final mountain crest, launching the front wheel against the sky.",
     "frames": [
       {
         "frame_number": 1,
         "type": "first",
         "duration": 8,
-        "prompt": "Low angle cinematic wide-angle shot of a motorbike racer in a full red-and-black racing suit and helmet launching hard from a standstill on a narrow winding mountain road. The camera sits centimetres from the asphalt in a tight low tracking position, the bike erupting forward at fierce speed, rear tire spraying loose gravel and dust. Rugged mountain cliffs rise sharply on both sides, their rock faces glowing in warm amber light. Sunset orange floods the scene from ahead, casting long dramatic shadows across the cracked tarmac. The rider's body drops low and leans aggressively into the first hairpin bend, elbows flared, fully committed. Cinematic style, wide-angle lens compressing the road ahead to emphasise speed, fast dynamic motion, high energy pacing throughout. The thundering roar of the 1000cc engine tears through the mountain air from the moment of launch, exhaust cracks sharp on every upshift, the screaming rev-note echoing off the cliff walls and filling the soundscape continuously as the bike accelerates hard into the bend."
+        "prompt": "Low angle cinematic wide-angle shot of a motorbike racer in a full red-and-black racing suit and helmet launching hard on a narrow winding mountain road at sunset. The racer dumps the clutch and the 1000cc racing motorbike erupts forward, rear tire spraying loose gravel as they accelerate aggressively into the first hairpin bend. The rider drops their body low, leaning hard into the curve, elbows flared as they carve the corner with fierce speed. Cinematic style, wide-angle lens, fast dynamic motion. Sunset orange floods the scene from ahead with long dramatic shadows. The thundering roar of the engine tears through the mountain air, echoing off the cliff walls and filling the soundscape continuously to the end of the clip."
       },
       {
         "frame_number": 2,
         "type": "extend",
         "duration": 7,
-        "prompt": "Continuing from the exit of the hairpin bend, the low tracking shot surges forward alongside the racer as the mountain road opens into a long, slightly descending straight. The rider immediately drops flat over the tank, tucking chin to tank-bag for maximum aerodynamics, the bike howling at redline. Sunset light now blazes directly into the wide-angle lens from the far end of the straight, detonating a fierce golden lens flare that streaks across the full width of the frame. Mountain ridgelines streak past as motion-blurred silhouettes on both sides. The camera holds low and close, pushing hard to stay with the rider at aggressive pace, the road surface rushing beneath at frightening speed. The screaming engine note from the previous clip continues unbroken, sustained at peak revs through the entire straight, punctuated by sharp exhaust pops as the rider brakes briefly for the approaching crest, the sound continuously filling the frame until the last moment of this clip."
+        "prompt": "Continuing from the hairpin exit, the rider drops flat over the tank, tucking chin to tank-bag, and blasts down a long straight directly into the detonating golden lens flare of the sunset. The bike howls at redline as they push maximum speed, the road rushing beneath them in a blur. The screaming engine note from the previous clip continues unbroken, sustained at peak revs and completely filling the frame until the last moment of this clip."
       },
       {
         "frame_number": 3,
         "type": "extend",
         "duration": 7,
-        "prompt": "Extending from the braking point, the low wide-angle tracking shot pulls fractionally wider as the racer drives the final steep rise toward the mountain crest. The rider rises from the tuck, stands briefly on the footpegs as the front wheel lightens over the summit, the bike momentarily launched against open sky. At the peak, the full blazing sunset panorama explodes into frame behind them — deep amber, burnt orange, and blood red saturating an endless mountain horizon. The camera holds wide and low as the silhouetted rider and bike are suspended against the burning sky in a single cinematic held beat, the aggressive fast pacing resolving into this one powerful still-motion moment before the descent begins. The engine note sustains loud and continuous over the crest, wind rush and tyre roar blending into the open-air soundscape as the sunset panorama fills the frame to the final second of the clip."
+        "prompt": "Extending from the straight, the racer drives hard up the final steep rise toward the mountain crest. As the bike hits the summit, the rider stands briefly on the footpegs and launches the front wheel into the air, silhouetted against the burning amber sky. The aggressive engine note sustains loud and continuous over the crest, wind rush and tyre roar blending into the open-air soundscape to the final second of the clip."
       }
     ]
   }
