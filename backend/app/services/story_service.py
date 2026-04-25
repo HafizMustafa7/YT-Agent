@@ -205,6 +205,7 @@ def build_frames_message(
     vc = bible.get("visual_constants", {})
     ac = bible.get("audio_constants", {})
     arc = bible.get("story_arc", [])
+    vt = bible.get("visual_treatment", {})
     
     arc_block = "\n".join(f"  {entry}" for entry in arc)
     
@@ -230,6 +231,12 @@ VISUAL CONSTANTS (embed in every frame):
 AUDIO CONSTANTS:
   Ambient Layer: {ac.get('ambient_layer', 'N/A')}  ← MUST BE ACTIVE THROUGH EVERY CLIP'S FINAL SECOND
   Music: {ac.get('music', 'none')}
+  Dialogue Style: {ac.get('dialogue_style', 'purely ambient')}
+
+VISUAL TREATMENT (MANDATORY — EXECUTE THIS IN EVERY FRAME):
+  Mode: {vt.get('mode', 'real-time')}  ← THIS IS THE TIME SCALE FOR ALL FRAMES
+  Reason: {vt.get('reason', 'N/A')}
+  Speed Cues (embed these environmental markers if mode is not real-time): {', '.join(vt.get('speed_cues', [])) or 'N/A'}
 
 STORY ARC (each frame executes its beat — no substitutions):
 {arc_block}
@@ -408,7 +415,7 @@ def _parse_and_validate_bible(raw: str, expected_frames: int) -> Dict[str, Any]:
     if not isinstance(parsed, dict):
         raise ValueError(f"Bible JSON is invalid. First 300 chars: {raw[:300]}")
 
-    required_sections = ("character", "world", "visual_constants", "audio_constants", "story_arc")
+    required_sections = ("character", "world", "visual_constants", "audio_constants", "visual_treatment", "story_arc")
     for section in required_sections:
         if section not in parsed:
             raise ValueError(f"Bible missing required section: '{section}'")
@@ -428,8 +435,15 @@ def _parse_and_validate_bible(raw: str, expected_frames: int) -> Dict[str, Any]:
     if not str(ac.get("ambient_layer", "")).strip():
         raise ValueError("audio_constants.ambient_layer must be a non-empty string")
 
-    logger.info("Story Bible validated (Expected Frames: %d)", expected_frames)
+    vt = parsed.get("visual_treatment", {})
+    valid_modes = {"real-time", "rapid time-lapse", "smooth hyperlapse"}
+    mode = str(vt.get("mode", "")).strip()
+    if mode not in valid_modes:
+        raise ValueError(f"visual_treatment.mode must be one of {valid_modes}, got: '{mode}'")
+
+    logger.info("Story Bible validated (Expected Frames: %d, Visual Treatment: %s)", expected_frames, mode)
     return parsed
+
 
 
 def _parse_and_validate(raw: str, expected_frames: int) -> Dict[str, Any]:

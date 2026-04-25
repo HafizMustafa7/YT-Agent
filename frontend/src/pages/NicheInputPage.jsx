@@ -112,7 +112,7 @@ const NicheInputPage = () => {
         .catch(() => setError('Failed to fetch initial trends.'))
         .finally(() => setIsLoading(false));
 
-      const topicsPromise = apiService.suggestTopics('Top Trending AI Videos', 'search_trends', 0.01, 3)
+      const topicsPromise = apiService.suggestTopics('Top Trending AI Videos', 'search_trends', 0.01, 5)
         .then(suggestionsData => setSuggestedTopics(suggestionsData?.topics || []))
         .catch(() => setSuggestionsError('Failed to fetch suggested topics.'))
         .finally(() => setIsLoadingSuggestions(false));
@@ -141,7 +141,7 @@ const NicheInputPage = () => {
       .catch(() => setError('Failed to fetch trends. Please try again.'))
       .finally(() => setIsLoading(false));
 
-    const topicsPromise = apiService.suggestTopics(niche, 'search_trends', 0.01, 3)
+    const topicsPromise = apiService.suggestTopics(niche, 'search_trends', 0.01, 5)
       .then(suggestionsData => setSuggestedTopics(suggestionsData?.topics || []))
       .catch(() => setSuggestionsError('Failed to fetch suggested topics.'))
       .finally(() => setIsLoadingSuggestions(false));

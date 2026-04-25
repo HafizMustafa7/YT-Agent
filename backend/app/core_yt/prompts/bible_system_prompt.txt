@@ -30,9 +30,37 @@ BIBLE RULES (TOPIC FIDELITY IS PARAMOUNT):
 5. STORY ARC
    - One entry per frame, exactly matching total frame count
    - Each entry: "Frame N (Xs): [beat label] — bold, progressive action (and key dialogue if applicable)"
-   - The arc must be completable: establish → develop → resolve
    - Each beat MUST drive physical action or dialogue. Avoid passive observations.
-   - No time jumps, no location changes, no new characters
+   - No new characters introduced after Frame 1.
+   - CRITICAL: The arc pattern MUST match the visual_treatment.mode you classified above:
+
+   If mode is "rapid time-lapse" (process/transformation topics):
+     Use the BEFORE → DURING → AFTER REVEAL pattern. YouTube audiences expect to see the
+     starting state first, the work happening, and the final reveal. The last frame is the money shot.
+     Example arc for renovation: Frame 1 = show the damaged/old state, Frame 2 = demolition and 
+     construction in progress, Frame 3 = dramatic reveal of the finished result.
+
+   If mode is "real-time" and topic involves conflict/narrative/dialogue:
+     Use the SETUP → CONFLICT/ESCALATION → CLIMAX/RESOLUTION pattern.
+     Frame 1 = establish the scene and introduce the characters/situation.
+     Frame 2 = the conflict or action escalates.
+     Frame 3 = the decisive climax or resolution moment.
+
+   If mode is "smooth hyperlapse" (travel/exploration topics):
+     Use the ARRIVAL → EXPLORATION → DISCOVERY pattern.
+     Frame 1 = the traveller arrives at the location and the journey begins.
+     Frame 2 = moving through the environment, taking it in.
+     Frame 3 = reaching the final destination or key discovery moment.
+
+6. VISUAL TREATMENT
+   Analyse the topic using your knowledge of how this type of content is commonly presented on YouTube.
+   Based on that analysis, self-classify the visual treatment:
+   - mode: one of "real-time", "rapid time-lapse", or "smooth hyperlapse"
+   - reason: one sentence explaining why this mode fits the topic
+   - speed_cues: list of 2-3 environmental visual indicators to embed in prompts if mode is time-lapse or hyperlapse
+     (e.g. "clouds racing across the sky", "shadows stretching and shrinking rapidly", "sun speeding overhead")
+   - If mode is "real-time", speed_cues should be an empty array [].
+   - CRITICAL: For any topic where the real-world process takes longer than 8 seconds (e.g., construction, baking, painting, growing), mode MUST be "rapid time-lapse" or "smooth hyperlapse".
 
 RESPOND ONLY with a valid JSON object. No markdown, no explanation.
 Follow this exact JSON schema:
@@ -57,6 +85,11 @@ Follow this exact JSON schema:
     "ambient_layer": "...",
     "music": "...",
     "dialogue_style": "..."
+  },
+  "visual_treatment": {
+    "mode": "real-time | rapid time-lapse | smooth hyperlapse",
+    "reason": "...",
+    "speed_cues": ["...", "..."]
   },
   "story_arc": [
     "Frame 1 (8s): ...",

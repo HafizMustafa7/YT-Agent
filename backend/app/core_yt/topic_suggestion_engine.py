@@ -61,7 +61,7 @@ STRICT RULES — READ THESE CAREFULLY:
 
 5. NO fluff like "In this video I explore..." — just the title concept.
 
-Return ONLY a valid JSON object. No markdown, no code fences, no extra text:
+Return EXACTLY {top_n} distinct topic ideas in a valid JSON object. Do not return fewer than {top_n}. No markdown, no code fences, no extra text:
 
 {{
     "topics": [
@@ -75,7 +75,7 @@ Return ONLY a valid JSON object. No markdown, no code fences, no extra text:
     ]
 }}
 
-Return exactly {top_n} topics. Score 80-100 = viral, 60-79 = solid, below 60 = average.
+Return exactly {top_n} full topic objects in the array. Do not use ellipsis (...) or cut off the response. Score 80-100 = viral, 60-79 = solid, below 60 = average.
 Respond with JSON only:"""
 
 

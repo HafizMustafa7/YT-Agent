@@ -115,6 +115,14 @@ Do not describe a sequence of events — one subject, one action, one camera mov
 Wrong: "She enters, finds the key, unlocks the door, and runs outside"
 Right: "She crouches and slides the key from beneath the dusty floorboard"
 
+VISUAL TREATMENT EXECUTION (MANDATORY):
+The LOCKED STORY BIBLE above contains a "VISUAL TREATMENT" block. You MUST execute it in every frame:
+- If mode is "rapid time-lapse": embed that exact term in the prompt AND embed ALL listed speed_cues (e.g. "clouds racing across the sky", "shadows stretching and shrinking rapidly"). Do NOT describe action at real-time speed.
+- If mode is "smooth hyperlapse": embed that term and speed_cues. The camera must be moving through space rapidly.
+- If mode is "real-time": generate prompts at normal speed as usual.
+Never ignore or override the visual treatment mode.
+
+
 1. Frame 1 (First Frame — always 8 seconds) must be a complete scene-setup and action initiator.
    Length constraint: 5-7 lines.
    It must establish the subject and setting quickly (first sentence), and then immediately transition into detailing the core action of the clip. Include:
