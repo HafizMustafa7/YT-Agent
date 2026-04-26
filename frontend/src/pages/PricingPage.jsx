@@ -105,8 +105,8 @@ const PricingPage = () => {
       </header>
 
       {/* ===== MAIN ===== */}
-      <main style={{ paddingTop: '128px', paddingBottom: '96px', paddingLeft: '24px', paddingRight: '24px', minHeight: '100vh' }}>
-        <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
+      <main className="pt-24 md:pt-32 pb-16 md:pb-24 px-4 md:px-6 min-h-screen">
+        <div className="max-w-[1280px] mx-auto">
 
           {/* Hero Title */}
           <div style={{ textAlign: 'center', marginBottom: '80px' }}>
@@ -148,10 +148,7 @@ const PricingPage = () => {
 
           {/* Pricing Grid */}
           {!loading && !error && packages.length > 0 && (
-            <div style={{
-              display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-              gap: '32px', alignItems: 'end',
-            }}>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 items-stretch lg:items-end">
               {packages.map((pkg, index) => {
                 const meta = tierMeta[index] || tierMeta[0];
                 const isFeatured = meta.featured;
@@ -286,11 +283,7 @@ const PricingPage = () => {
 
           {/* ===== Precision for Creators Section ===== */}
           {!loading && !error && packages.length > 0 && (
-            <div style={{
-              marginTop: '96px', background: '#171924', borderRadius: '24px',
-              padding: '48px', overflow: 'hidden', position: 'relative',
-              border: '1px solid rgba(70,71,82,0.1)',
-            }}>
+            <div className="mt-16 md:mt-24 bg-[#171924] rounded-3xl p-6 md:p-12 overflow-hidden relative border border-[#737580]/10">
               {/* Background image */}
               <div style={{
                 position: 'absolute', top: 0, right: 0, width: '50%', height: '100%',
@@ -337,11 +330,7 @@ const PricingPage = () => {
         background: '#0c0e17', padding: '48px 32px',
         borderTop: '1px solid rgba(70,71,82,0.05)',
       }}>
-        <div style={{
-          maxWidth: '1280px', margin: '0 auto',
-          display: 'flex', flexDirection: 'row', flexWrap: 'wrap',
-          justifyContent: 'space-between', alignItems: 'center', gap: '24px',
-        }}>
+        <div className="max-w-[1280px] mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
           <div style={{
             fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.125rem',
             fontWeight: 700, color: '#cbd5e1',

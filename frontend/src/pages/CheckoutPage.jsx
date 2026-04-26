@@ -140,13 +140,8 @@ const CheckoutPage = () => {
       </header>
 
       {/* ===== MAIN CONTENT ===== */}
-      <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px 16px 48px' }}>
-        <div style={{
-          maxWidth: '960px', width: '100%',
-          display: 'grid', gridTemplateColumns: '1fr', gap: '24px', alignItems: 'start',
-        }}
-          className="lg:grid-cols-12"
-        >
+      <main className="flex-1 flex items-center justify-center p-4 md:p-8">
+        <div className="w-full max-w-[960px] grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8 items-start">
           {/* ── LEFT COLUMN: Summary ── */}
           <div style={{ gridColumn: 'span 5' }} className="lg:col-span-5">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -336,14 +331,8 @@ const CheckoutPage = () => {
       </main>
 
       {/* ===== FOOTER ===== */}
-      <footer style={{
-        background: '#0c0e17', padding: '48px 32px',
-        borderTop: 'none',
-      }}>
-        <div style={{
-          maxWidth: '1280px', margin: '0 auto',
-          display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '24px',
-        }}>
+      <footer className="bg-[#0c0e17] px-6 py-12 md:px-8 md:py-16">
+        <div className="max-w-[1280px] mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
           <div style={{
             fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.125rem',
             fontWeight: 700, color: '#cbd5e1',
@@ -359,20 +348,13 @@ const CheckoutPage = () => {
               >{item}</a>
             ))}
           </div>
-          <div style={{ fontFamily: "'Inter', sans-serif", fontSize: '14px', color: '#64748b' }}>
+          <div style={{ fontFamily: "'Inter', sans-serif", fontSize: '14px', color: '#64748b', textAlign: 'center' }}>
             © 2024 YOUTOMIZE. Cinematic Intelligence for Creators.
           </div>
         </div>
       </footer>
 
-      {/* Inline responsive grid styles */}
-      <style>{`
-        @media (min-width: 1024px) {
-          .lg\\:grid-cols-12 { grid-template-columns: repeat(12, minmax(0, 1fr)) !important; }
-          .lg\\:col-span-5 { grid-column: span 5 / span 5 !important; }
-          .lg\\:col-span-7 { grid-column: span 7 / span 7 !important; }
-        }
-      `}</style>
+
     </div>
   );
 };

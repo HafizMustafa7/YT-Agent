@@ -41,8 +41,8 @@ const FinalVideoPage = () => {
     <div style={{ background: '#0c0e17', minHeight: '100vh', color: '#f0f0fd', fontFamily: "'Inter', sans-serif", display: 'flex', flexDirection: 'column' }}>
       
       {/* Top Navbar */}
-      <header style={{ background: '#0c0e17', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', position: 'sticky', top: 0, zIndex: 50, padding: '16px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '24px', fontWeight: 900, color: '#00E5FF', letterSpacing: '-0.05em' }}>
+      <header className="sticky top-0 z-50 w-full bg-[#0c0e17] shadow-[0_20px_40px_rgba(0,0,0,0.3)] px-4 py-4 md:px-8 flex justify-between items-center">
+        <div className="text-[20px] md:text-[24px]" style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 900, color: '#00E5FF', letterSpacing: '-0.05em' }}>
           YOUTOMIZE
         </div>
         <button onClick={() => navigate('/dashboard')} style={{ background: 'transparent', border: 'none', color: '#aaaab7', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'color 0.2s' }} onMouseEnter={e => e.currentTarget.style.color = '#81ecff'} onMouseLeave={e => e.currentTarget.style.color = '#aaaab7'}>
@@ -52,11 +52,11 @@ const FinalVideoPage = () => {
       </header>
 
       {/* Main Content */}
-      <main style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 24px', maxWidth: '1280px', margin: '0 auto', width: '100%' }}>
+      <main className="flex-grow flex flex-col items-center px-4 py-8 md:px-6 md:py-12 max-w-[1280px] mx-auto w-full">
         
         <section style={{ width: '100%', position: 'relative' }}>
           {/* Header Label */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+          <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
             <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, marginRight: '24px' }}>
               <span style={{ fontFamily: "'Manrope', sans-serif", color: '#00E5FF', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.2em', marginBottom: '4px' }}>Final Rendering Complete</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -91,7 +91,7 @@ const FinalVideoPage = () => {
                 )}
               </div>
             </div>
-            <div style={{ background: '#1c1f2b', padding: '8px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+            <div className="bg-[#1c1f2b] px-4 py-2 rounded-lg flex items-center gap-3 flex-shrink-0 self-start md:self-auto">
               <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#81ecff', boxShadow: '0 0 10px #81ecff', animation: 'pulse 2s infinite' }}></span>
               <span style={{ fontFamily: "'Manrope', sans-serif", fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#aaaab7' }}>Ready for Export</span>
             </div>
@@ -126,7 +126,7 @@ const FinalVideoPage = () => {
 
         {/* Primary Actions */}
         <section style={{ marginTop: '64px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '32px', width: '100%', maxWidth: '600px' }}>
-          <div style={{ display: 'flex', gap: '16px', width: '100%' }}>
+          <div className="flex flex-col sm:flex-row gap-4 w-full">
             
             <button 
               onClick={() => {
@@ -135,11 +135,11 @@ const FinalVideoPage = () => {
                 a.download = 'youtube-short.mp4';
                 a.click();
               }}
+              className="flex-1 flex items-center justify-center gap-3 p-5 rounded-lg border-none cursor-pointer transition-all duration-300"
               style={{
-                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
-                background: 'linear-gradient(45deg, #00E5FF, #a68cff)', padding: '20px 32px', borderRadius: '8px',
+                background: 'linear-gradient(45deg, #00E5FF, #a68cff)',
                 color: '#005762', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em',
-                boxShadow: '0 0 25px rgba(129, 236, 255, 0.4)', border: 'none', cursor: 'pointer', transition: 'all 0.3s'
+                boxShadow: '0 0 25px rgba(129, 236, 255, 0.4)'
               }}
               onMouseEnter={e => e.currentTarget.style.opacity = 0.9}
               onMouseLeave={e => e.currentTarget.style.opacity = 1}
@@ -169,14 +169,13 @@ const FinalVideoPage = () => {
                 }
               }}
               disabled={isUploading || uploadStatus === 'success'}
+              className="flex-1 sm:flex-none sm:w-[33%] flex items-center justify-center gap-3 p-5 rounded-lg transition-all duration-300"
               style={{
-                flex: "0 0 33%", display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
                 background: uploadStatus === 'success' ? 'rgba(0,255,136,0.1)' : 'transparent', 
                 border: uploadStatus === 'success' ? '1px solid #00ff88' : '1px solid rgba(70,71,82,0.3)', 
-                padding: '20px', borderRadius: '8px',
                 color: uploadStatus === 'success' ? '#00ff88' : '#81ecff', 
                 fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em',
-                cursor: (isUploading || uploadStatus === 'success') ? 'not-allowed' : 'pointer', transition: 'all 0.3s',
+                cursor: (isUploading || uploadStatus === 'success') ? 'not-allowed' : 'pointer',
                 opacity: (isUploading) ? 0.6 : 1
               }}
               onMouseEnter={e => { if (!isUploading && uploadStatus !== 'success') e.currentTarget.style.background = 'rgba(0,229,255,0.05)' }}

@@ -295,16 +295,16 @@ const FrameResults = () => {
       `}</style>
       
       {/* Top Navigation Anchor */}
-      <header style={{ position: 'sticky', top: 0, zIndex: 50, width: '100%', background: '#11131d', padding: '16px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(115,117,128,0.1)' }}>
-        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '24px', fontWeight: 900, color: '#00E5FF', letterSpacing: '-0.05em' }}>
+      <header className="sticky top-0 z-50 w-full bg-[#11131d] px-4 py-3 md:px-8 md:py-4 flex justify-between items-center border-b border-[#737580]/10">
+        <div className="text-[20px] md:text-[24px]" style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 900, color: '#00E5FF', letterSpacing: '-0.05em' }}>
           YOUTOMIZE
         </div>
-        <button onClick={() => navigate('/dashboard')} style={{ background: 'rgba(255,255,255,0.05)', color: '#aaaab7', border: '1px solid rgba(255,255,255,0.1)', padding: '6px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Icon name="arrow_back" style={{ fontSize: '14px' }} /> Dashboard
+        <button className="px-3 py-1.5 md:px-4 md:py-1.5" onClick={() => navigate('/dashboard')} style={{ background: 'rgba(255,255,255,0.05)', color: '#aaaab7', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Icon name="arrow_back" style={{ fontSize: '14px' }} /> <span className="hidden sm:inline">Dashboard</span>
         </button>
       </header>
 
-      <main style={{ padding: '48px 24px', maxWidth: '1280px', margin: '0 auto' }}>
+      <main className="px-4 py-8 md:px-6 md:py-12 max-w-[1280px] mx-auto w-full">
         
         {error && (
           <div style={{ padding: '16px', background: 'rgba(255,113,108,0.1)', border: '1px solid rgba(255,113,108,0.2)', color: '#ff716c', borderRadius: '8px', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -315,7 +315,7 @@ const FrameResults = () => {
         {loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '100px 0', color: '#81ecff' }}>
             <Icon name="progress_activity" className="animate-spin" style={{ fontSize: '48px', marginBottom: '16px' }} />
-            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Initializing Project & Loading Layout...</h2>
+            <h2 className="text-center px-4" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Initializing Project & Loading Layout...</h2>
           </div>
         ) : (
           <>
@@ -323,9 +323,9 @@ const FrameResults = () => {
             <section style={{ marginBottom: '48px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
                 <Icon name="auto_awesome" style={{ color: '#00E5FF' }} />
-                <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '24px', fontWeight: 700, margin: 0 }}>Generated Full Story</h2>
+                <h2 className="text-[20px] md:text-[24px]" style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, margin: 0 }}>Generated Full Story</h2>
               </div>
-              <div className="glass-panel" style={{ padding: '32px', borderRadius: '12px', border: '1px solid rgba(115,117,128,0.1)', position: 'relative', overflow: 'hidden' }}>
+              <div className="glass-panel relative overflow-hidden rounded-xl border border-[#737580]/10 p-5 md:p-8">
                 <div style={{ position: 'absolute', top: '-100px', right: '-100px', width: '256px', height: '256px', background: 'rgba(0,229,255,0.05)', filter: 'blur(100px)', pointerEvents: 'none' }}></div>
                 
                 <div style={{ color: '#aaaab7', lineHeight: 1.8, fontSize: '18px', fontWeight: 300, fontStyle: 'italic', display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -372,7 +372,7 @@ const FrameResults = () => {
               )}
 
               {/* Grid Layout */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '32px' }}>
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 md:gap-8">
                 {liveFrames.map((frame) => {
                   const isThisGenerating = generatingFrameId === frame.id || frame.status === 'generating';
                   const isFailed = frame.status === 'failed';
@@ -398,14 +398,12 @@ const FrameResults = () => {
                   const statusLabel = isCompleted ? 'Done' : isFailed ? 'Failed' : isThisGenerating ? 'Generating...' : 'Pending';
 
                   return (
-                    <div key={frame.id} style={{
-                      background: '#1c1f2b', borderRadius: '12px', border: '1px solid rgba(115,117,128,0.1)', overflow: 'hidden',
-                      display: 'flex', flexDirection: 'column', transition: 'all 0.3s',
+                    <div key={frame.id} className="flex flex-col overflow-hidden transition-all duration-300 rounded-xl bg-[#1c1f2b] border border-[#737580]/10" style={{
                       boxShadow: isThisGenerating ? '0 0 20px rgba(0,229,255,0.1)' : 'none',
                       borderColor: isThisGenerating ? 'rgba(0,229,255,0.3)' : 'rgba(115,117,128,0.1)'
                     }}>
-                      <div style={{ padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(17,19,29,0.5)', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div className="p-4 sm:p-5 flex justify-between items-center bg-[#11131d]/50 border-b border-white/5">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                           <span style={{ fontSize: '12px', fontWeight: 900, fontFamily: "'Space Grotesk', sans-serif", color: '#00E5FF', padding: '4px 8px', background: 'rgba(0,229,255,0.1)', borderRadius: '4px' }}>FRAME {frame.frame_num}</span>
                           <span style={{ color: '#f0f0fd', fontWeight: 500, fontSize: '14px' }}>{frame.duration_seconds}s Clip</span>
                           <span style={{
@@ -439,7 +437,7 @@ const FrameResults = () => {
                         </div>
                       </div>
 
-                      <div style={{ padding: '24px', flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                      <div className="p-4 sm:p-6 flex-grow flex flex-col">
                         {editingPromptId === frame.id ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
                             <textarea 

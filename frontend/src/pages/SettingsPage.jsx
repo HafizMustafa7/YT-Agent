@@ -86,15 +86,8 @@ const SettingsPage = () => {
   return (
     <div style={{ background: '#0c0e17', minHeight: '100vh', color: '#f0f0fd', fontFamily: "'Inter', sans-serif" }}>
       {/* ===== TOP NAV BAR ===== */}
-      <header style={{
-        background: '#0c0e17', position: 'sticky', top: 0, zIndex: 50,
-        boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
-      }}>
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          width: '100%', maxWidth: '1920px', margin: '0 auto',
-          padding: '16px 32px',
-        }}>
+      <header className="sticky top-0 z-50 bg-[#0c0e17] shadow-[0_20px_40px_rgba(0,0,0,0.3)]">
+        <div className="flex justify-between items-center w-full max-w-[1920px] mx-auto px-4 py-4 md:px-8">
           <div style={{ display: 'flex', alignItems: 'center', gap: '48px' }}>
             <span
               onClick={() => navigate('/dashboard')}
@@ -104,8 +97,9 @@ const SettingsPage = () => {
               }}
             >YOUTOMIZE</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }} className="md:gap-6">
             <button
+              className="hidden sm:block"
               style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8', transition: 'color 0.3s' }}
               onMouseEnter={e => e.currentTarget.style.color = '#81ecff'}
               onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}
@@ -113,6 +107,7 @@ const SettingsPage = () => {
               <Icon name="notifications" style={{ fontSize: '22px' }} />
             </button>
             <button
+              className="hidden sm:block"
               style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8', transition: 'color 0.3s' }}
               onMouseEnter={e => e.currentTarget.style.color = '#81ecff'}
               onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}
@@ -131,7 +126,7 @@ const SettingsPage = () => {
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
             >
               <Icon name="logout" style={{ fontSize: '20px', fontWeight: 700 }} />
-              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '14px' }}>Logout</span>
+              <span className="hidden sm:inline" style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '14px' }}>Logout</span>
             </button>
             <div style={{
               width: 40, height: 40, borderRadius: '50%', overflow: 'hidden',
@@ -144,12 +139,7 @@ const SettingsPage = () => {
       </header>
 
       {/* ===== MAIN CONTENT ===== */}
-      <main style={{
-        minHeight: 'calc(100vh - 200px)', paddingTop: '48px', paddingBottom: '80px',
-        paddingLeft: '24px', paddingRight: '24px',
-        maxWidth: '1024px', margin: '0 auto',
-        display: 'flex', flexDirection: 'column', gap: '48px',
-      }}>
+      <main className="min-h-[calc(100vh-200px)] pt-12 pb-20 px-4 md:px-6 max-w-[1024px] mx-auto flex flex-col gap-12">
         {/* Header */}
         <section>
           <h1 style={{
@@ -164,27 +154,22 @@ const SettingsPage = () => {
         </section>
 
         {/* Settings Container */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}
-          className="md-grid-settings"
-        >
+        <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-6 md:gap-8">
           {/* Side Navigation — Sticky */}
-          <aside style={{ position: 'sticky', top: '100px', alignSelf: 'start' }}>
-            <div style={{
-              background: '#171924', borderRadius: '12px', overflow: 'hidden',
-              padding: '16px 0',
-            }}>
+          <aside className="static md:sticky top-[100px] self-start w-full">
+            <div className="flex md:block overflow-x-auto bg-[#171924] rounded-xl py-2 md:py-4 hide-scrollbar">
               {settingsNav.map((group, gi) => (
-                <div key={gi}>
-                  <div style={{
-                    padding: '8px 24px', fontSize: '11px', textTransform: 'uppercase',
-                    letterSpacing: '0.15em', color: '#737580', fontWeight: 700,
-                  }}>{group.label}</div>
+                <div key={gi} className="flex md:block">
+                  <div className="hidden md:block px-6 py-2 text-[11px] uppercase tracking-[0.15em] text-[#737580] font-bold">
+                    {group.label}
+                  </div>
                   {group.items.map(item => (
                     <button
                       key={item}
                       onClick={() => scrollToSection(item)}
+                      className="whitespace-nowrap flex-shrink-0"
                       style={{
-                        width: '100%', textAlign: 'left', padding: '10px 24px',
+                        textAlign: 'left', padding: '10px 24px',
                         background: activeSection === item ? 'rgba(129,236,255,0.08)' : 'transparent',
                         border: 'none', color: activeSection === item ? '#81ecff' : '#aaaab7',
                         fontFamily: "'Space Grotesk', sans-serif", fontWeight: 500,
@@ -327,10 +312,7 @@ const SettingsPage = () => {
               </div>
 
               {/* Credits + Buy Button row */}
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                background: '#171924', borderRadius: '10px', padding: '16px 20px',
-              }}>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-[#171924] rounded-lg p-4 sm:p-5 gap-4">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <Icon name="toll" style={{ color: '#a68cff', fontSize: '22px' }} />
                   <div>
@@ -342,6 +324,7 @@ const SettingsPage = () => {
                 </div>
                 <button
                   onClick={() => navigate('/pricing')}
+                  className="w-full sm:w-auto justify-center"
                   style={{
                     background: 'linear-gradient(45deg, #81ecff, #a68cff)',
                     color: '#003840', fontFamily: "'Space Grotesk', sans-serif",
@@ -402,12 +385,13 @@ const SettingsPage = () => {
         </div>
       </footer>
 
-      {/* Responsive grid */}
       <style>{`
-        @media (min-width: 768px) {
-          .md-grid-settings {
-            grid-template-columns: 200px 1fr !important;
-          }
+        .hide-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .hide-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
         }
       `}</style>
     </div>

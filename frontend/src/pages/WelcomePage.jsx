@@ -18,16 +18,12 @@ const WelcomePage = () => {
   return (
     <div style={{ background: '#0c0e17', minHeight: '100vh', color: '#f0f0fd', fontFamily: "'Inter', sans-serif" }}>
       {/* ===== TOP NAV BAR ===== */}
-      <nav style={{
+      <nav className="sticky top-0 z-50 flex justify-between items-center px-4 py-4 md:px-8 shadow-2xl" style={{
         background: 'rgba(12,14,23,0.6)', backdropFilter: 'blur(24px)',
-        position: 'sticky', top: 0, zIndex: 50,
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '16px 32px',
-        boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
       }}>
         <div style={{ fontSize: '1.5rem', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, letterSpacing: '-0.05em', color: '#00E5FF', cursor: 'pointer' }}
           onClick={() => navigate('/')}>YOUTOMIZE</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '40px' }}>
+        <div className="hidden md:flex items-center gap-10">
           <a href="#home" style={{ color: '#00E5FF', fontWeight: 700, borderBottom: '2px solid #00E5FF', paddingBottom: '4px', textDecoration: 'none', fontFamily: "'Space Grotesk', sans-serif", transition: 'all 0.3s' }}>Home</a>
           {['Features', 'Pricing'].map(item => (
             <a key={item} href={`#${item.toLowerCase()}`} style={{ color: '#94a3b8', fontWeight: 500, textDecoration: 'none', fontFamily: "'Space Grotesk', sans-serif", transition: 'all 0.3s' }}
@@ -91,7 +87,7 @@ const WelcomePage = () => {
       {/* ===== FEATURES ===== */}
       <section id="features" style={{ padding: '128px 32px', maxWidth: '1280px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '160px' }}>
         {/* Feature 1: YouTube Growth */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '64px', alignItems: 'center' }}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-10 md:gap-16 items-center">
           <div style={{ position: 'relative' }}>
             <div style={{ position: 'absolute', inset: '-16px', background: 'rgba(129,236,255,0.1)', filter: 'blur(48px)', borderRadius: '9999px' }} />
             <div style={{ position: 'relative', borderRadius: '24px', overflow: 'hidden', border: '1px solid rgba(70,71,82,0.2)', aspectRatio: '16/9', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }}>
@@ -109,7 +105,7 @@ const WelcomePage = () => {
         </div>
 
         {/* Feature 2: Performance Analysis */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '64px', alignItems: 'center' }}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-10 md:gap-16 items-center">
           <div>
             <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '2.5rem', color: '#a68cff', letterSpacing: '-0.02em', marginBottom: '24px' }}>Performance Analysis</h3>
             <p style={{ color: '#aaaab7', fontSize: '1.125rem', lineHeight: 1.7, marginBottom: '32px' }}>Monitor your success as it happens. Real-time metrics visualization allows you to pivot strategies instantly based on what's resonating with your viewers.</p>
@@ -133,7 +129,7 @@ const WelcomePage = () => {
         </div>
 
         {/* Feature 3: Content Trends */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '64px', alignItems: 'center' }}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-10 md:gap-16 items-center">
           <div style={{ position: 'relative' }}>
             <div style={{ position: 'relative', borderRadius: '24px', overflow: 'hidden', border: '1px solid rgba(70,71,82,0.2)', aspectRatio: '16/9', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }}>
               <img src={trendsPreview} alt="Trends" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -150,7 +146,7 @@ const WelcomePage = () => {
         </div>
 
         {/* Feature 4: Auto Scripting */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '64px', alignItems: 'center' }}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-10 md:gap-16 items-center">
           <div>
             <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '2.5rem', color: '#a68cff', letterSpacing: '-0.02em', marginBottom: '24px' }}>Auto Scripting</h3>
             <p style={{ color: '#aaaab7', fontSize: '1.125rem', lineHeight: 1.7, marginBottom: '32px' }}>Our specialized LLM crafts high-retention scripts tailored to your niche's unique voice and pacing. Stop staring at blank pages and start producing hits.</p>
@@ -168,7 +164,7 @@ const WelcomePage = () => {
         </div>
 
         {/* Feature 5: Cinematic Generation */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '64px', alignItems: 'center' }}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-10 md:gap-16 items-center">
           <div style={{ position: 'relative' }}>
             <div style={{ position: 'absolute', inset: '-16px', background: 'rgba(129,236,255,0.1)', filter: 'blur(48px)', borderRadius: '9999px' }} />
             <div style={{ position: 'relative', borderRadius: '24px', overflow: 'hidden', border: '1px solid rgba(70,71,82,0.2)', aspectRatio: '16/9', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }}>
@@ -186,7 +182,7 @@ const WelcomePage = () => {
         </div>
 
         {/* Feature 6: Auto Upload */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '64px', alignItems: 'center' }}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-10 md:gap-16 items-center">
           <div>
             <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '2.5rem', color: '#a68cff', letterSpacing: '-0.02em', marginBottom: '24px' }}>Auto Upload & Integration</h3>
             <p style={{ color: '#aaaab7', fontSize: '1.125rem', lineHeight: 1.7, marginBottom: '32px' }}>Set and forget. Instant multi-channel integration schedules your content for optimal peak viewing times globally across all major social platforms.</p>
@@ -218,7 +214,7 @@ const WelcomePage = () => {
           <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '3rem', marginBottom: '24px' }}>Scale Your Empire</h2>
           <p style={{ color: '#aaaab7', maxWidth: '560px', margin: '0 auto' }}>Flexible plans for every stage of your creator journey. Upgrade or downgrade anytime.<br />1 Credit = 4 second AI Video</p>
         </div>
-        <div style={{ maxWidth: '1280px', margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '32px', alignItems: 'stretch' }}>
+        <div className="max-w-[1280px] mx-auto grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch">
           {/* Starter */}
           <div style={{ background: '#0c0e17', borderRadius: '24px', padding: '40px', border: '1px solid rgba(70,71,82,0.1)', display: 'flex', flexDirection: 'column', transition: 'all 0.5s' }}
             onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(129,236,255,0.3)'}
@@ -284,8 +280,8 @@ const WelcomePage = () => {
       </section>
 
       {/* ===== FOOTER ===== */}
-      <footer style={{ background: '#0c0e17', padding: '64px 32px', borderTop: '1px solid rgba(28,31,43,0.15)' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '48px', maxWidth: '1280px', margin: '0 auto' }}>
+      <footer className="bg-[#0c0e17] px-6 py-12 md:px-8 md:py-16 border-t border-[#1c1f2b]">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-12 max-w-[1280px] mx-auto">
           <div>
             <span style={{ display: 'block', fontSize: '1.25rem', fontWeight: 700, color: '#00E5FF', marginBottom: '16px' }}>YOUTOMIZE</span>
             <p style={{ fontSize: '14px', color: '#94a3b8', lineHeight: 1.6 }}>The next-generation platform for YouTube automation. Built by creators, powered by intelligence.</p>
@@ -312,7 +308,7 @@ const WelcomePage = () => {
             <h4 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, marginBottom: '24px' }}>Newsletter</h4>
             <div style={{ background: '#1c1f2b', borderRadius: '12px', padding: '8px', display: 'flex', border: '1px solid rgba(70,71,82,0.1)' }}>
               <input type="email" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)}
-                style={{ flex: 1, background: 'transparent', border: 'none', color: '#f0f0fd', fontSize: '14px', padding: '0 8px', outline: 'none' }} />
+                style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', color: '#f0f0fd', fontSize: '14px', padding: '0 8px', outline: 'none' }} />
               <button style={{ background: '#81ecff', color: '#003840', padding: '8px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '16px' }}>→</button>
             </div>
           </div>

@@ -77,22 +77,22 @@ export default function AuthPage() {
       <div style={{ position: 'fixed', bottom: '10%', right: '5%', width: '384px', height: '384px', background: 'rgba(166,140,255,0.1)', borderRadius: '9999px', filter: 'blur(120px)', pointerEvents: 'none' }} />
 
       {/* Side Decoration */}
-      <div style={{ position: 'fixed', left: 48, bottom: 48, zIndex: 20, display: 'flex', flexDirection: 'column', gap: '24px', opacity: 0.3 }}>
+      <div className="hidden lg:flex fixed left-12 bottom-12 z-20 flex-col gap-6 opacity-30">
         <div style={{ height: 4, width: 96, background: 'rgba(129,236,255,0.5)', borderRadius: '9999px' }} />
         <p style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '3rem', fontWeight: 900, color: 'rgba(255,255,255,0.05)', letterSpacing: '-0.05em', writingMode: 'vertical-rl', userSelect: 'none' }}>AUTHENTICATION_PROTOCOL</p>
       </div>
 
       {/* Right dots */}
-      <div style={{ position: 'fixed', right: 48, top: '50%', transform: 'translateY(-50%)', zIndex: 20, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div className="hidden lg:flex fixed right-12 top-1/2 -translate-y-1/2 z-20 flex-col gap-4">
         {[0, 1, 2, 3].map(i => (
           <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: i === 1 ? '#81ecff' : '#464752', animation: i === 1 ? 'pulse 2s ease-in-out infinite' : 'none' }} />
         ))}
       </div>
 
-      <main style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px 48px', position: 'relative', zIndex: 10 }}>
+      <main className="min-h-screen flex flex-col items-center justify-center p-4 md:p-12 relative z-10 w-full overflow-hidden">
         {/* Branding */}
         <div style={{ marginBottom: '40px', textAlign: 'center' }}>
-          <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 900, fontSize: '2.5rem', letterSpacing: '-0.05em', color: '#00e3fd', textTransform: 'uppercase' }}>YOUTOMIZE</h1>
+          <h1 className="text-[2rem] md:text-[2.5rem]" style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 900, letterSpacing: '-0.05em', color: '#00e3fd', textTransform: 'uppercase' }}>YOUTOMIZE</h1>
           <p style={{ fontFamily: "'Manrope', sans-serif", color: '#aaaab7', fontSize: '14px', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: '8px' }}>
             {isLogin ? 'Cinematic Automation' : 'Architecting Cinematic Intelligence'}
           </p>
@@ -100,17 +100,11 @@ export default function AuthPage() {
 
         {/* Central Card */}
         <AnimatePresence mode="wait">
-          <motion.div key={isLogin ? 'login' : 'signup'}
-            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.3 }}
-            style={{
-              width: '100%', maxWidth: '448px',
-              background: 'rgba(23,25,36,0.6)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-              padding: '40px', borderRadius: '12px',
-              boxShadow: '0 40px 100px rgba(0,0,0,0.5)',
-              border: '1px solid rgba(70,71,82,0.1)',
-            }}
-          >
-            <div style={{ marginBottom: '32px' }}>
+            <motion.div key={isLogin ? 'login' : 'signup'}
+              initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.3 }}
+              className="w-full max-w-[448px] bg-[#171924]/60 backdrop-blur-xl p-6 sm:p-10 rounded-xl shadow-[0_40px_100px_rgba(0,0,0,0.5)] border border-[#737580]/10 mx-auto"
+            >
+              <div style={{ marginBottom: '32px' }}>
               <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.5rem', letterSpacing: '-0.02em', marginBottom: '8px' }}>
                 {isLogin ? 'Welcome Back' : 'Create your account'}
               </h2>

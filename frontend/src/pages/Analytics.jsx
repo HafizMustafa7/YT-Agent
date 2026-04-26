@@ -13,6 +13,7 @@ const Analytics = () => {
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [loading, setLoading] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const chartsRef = useRef({});
   const dropdownRef = useRef(null);
 
@@ -57,6 +58,7 @@ const Analytics = () => {
 
   const selectVideo = (video) => {
     setSelectedVideo(video);
+    setIsMobileMenuOpen(false); // Close mobile menu when video selected
     Object.values(chartsRef.current).forEach(c => { if (c?.destroy) c.destroy(); });
     chartsRef.current = {};
   };
@@ -211,17 +213,23 @@ const Analytics = () => {
         }
       `}</style>
       {/* ===== TOP NAV ===== */}
-      <nav style={{
-        position: 'fixed', top: 0, width: '100%', zIndex: 50,
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '16px 32px', background: '#11131d',
+      <nav className="fixed top-0 w-full z-50 flex flex-wrap md:flex-nowrap justify-between items-center px-4 py-3 md:px-8 md:py-4 gap-4 transition-all" style={{
+        background: '#11131d',
         boxShadow: '0 40px 40px rgba(0,0,0,0.08)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
-          <span onClick={() => navigate('/dashboard')} style={{ fontSize: '1.5rem', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 900, color: '#00E5FF', letterSpacing: '-0.05em', cursor: 'pointer' }}>YOUTOMIZE</span>
+        <div className="flex items-center gap-3 md:gap-8 flex-1 md:flex-none">
+          {/* Hamburger Menu */}
+          <button 
+            className="md:hidden text-[#00E5FF] flex items-center justify-center p-1"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          >
+            <span className="material-symbols-outlined text-2xl">{isMobileMenuOpen ? 'close' : 'menu'}</span>
+          </button>
+          
+          <span className="text-[1.2rem] md:text-[1.5rem]" onClick={() => navigate('/dashboard')} style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 900, color: '#00E5FF', letterSpacing: '-0.05em', cursor: 'pointer' }}>YOUTOMIZE</span>
 
           {/* Channel Selector */}
-          <div style={{ display: 'flex', alignItems: 'center', background: '#1c1f2b', borderRadius: '8px', padding: '8px 16px', gap: '12px', border: '1px solid rgba(70,71,82,0.1)' }}>
+          <div className="hidden sm:flex items-center bg-[#1c1f2b] rounded-lg px-2 py-1 md:px-4 md:py-2 gap-2 md:gap-3 border border-[#464752]/20">
             <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#591adc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px' }}>📺</div>
             <div style={{ display: 'flex', flexDirection: 'column', position: 'relative' }} ref={dropdownRef}>
               <span style={{ fontFamily: "'Manrope', sans-serif", fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#aaaab7' }}>Active Channel</span>
@@ -232,7 +240,7 @@ const Analytics = () => {
                   display: 'flex', 
                   alignItems: 'center', 
                   cursor: 'pointer',
-                  minWidth: '160px',
+                  minWidth: '120px',
                   padding: '4px 0'
                 }}
               >
@@ -299,33 +307,52 @@ const Analytics = () => {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '32px', marginLeft: '16px' }}>
+          <div className="hidden lg:flex gap-8 ml-4">
             <a href="#" onClick={e => { e.preventDefault(); }} style={{ color: '#00E5FF', borderBottom: '2px solid #00E5FF', paddingBottom: '4px', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, letterSpacing: '-0.02em', textDecoration: 'none' }}>Analytics</a>
             <a href="#" style={{ color: '#94a3b8', fontFamily: "'Space Grotesk', sans-serif", letterSpacing: '-0.02em', textDecoration: 'none', transition: 'color 0.2s' }}
               onMouseEnter={e => e.target.style.color = '#81ecff'} onMouseLeave={e => e.target.style.color = '#94a3b8'}>Audience</a>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+        <div className="flex items-center gap-3 md:gap-6">
           <button onClick={loadChannelAnalytics} disabled={!selectedChannel || loading} style={{
             background: 'linear-gradient(to right, #81ecff, #a68cff)', color: '#005762',
-            padding: '8px 24px', borderRadius: '8px', fontFamily: "'Space Grotesk', sans-serif",
+            padding: '8px 16px', borderRadius: '8px', fontFamily: "'Space Grotesk', sans-serif",
             fontWeight: 700, border: 'none', cursor: !selectedChannel || loading ? 'not-allowed' : 'pointer',
             boxShadow: '0 0 20px rgba(129,236,255,0.2)', opacity: !selectedChannel || loading ? 0.5 : 1,
-            transition: 'transform 0.1s',
+            transition: 'transform 0.1s', fontSize: '12px'
           }}>{loading ? 'Loading...' : 'Load Analytics'}</button>
-          <button onClick={handleLogout} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '13px' }}>Logout</button>
+          <button className="hidden sm:block" onClick={handleLogout} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '13px' }}>Logout</button>
         </div>
       </nav>
 
-      <div style={{ display: 'flex', paddingTop: '80px', height: '100vh', overflow: 'hidden' }}>
+      <div className="flex pt-[72px] md:pt-[80px] h-screen overflow-hidden">
+        {/* Mobile Overlay */}
+        {isMobileMenuOpen && (
+          <div 
+            className="fixed inset-0 bg-black bg-opacity-60 z-30 md:hidden" 
+            onClick={() => setIsMobileMenuOpen(false)} 
+          />
+        )}
+        
         {/* ===== SIDEBAR ===== */}
-        <aside style={{
-          width: '256px', position: 'fixed', left: 0, top: 0,
-          paddingTop: '80px', height: '100vh',
-          background: '#11131d', zIndex: 40,
-          display: 'flex', flexDirection: 'column',
-        }}>
+        <aside className={`fixed md:relative md:flex left-0 top-0 pt-[72px] md:pt-0 h-screen w-64 md:w-64 bg-[#11131d] z-40 flex flex-col transition-transform duration-300 ${
+            isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        }`}>
+          <div className="sm:hidden px-6 py-4 flex flex-col gap-2 border-b border-[#464752]/20">
+             <span className="text-[10px] text-[#aaaab7] uppercase tracking-[0.15em] font-manrope">Active Channel</span>
+             <select 
+               className="bg-[#1c1f2b] text-[#f0f0fd] p-2 rounded-md outline-none border border-[#464752]/20 text-xs"
+               value={selectedChannel}
+               onChange={(e) => { setSelectedChannel(e.target.value); setVideosData([]); setSelectedVideo(null); }}
+             >
+                <option value="">Select Channel</option>
+                {channels.map(ch => (
+                  <option key={ch.channel_id} value={ch.channel_id}>{ch.channel_name || `Channel ${ch.channel_id}`}</option>
+                ))}
+             </select>
+          </div>
+
           <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <span style={{ fontFamily: "'Manrope', sans-serif", fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#64748b', marginBottom: '8px', padding: '0 16px' }}>Video Library</span>
 
@@ -373,21 +400,21 @@ const Analytics = () => {
         </aside>
 
         {/* ===== MAIN CONTENT ===== */}
-        <main style={{ marginLeft: '256px', width: '100%', height: '100%', overflowY: 'auto', background: '#0c0e17', padding: '48px' }}>
+        <main className="w-full h-full overflow-y-auto bg-[#0c0e17] p-4 md:p-8 lg:p-12 relative z-10">
           {/* Header Section */}
           {selectedVideo && (
-            <header style={{ marginBottom: '48px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+            <header className="mb-8 md:mb-12 flex flex-col xl:flex-row justify-between items-start xl:items-end gap-6">
               <div style={{ maxWidth: '640px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                <div className="flex flex-wrap items-center gap-3 mb-2">
                   <span style={{ background: 'rgba(0,227,253,0.2)', color: '#00e3fd', padding: '4px 12px', borderRadius: '9999px', fontFamily: "'Manrope', sans-serif", fontSize: '10px', fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', border: '1px solid rgba(129,236,255,0.2)' }}>Active Analysis</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#cafd00', fontSize: '10px', fontWeight: 700 }}>
                     📈 +{((((selectedVideo.views || 0) / Math.max(1, videosData.reduce((s, v) => s + (v.views || 0), 0) / videosData.length)) - 1) * 100).toFixed(1)}% vs Channel Avg
                   </div>
                 </div>
-                <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '2.5rem', letterSpacing: '-0.02em', marginBottom: '16px' }}>{selectedVideo.title || 'Untitled'}</h1>
+                <h1 className="font-space font-bold text-2xl md:text-3xl lg:text-4xl tracking-tight mb-4">{selectedVideo.title || 'Untitled'}</h1>
                 <p style={{ color: '#aaaab7', lineHeight: 1.6 }}>Published: {selectedVideo.published_at ? new Date(selectedVideo.published_at).toLocaleDateString() : 'N/A'} • Duration: {selectedVideo.duration || '0:00'}</p>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', xl: { alignItems: 'flex-end' } }}>
                 <span style={{ fontFamily: "'Manrope', sans-serif", fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#aaaab7', marginBottom: '4px' }}>Engagement Rate</span>
                 <span style={{
                   background: parseFloat(engRate) > 5 ? 'rgba(202,253,0,0.1)' : 'rgba(129,236,255,0.1)',
@@ -409,9 +436,9 @@ const Analytics = () => {
 
           {/* Bento Chart Grid */}
           {selectedVideo && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '24px', paddingBottom: '80px' }}>
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pb-20">
               {/* Performance Chart - 8 cols */}
-              <div style={{ gridColumn: 'span 8', background: '#1c1f2b', borderRadius: '12px', padding: '32px', position: 'relative', overflow: 'hidden' }}>
+              <div className="col-span-1 md:col-span-8 bg-[#1c1f2b] rounded-xl p-5 md:p-8 relative overflow-hidden">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '48px' }}>
                   <div>
                     <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.25rem', letterSpacing: '-0.02em', marginBottom: '4px' }}>Performance Benchmarks</h3>
@@ -422,7 +449,7 @@ const Analytics = () => {
               </div>
 
               {/* Channel Average Index - 4 cols */}
-              <div style={{ gridColumn: 'span 4', background: '#1c1f2b', borderRadius: '12px', padding: '32px' }}>
+              <div className="col-span-1 md:col-span-4 bg-[#1c1f2b] rounded-xl p-5 md:p-8">
                 <div style={{ marginBottom: '24px' }}>
                   <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.25rem', letterSpacing: '-0.02em', marginBottom: '4px' }}>Channel Average Index</h3>
                   <p style={{ fontSize: '12px', color: '#aaaab7', fontFamily: "'Manrope', sans-serif", textTransform: 'uppercase', letterSpacing: '0.15em' }}>Metric Benchmarking</p>
@@ -448,7 +475,7 @@ const Analytics = () => {
               </div>
 
               {/* Timeline - 7 cols */}
-              <div style={{ gridColumn: 'span 7', background: '#1c1f2b', borderRadius: '12px', padding: '32px' }}>
+              <div className="col-span-1 md:col-span-7 bg-[#1c1f2b] rounded-xl p-5 md:p-8">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
                   <div>
                     <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.25rem', letterSpacing: '-0.02em', marginBottom: '4px' }}>7-Day View Trajectory</h3>
@@ -460,7 +487,7 @@ const Analytics = () => {
               </div>
 
               {/* Engagement - 5 cols */}
-              <div style={{ gridColumn: 'span 5', background: '#1c1f2b', borderRadius: '12px', padding: '32px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div className="col-span-1 md:col-span-5 bg-[#1c1f2b] rounded-xl p-5 md:p-8 flex flex-col justify-between">
                 <div>
                   <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.25rem', letterSpacing: '-0.02em', marginBottom: '4px' }}>Engagement Density</h3>
                   <p style={{ fontSize: '12px', color: '#aaaab7', fontFamily: "'Manrope', sans-serif", textTransform: 'uppercase', letterSpacing: '0.15em' }}>Interactions vs Total Views</p>
@@ -485,7 +512,7 @@ const Analytics = () => {
               </div>
 
               {/* Radar Chart - 6 cols */}
-              <div style={{ gridColumn: 'span 6', background: '#1c1f2b', borderRadius: '12px', padding: '32px', position: 'relative', overflow: 'hidden' }}>
+              <div className="col-span-1 md:col-span-6 bg-[#1c1f2b] rounded-xl p-5 md:p-8 relative overflow-hidden">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
                   <div>
                     <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.25rem', letterSpacing: '-0.02em', marginBottom: '4px' }}>Performance vs Average</h3>
@@ -496,7 +523,7 @@ const Analytics = () => {
               </div>
 
               {/* Performance Breakdown - 6 cols */}
-              <div style={{ gridColumn: 'span 6', background: '#1c1f2b', borderRadius: '12px', padding: '32px' }}>
+              <div className="col-span-1 md:col-span-6 bg-[#1c1f2b] rounded-xl p-5 md:p-8">
                 <div style={{ marginBottom: '24px' }}>
                     <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.25rem', letterSpacing: '-0.02em', marginBottom: '4px' }}>Performance Breakdown</h3>
                     <p style={{ fontSize: '12px', color: '#aaaab7', fontFamily: "'Manrope', sans-serif", textTransform: 'uppercase', letterSpacing: '0.15em' }}>Relative to Channel Max</p>
@@ -539,9 +566,9 @@ const Analytics = () => {
 
           {/* Footer */}
           {selectedVideo && (
-            <footer style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '32px 0', borderTop: '1px solid rgba(70,71,82,0.1)' }}>
+            <footer className="flex flex-col md:flex-row justify-between items-center py-8 gap-4 border-t border-[#464752]/20 text-center md:text-left">
               <span style={{ fontFamily: "'Manrope', sans-serif", fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#64748b', fontWeight: 700 }}>© 2024 CINEMA_AI Editorial Suite</span>
-              <div style={{ display: 'flex', gap: '32px' }}>
+              <div className="flex flex-wrap justify-center gap-4 md:gap-8">
                 {['Privacy Policy', 'Terms of Service', 'API Status'].map(item => (
                   <a key={item} href="#" style={{ fontFamily: "'Manrope', sans-serif", fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#475569', textDecoration: 'none', transition: 'color 0.3s' }}
                     onMouseEnter={e => e.target.style.color = '#00E5FF'} onMouseLeave={e => e.target.style.color = '#475569'}>{item}</a>

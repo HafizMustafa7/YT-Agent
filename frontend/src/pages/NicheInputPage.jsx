@@ -254,10 +254,7 @@ const NicheInputPage = () => {
 
       {/* HEADER */}
       <header style={{ background: '#11131d', position: 'sticky', top: 0, zIndex: 50, borderBottom: '1px solid rgba(115,117,128,0.1)' }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '0 24px', height: '56px', maxWidth: '1920px', margin: '0 auto', width: '100%'
-        }}>
+        <div className="flex items-center justify-between px-4 md:px-6 h-14 max-w-[1920px] mx-auto w-full">
           <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
             <span
               onClick={() => navigate('/dashboard')}
@@ -336,10 +333,10 @@ const NicheInputPage = () => {
         </section>
 
         {/* BOTTOM CONTENT AREA (Grid + Sidebar) */}
-        <div style={{ display: 'flex', width: '100%', gap: '24px', alignItems: 'flex-start', justifyContent: 'center' }}>
+        <div className="flex flex-col lg:flex-row w-full gap-6 items-start justify-center">
 
           {/* Results Area */}
-          <div style={{ flexGrow: 1, maxWidth: 'calc(100% - 304px)', display: 'flex', flexDirection: 'column' }}>
+          <div className="flex-grow w-full lg:max-w-[calc(100%-304px)] flex flex-col">
             {error && (
               <div style={{
                 padding: '10px', background: 'rgba(255,113,108,0.1)', border: '1px solid rgba(255,113,108,0.2)',
@@ -365,10 +362,7 @@ const NicheInputPage = () => {
                 <p style={{ color: '#aaaab7', fontSize: '12px' }}>No trending videos found. Try another keyword!</p>
               </div>
             ) : (
-              <div style={{
-                /* EXACTLY 3 items in one row, but allowing multiple rows */
-                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px'
-              }}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 md:gap-4">
                 {trends.slice(0, 15).map((video) => {
                   return (
                     <div key={video.id} className="group" style={{
@@ -462,7 +456,7 @@ const NicheInputPage = () => {
           </div>
 
           {/* RIGHT SIDEBAR */}
-          <aside style={{ width: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '24px', marginTop: '4px' }}>
+          <aside className="w-full lg:w-[280px] flex-shrink-0 flex flex-col gap-6 mt-1 lg:mt-4">
             
             <button
               onClick={() => openModalForVideo('', null)}
@@ -534,14 +528,9 @@ const NicheInputPage = () => {
 
       {/* TOPIC INPUT MODAL */}
       {isModalOpen && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-          background: 'rgba(5, 7, 12, 0.85)', backdropFilter: 'blur(10px)',
-          zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px',
-        }}>
-          <div style={{
-            background: 'linear-gradient(135deg, #11131d 0%, #171924 100%)', width: '800px', maxWidth: '95%', borderRadius: '20px', border: '1px solid rgba(129,236,255,0.15)',
-            boxShadow: '0 30px 60px rgba(0,0,0,0.6)', padding: '32px', position: 'relative', display: 'flex', flexDirection: 'column', maxHeight: '90vh'
+        <div className="fixed inset-0 bg-[#05070c] bg-opacity-85 backdrop-blur-md z-[1000] flex items-center justify-center p-4 sm:p-5">
+          <div className="w-[800px] max-w-full rounded-2xl border border-[#81ecff]/15 shadow-2xl p-5 md:p-8 relative flex flex-col max-h-[90vh]" style={{
+            background: 'linear-gradient(135deg, #11131d 0%, #171924 100%)',
           }}>
             {!isLoading && (
               <button
@@ -585,7 +574,7 @@ const NicheInputPage = () => {
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '16px', marginTop: '4px' }}>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-1">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   <label style={{ fontSize: '11px', fontFamily: "'Space Grotesk', sans-serif", color: '#f0f0fd', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Resolution</label>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
@@ -624,7 +613,7 @@ const NicheInputPage = () => {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '24px', marginTop: '8px' }}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6 mt-2">
                 <CustomSelect 
                   label="Visual Style" 
                   value={modalStyle} 
