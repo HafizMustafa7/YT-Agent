@@ -266,81 +266,16 @@ const CheckoutPage = () => {
                   onMouseLeave={e => e.currentTarget.style.color = '#aaaab7'}
                 >← Back to Pricing</button>
 
-                {/* Email */}
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, fontFamily: "'Manrope', sans-serif", color: '#aaaab7', marginBottom: '8px' }}>
-                    Email Address
-                  </label>
-                  <input
-                    type="email" placeholder="creator@youtomize.ai"
-                    style={inputStyle}
-                    onFocus={e => e.target.style.boxShadow = '0 0 0 2px rgba(129,236,255,0.3)'}
-                    onBlur={e => e.target.style.boxShadow = 'none'}
-                  />
-                </div>
-
-                {/* Card Name */}
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, fontFamily: "'Manrope', sans-serif", color: '#aaaab7', marginBottom: '8px' }}>
-                    Name on Card
-                  </label>
-                  <input
-                    type="text" placeholder="ALEX RIVERA"
-                    style={inputStyle}
-                    onFocus={e => e.target.style.boxShadow = '0 0 0 2px rgba(129,236,255,0.3)'}
-                    onBlur={e => e.target.style.boxShadow = 'none'}
-                  />
-                </div>
-
-                {/* Card Number */}
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, fontFamily: "'Manrope', sans-serif", color: '#aaaab7', marginBottom: '8px' }}>
-                    Card Number
-                  </label>
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      type="text" placeholder="0000 0000 0000 0000"
-                      style={inputStyle}
-                      onFocus={e => e.target.style.boxShadow = '0 0 0 2px rgba(129,236,255,0.3)'}
-                      onBlur={e => e.target.style.boxShadow = 'none'}
-                    />
-                    <div style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', display: 'flex', gap: '8px' }}>
-                      <div style={{ width: 32, height: 20, background: '#171924', borderRadius: '2px' }} />
-                      <div style={{ width: 32, height: 20, background: '#171924', borderRadius: '2px' }} />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Expiry + CVC Row */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, fontFamily: "'Manrope', sans-serif", color: '#aaaab7', marginBottom: '8px' }}>
-                      Expiry Date (MM/YY)
-                    </label>
-                    <input
-                      type="text" placeholder="MM/YY"
-                      style={inputStyle}
-                      onFocus={e => e.target.style.boxShadow = '0 0 0 2px rgba(129,236,255,0.3)'}
-                      onBlur={e => e.target.style.boxShadow = 'none'}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, fontFamily: "'Manrope', sans-serif", color: '#aaaab7', marginBottom: '8px' }}>
-                      CVC
-                    </label>
-                    <div style={{ position: 'relative' }}>
-                      <input
-                        type="password" placeholder="•••"
-                        style={inputStyle}
-                        onFocus={e => e.target.style.boxShadow = '0 0 0 2px rgba(129,236,255,0.3)'}
-                        onBlur={e => e.target.style.boxShadow = 'none'}
-                      />
-                      <Icon name="help" style={{
-                        position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)',
-                        color: 'rgba(115,117,128,0.5)', fontSize: '14px', cursor: 'help',
-                      }} />
-                    </div>
-                  </div>
+                <div style={{
+                  padding: '24px', borderRadius: '8px',
+                  background: 'rgba(129,236,255,0.05)', border: '1px dashed rgba(129,236,255,0.2)',
+                  textAlign: 'center', marginBottom: '8px'
+                }}>
+                  <Icon name="lock" style={{ fontSize: '32px', color: '#81ecff', marginBottom: '12px' }} />
+                  <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#f0f0fd', marginBottom: '8px', fontFamily: "'Space Grotesk', sans-serif" }}>Secure Payment</h3>
+                  <p style={{ fontSize: '14px', color: '#aaaab7', fontFamily: "'Manrope', sans-serif", lineHeight: 1.5 }}>
+                    Click the button below to open our secure Paddle payment gateway. You will enter your card details in the encrypted overlay.
+                  </p>
                 </div>
 
                 {/* Error */}

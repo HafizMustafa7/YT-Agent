@@ -420,17 +420,7 @@ async def verify_paddle_transaction(
 
     svc_supabase = _get_service_supabase()
 
-    # 2. Idempotency Check: skip if order is already completed
-    def _fetch_order():
-        return svc_supabase.table("orders").select("payment_status").eq("id", order_id).execute()
-
-    order_resp = await loop.run_in_executor(None, _fetch_order)
-    order_rows = getattr(order_resp, "data", [])
-    if order_rows and order_rows[0].get("payment_status") == "completed":
-        logger.info("[PAYMENT] Order %s already completed (idempotent frontend verify) for txn %s", order_id, txn_id)
-        return {"status": "already_processed", "message": "Credits already added previously."}
-
-    # 3. Process credits
+    # 2. Process credits
     def _fetch_package():
         return svc_supabase.table("packages").select("credits").eq("id", pkg_id).execute()
 
@@ -442,13 +432,18 @@ async def verify_paddle_transaction(
 
     credits_to_add = pkg_rows[0]["credits"]
 
+    # 3. Idempotency Check & Atomic Update: skip if order is not pending
     def _update_order():
         return svc_supabase.table("orders").update({
             "payment_status": "completed",
             "transaction_id": txn_id,
-        }).eq("id", order_id).execute()
+        }).eq("id", order_id).eq("payment_status", "pending").execute()
 
-    await loop.run_in_executor(None, _update_order)
+    update_resp = await loop.run_in_executor(None, _update_order)
+    updated_rows = getattr(update_resp, "data", [])
+    if not updated_rows:
+        logger.info("[PAYMENT] Order %s is not pending (already completed/processed) for txn %s", order_id, txn_id)
+        return {"status": "already_processed", "message": "Credits already added previously."}
 
     # Upsert Credits
     def _fetch_credits():
@@ -555,21 +550,6 @@ async def paddle_webhook(request: Request):
             )
             return {"status": "ignored", "reason": "incomplete metadata"}
 
-        # Idempotency: skip if order already completed
-        def _fetch_order():
-            return (
-                svc_supabase.table("orders")
-                .select("payment_status")
-                .eq("id", order_id)
-                .execute()
-            )
-
-        order_resp = await loop.run_in_executor(None, _fetch_order)
-        order_rows = getattr(order_resp, "data", [])
-        if order_rows and order_rows[0].get("payment_status") == "completed":
-            logger.info("[WEBHOOK] Order %s already completed — skipping (idempotent)", order_id)
-            return {"status": "already_processed"}
-
         # Fetch package credits
         def _fetch_package():
             return (
@@ -587,7 +567,7 @@ async def paddle_webhook(request: Request):
 
         credits_to_add = pkg_rows[0]["credits"]
 
-        # Update order status
+        # Idempotency Check & Atomic Update: skip if order is not pending
         def _update_order():
             return (
                 svc_supabase.table("orders")
@@ -596,10 +576,15 @@ async def paddle_webhook(request: Request):
                     "transaction_id": paddle_txn_id,
                 })
                 .eq("id", order_id)
+                .eq("payment_status", "pending")
                 .execute()
             )
 
-        await loop.run_in_executor(None, _update_order)
+        update_resp = await loop.run_in_executor(None, _update_order)
+        updated_rows = getattr(update_resp, "data", [])
+        if not updated_rows:
+            logger.info("[WEBHOOK] Order %s is not pending (already completed/processed) — skipping", order_id)
+            return {"status": "already_processed"}
 
         # Upsert credits — increment if row exists, insert if new
         def _fetch_credits():

@@ -4,7 +4,7 @@ All endpoints return structured JSON with success flag and descriptive messages.
 """
 import logging
 import uuid as uuid_module
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, Body
 from typing import Dict, Any, Optional
 
 from app.core.config import settings
