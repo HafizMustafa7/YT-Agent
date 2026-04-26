@@ -1,8 +1,7 @@
 FROM python:3.11-slim
 
-# Install system dependencies for FFmpeg and OpenCV (if needed)
+# Install system dependencies (FFmpeg removed — Veo 3.1 returns merged video natively)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
     libsm6 \
     libxext6 \
     curl \

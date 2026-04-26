@@ -1,14 +1,17 @@
 """
-Video generation service using OpenAI Sora 2 API.
-Creates projects/frames in Supabase, generates clips per frame,
-uploads to Cloudflare R2 via Worker, combines with FFmpeg.
+Video generation service using Google Veo 3.1 API.
+Creates projects/frames in Supabase, generates clips per frame via
+text-to-video (frame 1) and video-extend (frames 2-N), uploads to
+Cloudflare R2 via Worker.  No FFmpeg — Veo extend returns the full
+cumulative merged video on every call.
 """
 import os
+import json
 import time
 from datetime import datetime, timezone
 import asyncio
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import httpx
 from supabase import create_client, Client
 from google.oauth2.credentials import Credentials
@@ -124,11 +127,13 @@ def create_video_project(
     title: str, 
     frames: List[Dict[str, Any]], 
     user_id: Optional[str] = None, 
-    channel_id: Optional[str] = None
+    channel_id: Optional[str] = None,
+    aspect_ratio: str = "9:16",
+    resolution: str = "720p",
 ) -> str:
     """
     Create a project and project_frames rows. Returns project_id (UUID string).
-    Now tracks channel_id explicitly for multi-channel support.
+    Stores aspect_ratio and resolution in metadata for use during generation.
     """
     sb = get_supabase()
     if not user_id:
@@ -143,6 +148,10 @@ def create_video_project(
             "input_value": input_value,
             "status": "queued",
             "project_name": (title or "Video")[:255],
+            "metadata": {
+                "aspect_ratio": aspect_ratio,
+                "resolution": resolution,
+            },
         }
         if channel_id:
             project_data["channel_id"] = channel_id
@@ -242,162 +251,163 @@ def update_frame_prompt(frame_id: str, new_prompt: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Sora API (async)
+# Veo 3.1 API (async)
 # ---------------------------------------------------------------------------
 
-SORA_BASE = "https://api.openai.com/v1/videos"
+VEO_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+VEO_MODEL = "veo-3.1-generate-preview"
+VEO_LRO_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 
-async def sora_create(prompt: str, duration_seconds: int = 8) -> str:
-    """Start Sora job; returns job id. Retries on transient failures."""
-    if not settings.OPENAI_API_KEY:
-        raise ValueError("OPENAI_API_KEY must be set in .env to use Sora video generation")
+def _veo_api_key() -> str:
+    if not settings.GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY must be set in .env to use Veo video generation")
+    return settings.GEMINI_API_KEY
 
-    # Sora 2 accepts 4, 8, or 12 seconds — all three are valid clip lengths.
-    ALLOWED = [4, 8, 12]
-    sec = min(ALLOWED, key=lambda x: abs(x - duration_seconds))
-    max_sec = settings.SORA_MAX_DURATION_SECONDS
-    if sec > max_sec:
-        sec = max(d for d in ALLOWED if d <= max_sec)
-    model = settings.SORA_MODEL
-    size = settings.SORA_VIDEO_SIZE
 
-    logger.info("Starting Sora job: model=%s, size=%s, seconds=%d", model, size, sec)
+async def veo_start_generate(
+    prompt: str,
+    duration_seconds: int,
+    aspect_ratio: str,
+) -> str:
+    """
+    Start a Veo 3.1 text-to-video generation job.
+    Returns the LRO operation name (used to poll status).
+    Resolution is always locked to 720p.
+    """
+    key = _veo_api_key()
+    endpoint = f"{VEO_BASE}/{VEO_MODEL}:generateVideo?key={key}"
+    payload: Dict[str, Any] = {
+        "prompt": prompt,
+        "durationSeconds": str(duration_seconds),
+        "aspectRatio": aspect_ratio,
+        "resolution": "720p",
+        "numberOfVideos": 1,
+    }
+    logger.info(
+        "Veo generate: duration=%ds, ratio=%s, resolution=720p",
+        duration_seconds, aspect_ratio,
+    )
+    return await _veo_submit(endpoint, payload)
 
+
+async def veo_start_extend(
+    prompt: str,
+    video_object: Dict[str, Any],
+    aspect_ratio: str,
+) -> str:
+    """
+    Start a Veo 3.1 video-extend job from a previous Veo video object.
+    Extension duration is fixed to 7s per the API constraint.
+    Returns the LRO operation name.
+    """
+    key = _veo_api_key()
+    endpoint = f"{VEO_BASE}/{VEO_MODEL}:generateVideo?key={key}"
+    payload: Dict[str, Any] = {
+        "prompt": prompt,
+        "video": video_object,
+        "durationSeconds": "7",   # Veo 3.1 extension fixed to 7s
+        "aspectRatio": aspect_ratio,
+        "resolution": "720p",
+        "numberOfVideos": 1,
+    }
+    logger.info("Veo extend: ratio=%s, resolution=720p (extend fixed to 7s)", aspect_ratio)
+    return await _veo_submit(endpoint, payload)
+
+
+async def _veo_submit(endpoint: str, payload: Dict[str, Any]) -> str:
+    """POST to a Veo endpoint, retry on transients, return LRO operation name."""
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
             client = get_http_client()
-            r = await client.post(
-                SORA_BASE,
-                headers={
-                    "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "prompt": prompt,
-                    "size": size,
-                    "seconds": str(sec),
-                },
+            r = await client.post(endpoint, json=payload, timeout=60.0)
+            if r.status_code == 200:
+                op_name = r.json().get("name")
+                if not op_name:
+                    raise RuntimeError("Veo API returned no operation name")
+                logger.info("Veo LRO started: %s", op_name)
+                return op_name
+            # 4xx (except 429) are fatal — do not retry
+            if 400 <= r.status_code < 500 and r.status_code != 429:
+                raise RuntimeError(f"Veo API error ({r.status_code}): {r.text}")
+            # 5xx / 429 — transient, retry with backoff
+            logger.warning(
+                "Veo API transient error (%d) attempt %d/%d: %s",
+                r.status_code, attempt, max_retries, r.text,
             )
-            if r.status_code != 200:
-                error_body = r.text
-                # Don't retry on 4xx client errors (bad request, auth, etc.)
-                if 400 <= r.status_code < 500:
-                    logger.error("Sora API client error (%d): %s", r.status_code, error_body)
-                    raise RuntimeError(f"Sora API error ({r.status_code}): {error_body}")
-                # Retry on 5xx server errors
-                logger.warning("Sora API server error (%d) attempt %d/%d: %s", r.status_code, attempt, max_retries, error_body)
-                if attempt == max_retries:
-                    raise RuntimeError(f"Sora API error ({r.status_code}): {error_body}")
-                await asyncio.sleep(2 ** attempt)
-                continue
-
-            job_id = r.json().get("id")
-            if not job_id:
-                raise RuntimeError("Sora API returned no job ID")
-            logger.info("Sora job created: %s", job_id)
-            return job_id
-        except (httpx.TimeoutException, httpx.RequestError) as e:
-            logger.warning("Sora API connection error (attempt %d/%d): %s", attempt, max_retries, e)
             if attempt == max_retries:
-                raise RuntimeError(f"Sora API connection failed after {max_retries} attempts: {e}") from e
-            await asyncio.sleep(2 ** attempt)
+                raise RuntimeError(f"Veo API error ({r.status_code}) after {max_retries} attempts")
+            await asyncio.sleep(min(2 ** attempt, 30))
+        except (httpx.TimeoutException, httpx.RequestError) as e:
+            logger.warning("Veo API connection error (attempt %d/%d): %s", attempt, max_retries, e)
+            if attempt == max_retries:
+                raise RuntimeError(f"Veo API connection failed: {e}") from e
+            await asyncio.sleep(min(2 ** attempt, 30))
+    raise RuntimeError("Veo job submission failed")
 
-    raise RuntimeError("Sora job creation failed after all retries")
 
-
-async def sora_poll_and_download(job_id: str, duration_seconds: int = 8) -> bytes:
+async def veo_poll_and_download(op_name: str) -> Tuple[bytes, Dict[str, Any]]:
     """
-    Poll until completed, then download content. Returns video bytes.
-    Timeouts and poll intervals adapt based on frame duration.
-    Download retries on failure.
+    Poll the Google LRO until done, then download the video bytes.
+    Returns (video_bytes, video_object) where video_object is the raw
+    Veo video dict that must be passed to the next extend call.
     """
-    # Adaptive settings based on frame duration
-    if duration_seconds >= 12:
-        poll_interval = 15
-        max_wait_sec = 900     # 15 min for 12s frames
-        download_timeout = 180.0
-    elif duration_seconds >= 8:
-        poll_interval = 10
-        max_wait_sec = 720     # 12 min for 8s frames
-        download_timeout = 150.0
-    else:
-        poll_interval = 5
-        max_wait_sec = 600     # 10 min for 4s frames
-        download_timeout = 120.0
-
+    key = _veo_api_key()
+    poll_interval = 10   # seconds
+    max_wait_sec = 1800  # 30 minutes
     max_polls = max(1, max_wait_sec // poll_interval)
-    download_retries = 3
-    logger.info(
-        "Polling Sora job %s (duration=%ds, interval=%ds, max_wait=%ds)...",
-        job_id, duration_seconds, poll_interval, max_wait_sec,
-    )
 
+    logger.info("Polling Veo LRO: %s", op_name)
     client = get_http_client()
+
     for attempt in range(max_polls):
         try:
-            r = await client.get(
-                f"{SORA_BASE}/{job_id}",
-                headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
-                timeout=30.0,
-            )
+            url = f"{VEO_LRO_BASE}/{op_name}?key={key}"
+            r = await client.get(url, timeout=30.0)
             if r.status_code != 200:
-                logger.warning("Sora poll attempt %d failed (%d): %s", attempt + 1, r.status_code, r.text)
+                logger.warning("Veo poll attempt %d failed (%d): %s", attempt + 1, r.status_code, r.text)
                 await asyncio.sleep(poll_interval)
                 continue
 
             data = r.json()
-            status = data.get("status")
+            if not data.get("done"):
+                if (attempt + 1) % 6 == 0:
+                    logger.info("Veo LRO %s still processing (attempt %d/%d)...", op_name, attempt + 1, max_polls)
+                await asyncio.sleep(poll_interval)
+                continue
 
-            if status == "completed":
-                logger.info("Sora job %s completed, downloading content...", job_id)
-                # Retry download on failure
-                for dl_attempt in range(1, download_retries + 1):
-                    try:
-                        dl = await client.get(
-                            f"{SORA_BASE}/{job_id}/content",
-                            headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
-                            timeout=download_timeout,
-                        )
-                        if dl.status_code != 200:
-                            logger.warning(
-                                "Download attempt %d/%d failed (%d): %s",
-                                dl_attempt, download_retries, dl.status_code, dl.text,
-                            )
-                            if dl_attempt == download_retries:
-                                raise RuntimeError(f"Failed to download video after {download_retries} attempts ({dl.status_code})")
-                            await asyncio.sleep(2 ** dl_attempt)
-                            continue
-                        logger.info("Downloaded %d bytes for job %s", len(dl.content), job_id)
-                        return dl.content
-                    except httpx.TimeoutException:
-                        logger.warning("Download attempt %d/%d timed out", dl_attempt, download_retries)
-                        if dl_attempt == download_retries:
-                            raise TimeoutError(f"Sora content download timed out after {download_retries} attempts")
-                        await asyncio.sleep(2 ** dl_attempt)
-                    except httpx.RequestError as e:
-                        logger.warning("Download attempt %d/%d connection error: %s", dl_attempt, download_retries, e)
-                        if dl_attempt == download_retries:
-                            raise RuntimeError(f"Download connection failed after {download_retries} attempts: {e}") from e
-                        await asyncio.sleep(2 ** dl_attempt)
+            # Operation is done
+            if "error" in data:
+                raise RuntimeError(f"Veo generation failed: {data['error']}")
 
-            if status == "failed":
-                error_info = data.get("error", "Unknown error")
-                logger.error("Sora job %s failed: %s", job_id, error_info)
-                raise RuntimeError(f"Sora job failed: {error_info}")
+            response = data.get("response", {})
+            # Veo API returns camelCase
+            videos = response.get("generatedVideos") or response.get("generated_videos") or []
+            if not videos:
+                raise RuntimeError("Veo returned no videos in completed operation")
 
-            # Still processing
-            if (attempt + 1) % 12 == 0:  # Log every ~60s
-                logger.info("Sora job %s still processing (attempt %d/%d)...", job_id, attempt + 1, max_polls)
+            video_obj: Dict[str, Any] = videos[0].get("video") or {}
+            if not video_obj:
+                raise RuntimeError("Veo completed but video object is empty")
+
+            uri = video_obj.get("uri")
+            if not uri:
+                raise RuntimeError("Veo video object has no 'uri' field")
+
+            logger.info("Veo LRO %s done, downloading video from GCS URI...", op_name)
+            dl = await client.get(uri, timeout=180.0)
+            if dl.status_code != 200:
+                raise RuntimeError(f"Failed to download Veo video ({dl.status_code}): {dl.text}")
+
+            logger.info("Downloaded %d bytes for LRO %s", len(dl.content), op_name)
+            return dl.content, video_obj
 
         except (httpx.TimeoutException, httpx.RequestError) as e:
-            logger.warning("Sora poll attempt %d network error: %s", attempt + 1, e)
+            logger.warning("Veo poll network error (attempt %d): %s", attempt + 1, e)
+            await asyncio.sleep(poll_interval)
 
-        await asyncio.sleep(poll_interval)
-
-    raise TimeoutError(f"Sora job {job_id} did not complete within {max_wait_sec} seconds")
+    raise TimeoutError(f"Veo LRO {op_name} did not complete within {max_wait_sec} seconds")
 
 
 # ---------------------------------------------------------------------------
@@ -551,36 +561,72 @@ async def generate_single_frame(
     frame_num: int,
     prompt: str,
     duration_seconds: int,
+    aspect_ratio: str = "9:16",
 ):
-    """Generate a single frame: Sora → save locally → upload R2 → create asset."""
+    """
+    Generate a single frame using Veo 3.1.
+    - Frame 1: text-to-video (uses story duration, 720p locked).
+    - Frames 2-N: video-extend using prev frame's videoObject (7s, 720p locked).
+    Flow: Veo generate → download MP4 → save to temp → save videoObject JSON
+          → upload MP4 to R2 (trash, for preview) → create asset record.
+    """
     ensure_temp_dir()
     logger.info("Generating frame %d (id=%s) for project %s", frame_num, frame_id, project_id)
 
     try:
         update_frame_status(frame_id, "generating")
 
-        # 1. Call Sora API
-        job_id = await sora_create(prompt, duration_seconds)
+        # 1. Start Veo job (generate or extend)
+        if frame_num == 1:
+            # First frame: text-to-video
+            op_name = await veo_start_generate(
+                prompt=prompt,
+                duration_seconds=duration_seconds,
+                aspect_ratio=aspect_ratio,
+            )
+        else:
+            # Extension frame: load previous frame's video object from temp JSON
+            prev_obj_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num - 1}_video_object.json")
+            if not os.path.exists(prev_obj_path):
+                raise RuntimeError(
+                    f"Previous frame ({frame_num - 1}) video object not found at {prev_obj_path}. "
+                    "Cannot extend — generate preceding frames first."
+                )
+            with open(prev_obj_path, "r", encoding="utf-8") as f:
+                prev_video_object = json.load(f)
+            op_name = await veo_start_extend(
+                prompt=prompt,
+                video_object=prev_video_object,
+                aspect_ratio=aspect_ratio,
+            )
 
-        # 2. Poll and download (adaptive timeouts based on duration)
-        video_data = await sora_poll_and_download(job_id, duration_seconds=duration_seconds)
+        # 2. Poll LRO and download the completed (merged) video
+        video_data, new_video_object = await veo_poll_and_download(op_name)
         if not video_data:
-            raise RuntimeError("Sora returned empty video data")
+            raise RuntimeError("Veo returned empty video data")
 
-        # 3. Save locally for FFmpeg
-        local_path = os.path.join(TEMP_DIR, f"clip_{project_id}_{frame_num}.mp4")
+        # 3. Save MP4 locally (named with _temp suffix per naming convention)
+        local_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_temp.mp4")
         try:
             with open(local_path, "wb") as f:
                 f.write(video_data)
-            logger.info("Saved clip locally: %s (%d bytes)", local_path, len(video_data))
+            logger.info("Saved temp clip: %s (%d bytes)", local_path, len(video_data))
         except IOError as e:
             raise RuntimeError(f"Failed to save clip locally: {e}") from e
 
-        # 4. Upload to R2
+        # 4. Save the Veo video object JSON (used as extend seed for next frame)
+        obj_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_video_object.json")
+        try:
+            with open(obj_path, "w", encoding="utf-8") as f:
+                json.dump(new_video_object, f)
+        except IOError as e:
+            raise RuntimeError(f"Failed to save video object JSON: {e}") from e
+
+        # 5. Upload MP4 to R2 trash bucket (makes it instantly previewable on frontend)
         r2_path = f"trash/videos/{project_id}/clip_{frame_num}.mp4"
         public_url = await upload_to_r2(video_data, "trash", r2_path)
 
-        # 5. Create asset record with public URL
+        # 6. Create asset record so frontend can find the preview URL
         asset_id = create_asset(
             project_id=project_id,
             asset_type="frame",
@@ -589,16 +635,14 @@ async def generate_single_frame(
             file_url=public_url,
         )
 
-        # Local clip kept on disk for FFmpeg combine — cleaned up after combine succeeds
-
         update_frame_status(frame_id, "completed", asset_id=asset_id)
-        logger.info("Frame %d completed successfully (asset=%s)", frame_num, asset_id)
+        logger.info("Frame %d completed (asset=%s, url=%s)", frame_num, asset_id, public_url or "N/A")
 
     except Exception as e:
         error_msg = str(e)
         logger.error("Frame %d generation failed: %s", frame_num, error_msg)
         update_frame_status(frame_id, "failed", error_message=error_msg)
-        
+
         # Refund credits on failure
         try:
             from app.routes.payment import calculate_required_credits, refund_credits
@@ -608,7 +652,7 @@ async def generate_single_frame(
                 await refund_credits(project["user_id"], credits_to_refund)
         except Exception as refund_err:
             logger.error("Failed to refund credits for failed frame %d: %s", frame_num, refund_err)
-        # Do NOT re-raise: this runs as a BackgroundTask, re-raising causes ASGI errors
+        # Do NOT re-raise: runs as BackgroundTask
 
 
 # ---------------------------------------------------------------------------
@@ -616,7 +660,7 @@ async def generate_single_frame(
 # ---------------------------------------------------------------------------
 
 
-async def generate_all_pending_frames(project_id: str):
+async def generate_all_pending_frames(project_id: str, aspect_ratio: str = "9:16"):
     """Generate all pending frames sequentially. Safe for BackgroundTask — never raises."""
     try:
         project = get_project_with_frames_and_assets(project_id)
@@ -635,14 +679,28 @@ async def generate_all_pending_frames(project_id: str):
 
         for idx, f in enumerate(frames):
             logger.info("Processing frame %d/%d (id=%s)", idx + 1, len(frames), f["id"])
-            # generate_single_frame already handles its own errors and marks frame as failed
             await generate_single_frame(
                 f["id"],
                 project_id,
                 f["frame_num"],
                 f["ai_video_prompt"],
                 f.get("duration_seconds", 8),
+                aspect_ratio=aspect_ratio,
             )
+            # After each frame, check whether it failed — if so stop the chain
+            # (extension frames depend on the previous frame's videoObject)
+            refreshed = get_project_with_frames_and_assets(project_id)
+            if refreshed:
+                gen_frame = next(
+                    (pf for pf in (refreshed.get("frames") or []) if pf["id"] == f["id"]),
+                    None,
+                )
+                if gen_frame and gen_frame.get("status") == "failed":
+                    logger.error(
+                        "Frame %d failed — stopping sequential generation (subsequent frames need this frame's video object)",
+                        f["frame_num"],
+                    )
+                    break
 
         # Determine final status
         updated = get_project_with_frames_and_assets(project_id)
@@ -654,10 +712,10 @@ async def generate_all_pending_frames(project_id: str):
 
             if completed == total:
                 update_project_status(project_id, "clips_ready")
-                logger.info("Project %s: all %d frames completed — ready to combine", project_id, total)
+                logger.info("Project %s: all %d frames completed — ready to finalize", project_id, total)
             elif completed > 0:
-                update_project_status(project_id, "generating")  # Partial — keep active for retries
-                logger.warning("Project %s: %d/%d frames completed (%d failed, retry needed)", project_id, completed, total, failed)
+                update_project_status(project_id, "generating")
+                logger.warning("Project %s: %d/%d frames completed (%d failed)", project_id, completed, total, failed)
             else:
                 update_project_status(project_id, "failed")
                 logger.error("Project %s: all frames failed", project_id)
@@ -666,137 +724,65 @@ async def generate_all_pending_frames(project_id: str):
         update_project_status(project_id, "failed")
 
 
-# ---------------------------------------------------------------------------
-# Combine clips (FFmpeg)
-# ---------------------------------------------------------------------------
-
-
-def combine_clips_local(project_id: str, frame_nums: List[int]) -> bytes:
-    """Concat clips in frame_num order from TEMP_DIR; return final video bytes."""
-    try:
-        import ffmpeg
-    except ImportError:
-        raise RuntimeError("ffmpeg-python is required: pip install ffmpeg-python")
-
-    # Check FFmpeg binary is available
-    import shutil
-    if not shutil.which("ffmpeg"):
-        raise RuntimeError(
-            "FFmpeg binary not found. Install FFmpeg and ensure it's in your PATH. "
-            "On Windows: winget install Gyan.FFmpeg (then restart your terminal)"
-        )
-
-    paths = []
-    for num in sorted(frame_nums):
-        p = os.path.join(TEMP_DIR, f"clip_{project_id}_{num}.mp4")
-        if not os.path.exists(p):
-            raise FileNotFoundError(f"Missing clip for frame {num}: {p}")
-        paths.append(os.path.abspath(p).replace("\\", "/"))
-
-    if not paths:
-        raise ValueError("No clips found to combine")
-
-    list_path = os.path.join(TEMP_DIR, f"list_{project_id}.txt")
-    try:
-        with open(list_path, "w") as f:
-            for p in paths:
-                f.write(f"file '{p}'\n")
-    except IOError as e:
-        raise RuntimeError(f"Failed to create FFmpeg concat list: {e}") from e
-
-    out_path = os.path.join(TEMP_DIR, f"final_{project_id}.mp4")
-
-    try:
-        logger.info("Running FFmpeg concat for %d clips...", len(paths))
-        ffmpeg.input(list_path, format="concat", safe=0).output(out_path, c="copy").overwrite_output().run(quiet=True)
-    except FileNotFoundError as e:
-        logger.error("FFmpeg binary not found: %s", e)
-        raise RuntimeError(
-            "FFmpeg binary not found. Install FFmpeg and restart your terminal."
-        ) from e
-    except Exception as e:
-        logger.error("FFmpeg failed: %s", e)
-        raise RuntimeError(f"FFmpeg concat failed: {e}") from e
-
-    if not os.path.exists(out_path):
-        raise RuntimeError("FFmpeg did not produce output file")
-
-    try:
-        with open(out_path, "rb") as f:
-            data = f.read()
-        logger.info("Combined video: %d bytes", len(data))
-        return data
-    except IOError as e:
-        raise RuntimeError(f"Failed to read combined video: {e}") from e
-
-
-async def combine_project(project_id: str) -> Dict[str, Any]:
+async def promote_final_video(project_id: str) -> Dict[str, Any]:
     """
-    Combine all clips, upload to R2, create final asset.
+    Promote the last completed frame's merged MP4 to the final R2 bucket.
+    Replaces FFmpeg combine — Veo 3.1 extend already returns the full cumulative
+    video on every call, so the last frame's temp file IS the final video.
     Safe for BackgroundTask — never raises.
-    Downloads clips from R2 if not found locally (restart-safe).
-    Cleans up all temp files after successful upload.
-    Returns dict with asset_id and video_url, or error.
+    Cleans up all _temp.mp4 and _video_object.json files on success.
     """
-    temp_files_to_clean = []  # track files for cleanup
+    temp_files_to_clean: List[str] = []
     try:
         ensure_temp_dir()
         project = get_project_with_frames_and_assets(project_id)
         if not project:
-            logger.error("Project %s not found for combine", project_id)
+            logger.error("Project %s not found for promote", project_id)
             return {"error": f"Project {project_id} not found"}
 
         frames = sorted(project.get("frames") or [], key=lambda x: x["frame_num"])
-        if not frames:
-            logger.error("No frames in project %s", project_id)
-            return {"error": "No frames in project"}
-
         completed_frames = [f for f in frames if f.get("status") == "completed"]
         if not completed_frames:
-            logger.error("No completed clips to combine for project %s", project_id)
-            return {"error": "No completed clips to combine"}
+            return {"error": "No completed frames to finalize"}
 
-        assets = project.get("assets") or []
+        # Collect all temp files for cleanup regardless of outcome
+        for f in frames:
+            fnum = f["frame_num"]
+            temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_temp.mp4"))
+            temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_video_object.json"))
 
-        # Ensure each clip exists locally — download from R2 if missing
-        frame_nums = []
-        for cf in completed_frames:
-            fnum = cf["frame_num"]
-            local_path = os.path.join(TEMP_DIR, f"clip_{project_id}_{fnum}.mp4")
-            temp_files_to_clean.append(local_path)
+        # The last completed frame holds the full cumulative merged video
+        last_frame = completed_frames[-1]
+        fnum_last = last_frame["frame_num"]
+        local_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum_last}_temp.mp4")
 
-            if not os.path.exists(local_path):
-                # Find the R2 URL from assets
-                clip_asset = next(
-                    (a for a in assets
-                     if a.get("asset_type") == "frame"
-                     and a.get("file_url")
-                     and f"clip_{fnum}" in (a.get("file_path") or "")),
-                    None
-                )
-                if clip_asset and clip_asset.get("file_url"):
-                    logger.info("Clip for frame %d not found locally, downloading from R2...", fnum)
-                    ok = await download_clip_from_r2(clip_asset["file_url"], local_path)
-                    if not ok:
-                        logger.error("Failed to download clip for frame %d from R2", fnum)
-                        return {"error": f"Cannot retrieve clip for frame {fnum} — not on disk or R2"}
-                else:
-                    logger.error("No R2 URL found for frame %d clip", fnum)
-                    return {"error": f"Clip for frame {fnum} not found locally and no R2 URL available"}
+        if not os.path.exists(local_path):
+            # Fallback: re-download from R2 (e.g. server restart)
+            assets = project.get("assets") or []
+            clip_asset = next(
+                (a for a in assets
+                 if a.get("asset_type") == "frame"
+                 and a.get("file_url")
+                 and f"clip_{fnum_last}" in (a.get("file_path") or "")),
+                None,
+            )
+            if clip_asset and clip_asset.get("file_url"):
+                logger.info("Final frame %d temp file missing, downloading from R2...", fnum_last)
+                ok = await download_clip_from_r2(clip_asset["file_url"], local_path)
+                if not ok:
+                    return {"error": f"Cannot retrieve final frame {fnum_last} from R2"}
+            else:
+                return {"error": f"Final frame {fnum_last} temp file missing and no R2 URL available"}
 
-            frame_nums.append(fnum)
+        with open(local_path, "rb") as fp:
+            final_data = fp.read()
 
-        logger.info("Combining %d clips (frames %s) for project %s", len(frame_nums), frame_nums, project_id)
+        logger.info(
+            "Promoting final video for project %s (%d bytes, last frame=%d)",
+            project_id, len(final_data), fnum_last,
+        )
 
-        # Run FFmpeg in executor to avoid blocking
-        loop = asyncio.get_running_loop()
-        final_data = await loop.run_in_executor(None, combine_clips_local, project_id, frame_nums)
-
-        # Track additional temp files created by combine
-        temp_files_to_clean.append(os.path.join(TEMP_DIR, f"list_{project_id}.txt"))
-        temp_files_to_clean.append(os.path.join(TEMP_DIR, f"final_{project_id}.mp4"))
-
-        # Upload final video to R2
+        # Upload to R2 final bucket
         r2_path = f"final/videos/{project_id}/final.mp4"
         public_url = await upload_to_r2(final_data, "final", r2_path)
 
@@ -809,14 +795,17 @@ async def combine_project(project_id: str) -> Dict[str, Any]:
             file_url=public_url,
         )
 
-        # Update project status with video URL
+        # Mark project as completed
         update_project_status(project_id, "completed", video_url=public_url)
-        logger.info("Project %s combined successfully. URL: %s", project_id, public_url or "N/A")
+        logger.info("Project %s finalized. URL: %s", project_id, public_url or "N/A")
 
-        # Cleanup all temp files (clips, concat list, final video)
-        for path in temp_files_to_clean:
-            cleanup_temp_file(path)
-        logger.info("Cleaned up %d temp files for project %s", len(temp_files_to_clean), project_id)
+        # Cleanup all temp files (MP4s and video object JSONs)
+        cleaned = 0
+        for path in set(temp_files_to_clean):
+            if os.path.exists(path):
+                cleanup_temp_file(path)
+                cleaned += 1
+        logger.info("Cleaned up %d temp files for project %s", cleaned, project_id)
 
         return {
             "asset_id": asset_id,
@@ -824,9 +813,9 @@ async def combine_project(project_id: str) -> Dict[str, Any]:
             "file_size": len(final_data),
         }
     except Exception as e:
-        logger.error("Combine failed for project %s: %s", project_id, e)
+        logger.error("promote_final_video failed for project %s: %s", project_id, e)
         update_project_status(project_id, "failed")
-        # Do NOT re-raise: this runs as a BackgroundTask
+        # Do NOT re-raise: runs as BackgroundTask
         return {"error": str(e)}
 
 
@@ -990,7 +979,7 @@ def upload_video_file_to_youtube(
         raise RuntimeError(f"Upload failed, no ID returned: {response}")
 
 
-async def upload_project_to_youtube(project_id: str):
+async def upload_project_to_youtube(project_id: str, custom_title: Optional[str] = None):
     """
     Full workflow:
     1. Fetch project & verify status.
@@ -1055,7 +1044,7 @@ async def upload_project_to_youtube(project_id: str):
 
         # 4. Upload to YouTube (in executor)
         loop = asyncio.get_running_loop()
-        topic_title = project.get("input_value") or project.get("project_name", "AI Generated Video")
+        topic_title = custom_title if custom_title else (project.get("input_value") or project.get("project_name", "AI Generated Video"))
         hashtags = generate_hashtags_for_title(project)
         
         # Build title with hashtags within 100 chars

@@ -26,6 +26,7 @@ function YTAgentPage() {
     const [videoProjectId, setVideoProjectId] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [creativePrefs, setCreativePrefs] = useState(null);
 
     // ── Topic suggestion state ──────────────────────────────────────────────
     const [suggestions, setSuggestions] = useState([]);
@@ -102,6 +103,7 @@ function YTAgentPage() {
     };
 
     const handleSubmitCreative = (preferences) => {
+        setCreativePrefs(preferences);
         setSearchParams({ step: 'generating' });
         generateStory(preferences);
     };
@@ -152,13 +154,10 @@ function YTAgentPage() {
         };
 
         const normalizeDuration = (value) => {
-            // Valid Sora clip durations: 4s, 8s, 12s.
-            const allowed = [4, 8, 12];
+            // Veo 3.1: first frame uses story duration (any positive int).
+            // Extension frames are fixed to 7s server-side; we still store the story value.
             const raw = Number(value);
-            if (!Number.isFinite(raw)) return 8;
-            return allowed.reduce((prev, curr) =>
-                Math.abs(curr - raw) < Math.abs(prev - raw) ? curr : prev
-            );
+            return (Number.isFinite(raw) && raw >= 1) ? Math.max(1, Math.floor(raw)) : 8;
         };
 
         const normalizedFrames = frames
@@ -189,7 +188,9 @@ function YTAgentPage() {
             frames: normalizedFrames,
         };
         try {
-            const res = await apiService.createVideoProject(payload.title, payload.frames, channelId);
+            const aspect_ratio = creativePrefs?.aspect_ratio || '9:16';
+            const resolution = '720p'; // Locked for Veo 3.1
+            const res = await apiService.createVideoProject(payload.title, payload.frames, channelId, aspect_ratio, resolution);
             setVideoProjectId(res.project_id);
             setSearchParams({ step: 'videoGen', projectId: res.project_id });
         } catch (err) {

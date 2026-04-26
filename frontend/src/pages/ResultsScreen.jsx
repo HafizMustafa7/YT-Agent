@@ -47,7 +47,9 @@ const ResultsScreen = () => {
       const creativePreferences = {
         duration_seconds: 44, 
         target_audience: 'general',
-        tone: 'engaging'
+        tone: 'engaging',
+        aspect_ratio: '9:16',
+        resolution: '720p'
       };
 
       // Ensure video data has required fields
@@ -68,7 +70,12 @@ const ResultsScreen = () => {
       );
 
       if (result.success || result.story) {
-        navigate('/frame-results', { state: { data: result.story || result } });
+        navigate('/frame-results', { 
+          state: { 
+            data: result.story || result,
+            creative_preferences: creativePreferences
+          } 
+        });
       } else {
         throw new Error('Story generation failed');
       }

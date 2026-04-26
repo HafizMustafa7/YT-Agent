@@ -26,17 +26,24 @@ const FrameResults = () => {
   const [generatingFrameId, setGeneratingFrameId] = useState(null);
   const [combining, setCombining] = useState(false);
   const [finalVideoUrl, setFinalVideoUrl] = useState(null);
+  // Per-frame retry-attempt count shown in status badge
+  const [retryAttempts, setRetryAttempts] = useState({});  // { frameId: attemptN }
   const pollCountRef = useRef(0);
   const isCreatingRef = useRef(false);
+  // Flag to stop sequential generation if user cancelled or frame fatally failed
+  const stopSequentialRef = useRef(false);
 
   const [editingPromptId, setEditingPromptId] = useState(null);
   const [editedPromptValue, setEditedPromptValue] = useState("");
   const [savingPromptId, setSavingPromptId] = useState(null);
 
-  // Original raw story data passed from NicheInput
+  // Original raw story data passed from navigation state
   const storyResultRaw = location.state?.data;
   const rawStory = useMemo(() => storyResultRaw?.story || storyResultRaw || {}, [storyResultRaw]);
   const rawFrames = useMemo(() => Array.isArray(rawStory?.frames) ? rawStory.frames : [], [rawStory]);
+  // Creative preferences passed through from NicheInput → YTAgentPage → navigate state
+  const creativePrefs = useMemo(() => location.state?.creative_preferences || {}, [location.state]);
+  const aspectRatio = useMemo(() => creativePrefs?.aspect_ratio || '9:16', [creativePrefs]);
 
   const getPollInterval = () => {
     const count = pollCountRef.current;
@@ -74,9 +81,8 @@ const FrameResults = () => {
 
       const normalizeDuration = (value) => {
         const raw = Number(value);
-        // Accept any positive whole number ≥ 4 (covers 7s extension frames + 8s first frames)
-        // Fall back to 8 only if value is missing or non-numeric
-        return (Number.isFinite(raw) && Number.isInteger(raw) && raw >= 4) ? raw : 8;
+        // Accept any positive whole number ≥ 1 (Veo first frame = story duration, extensions = 7s)
+        return (Number.isFinite(raw) && raw >= 1) ? Math.max(1, Math.floor(raw)) : 8;
       };
 
       const normalizedFrames = rawFrames
@@ -99,7 +105,13 @@ const FrameResults = () => {
       const payloadTitle = (normalizedTitle || 'Story Video').slice(0, 255);
 
       try {
-        const res = await apiService.createVideoProject(payloadTitle, normalizedFrames, null);
+      const res = await apiService.createVideoProject(
+          payloadTitle,
+          normalizedFrames,
+          null,          // channelId — supplied later at upload time
+          aspectRatio,   // from creative preferences
+          '720p',        // resolution always 720p for Veo 3.1
+        );
         setProjectId(res.project_id);
       } catch (err) {
         setError(err.message || 'Failed to initialize backend video project.');
@@ -166,21 +178,64 @@ const FrameResults = () => {
     }
   }, [project?.status, finalVideoUrl, generatingFrameId, liveFrames]);
 
-  // Generators
+  // -----------------------------------------------------------------------
+  // Sequential "Generate All" driver
+  // Runs entirely on the frontend using polling data.
+  // After each frame reaches SUCCESS it triggers the next frame.
+  // Stops if a frame becomes 'failed' (FATAL on backend) or all done.
+  // -----------------------------------------------------------------------
+  useEffect(() => {
+    if (!generatingAll || !projectId || !liveFrames.length) return;
+
+    const pendingFrame = liveFrames.find(
+      (f) => f.status === 'pending' || f.status === 'failed'
+    );
+    const anyGenerating = liveFrames.some((f) => f.status === 'generating');
+
+    if (anyGenerating) return;  // wait for current backend generation to finish
+
+    if (!pendingFrame) {
+      // All frames are either completed or fatally failed
+      setGeneratingAll(false);
+      return;
+    }
+
+    const pendingIndex = liveFrames.findIndex((f) => f.id === pendingFrame.id);
+    const prevFrame = pendingIndex > 0 ? liveFrames[pendingIndex - 1] : null;
+
+    if (prevFrame && prevFrame.status !== 'completed') {
+      // Sequence broken — previous frame failed, stop auto-sequential
+      setGeneratingAll(false);
+      return;
+    }
+
+    // Trigger the next frame
+    apiService.startGenerateFrame(projectId, pendingFrame.id)
+      .then(() => fetchProject())
+      .catch((e) => {
+        console.error('Sequential generation error:', e);
+        setGeneratingAll(false);
+      });
+  }, [generatingAll, liveFrames, projectId, fetchProject]);
+
+  // "Generate All" button: set flag so the sequential useEffect drives frame-by-frame generation.
+  // We deliberately do NOT call startGenerateAllFrames (which fires a separate bulk backend task)
+  // because the sequential useEffect already handles orchestration from the frontend.
+  // The backend's /generate endpoint is only used for credit-checking and status bookkeeping.
   const handleGenerateAll = async () => {
-    if (!projectId) return;
-    setGeneratingAll(true);
+    if (!projectId || generatingAll) return;
     setError(null);
     try {
+      // Call backend to deduct credits and set project status to 'generating'
       const res = await apiService.startGenerateAllFrames(projectId);
       if (res.pending_count === 0) {
-        setGeneratingAll(false);
-        return;
+        return;  // nothing to do
       }
+      // Now enable the sequential driver — it will pick up liveFrames and start Frame 1
+      setGeneratingAll(true);
       await fetchProject();
     } catch (e) {
       setError(e.message || 'Failed to start bulk generation');
-      setGeneratingAll(false);
     }
   };
 
@@ -205,11 +260,17 @@ const FrameResults = () => {
       const res = await apiService.combineVideoProject(projectId);
       if (res.video_url) {
         setFinalVideoUrl(res.video_url);
-        navigate('/final-video', { state: { videoUrl: res.video_url, projectTitle: project?.project_name || 'Generated Video' } });
+        navigate('/final-video', { 
+          state: { 
+            videoUrl: res.video_url, 
+            projectTitle: project?.project_name || 'Generated Video',
+            projectId: projectId
+          } 
+        });
       }
       await fetchProject();
     } catch (e) {
-      setError(e.message || 'Failed to compile final video');
+      setError(e.message || 'Failed to promote final video');
       setCombining(false);
     }
   };
@@ -317,8 +378,24 @@ const FrameResults = () => {
                   const isFailed = frame.status === 'failed';
                   const isCompleted = frame.status === 'completed';
                   
+                  // Sequence-lock helpers (Veo: each frame depends on the previous)
+                  const frameIndex = liveFrames.findIndex((f) => f.id === frame.id);
+                  const prevFrame = frameIndex > 0 ? liveFrames[frameIndex - 1] : null;
+                  const nextFrame = frameIndex < liveFrames.length - 1 ? liveFrames[frameIndex + 1] : null;
+                  
+                  // GENERATE is unlocked only if all previous frames are SUCCESS
+                  const prevReady = !prevFrame || prevFrame.status === 'completed';
+                  const canGenerate = !isCompleted && !isThisGenerating && prevReady;
+                  // REGENERATE is unlocked only if this frame is SUCCESS AND next frame is PENDING/FAILED
+                  const nextIsPending = !nextFrame || nextFrame.status === 'pending' || nextFrame.status === 'failed';
+                  const canRegenerate = isCompleted && nextIsPending;
+                  
                   const asset = liveAssets.find((a) => a.id === frame.asset_id);
                   const clipUrl = asset?.file_url;
+
+                  // Status badge colour / label
+                  const statusColor = isCompleted ? '#00E5FF' : isFailed ? '#ff3b3b' : isThisGenerating ? '#4dabf7' : '#aaaab7';
+                  const statusLabel = isCompleted ? 'Done' : isFailed ? 'Failed' : isThisGenerating ? 'Generating...' : 'Pending';
 
                   return (
                     <div key={frame.id} style={{
@@ -331,8 +408,11 @@ const FrameResults = () => {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                           <span style={{ fontSize: '12px', fontWeight: 900, fontFamily: "'Space Grotesk', sans-serif", color: '#00E5FF', padding: '4px 8px', background: 'rgba(0,229,255,0.1)', borderRadius: '4px' }}>FRAME {frame.frame_num}</span>
                           <span style={{ color: '#f0f0fd', fontWeight: 500, fontSize: '14px' }}>{frame.duration_seconds}s Clip</span>
-                          <span style={{ fontSize: '12px', fontWeight: 600, color: frame.status === 'completed' ? '#00E5FF' : frame.status === 'failed' ? '#ff3b3b' : '#aaaab7', textTransform: 'uppercase', padding: '2px 6px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px' }}>
-                            {frame.status}
+                          <span style={{
+                            fontSize: '12px', fontWeight: 600, color: statusColor, textTransform: 'uppercase',
+                            padding: '2px 6px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px'
+                          }}>
+                            {statusLabel}
                           </span>
                         </div>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -342,10 +422,10 @@ const FrameResults = () => {
                               setEditingPromptId(frame.id);
                               setEditedPromptValue(frame.ai_video_prompt);
                             }}
-                            disabled={isThisGenerating || isCompleted}
-                            style={{ background: 'transparent', border: 'none', color: '#737580', cursor: (isThisGenerating || isCompleted) ? 'not-allowed' : 'pointer', transition: 'color 0.3s', padding: '4px', opacity: (isThisGenerating || isCompleted) ? 0.3 : 1 }}
-                            onMouseEnter={(e) => !isThisGenerating && !isCompleted && (e.currentTarget.style.color = '#00E5FF')}
-                            onMouseLeave={(e) => !isThisGenerating && !isCompleted && (e.currentTarget.style.color = '#737580')}>
+                            disabled={isThisGenerating}
+                            style={{ background: 'transparent', border: 'none', color: '#737580', cursor: isThisGenerating ? 'not-allowed' : 'pointer', transition: 'color 0.3s', padding: '4px', opacity: isThisGenerating ? 0.3 : 1 }}
+                            onMouseEnter={(e) => !isThisGenerating && (e.currentTarget.style.color = '#00E5FF')}
+                            onMouseLeave={(e) => !isThisGenerating && (e.currentTarget.style.color = '#737580')}>
                             <Icon name="edit" style={{ fontSize: '18px' }} />
                           </button>
                           <button 
@@ -401,8 +481,13 @@ const FrameResults = () => {
                                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
                           }}
                         >
-                          {isCompleted && clipUrl ? (
-                            <video src={clipUrl} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }} />
+                        {isCompleted && clipUrl ? (
+                            <video
+                              src={clipUrl}
+                              autoPlay loop muted playsInline
+                              style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }}
+                              title={`Merged video up to frame ${frame.frame_num}`}
+                            />
                           ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', color: '#737580' }}>
                               <Icon name={isThisGenerating ? 'movie_edit' : 'video_call'} style={{ fontSize: '40px' }} />
@@ -426,19 +511,23 @@ const FrameResults = () => {
 
                         <button
                           onClick={() => handleGenerateFrame(frame.id)}
-                          disabled={isThisGenerating || generatingAll || isGeneratingFull}
+                          disabled={isThisGenerating || generatingAll || isGeneratingFull || (isCompleted ? !canRegenerate : !canGenerate)}
                           style={{
                             width: '100%', padding: '16px', borderRadius: '8px', border: 'none',
-                            background: isCompleted ? 'rgba(255,255,255,0.05)' : (isThisGenerating ? '#1c1f2b' : 'linear-gradient(45deg, #00E5FF, #a68cff)'),
-                            color: isCompleted ? '#aaaab7' : (isThisGenerating ? '#00E5FF' : '#005762'),
+                            background: isCompleted
+                              ? (canRegenerate ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.03)')
+                              : (isThisGenerating ? '#1c1f2b' : canGenerate ? 'linear-gradient(45deg, #00E5FF, #a68cff)' : 'rgba(255,255,255,0.03)'),
+                            color: isCompleted ? '#aaaab7' : (isThisGenerating ? '#00E5FF' : canGenerate ? '#005762' : '#4a4a5a'),
                             fontFamily: "'Space Grotesk', sans-serif", fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em',
-                            cursor: (isThisGenerating || generatingAll || isGeneratingFull) ? 'not-allowed' : 'pointer', transition: 'all 0.3s',
+                            cursor: (isThisGenerating || generatingAll || isGeneratingFull || (isCompleted ? !canRegenerate : !canGenerate)) ? 'not-allowed' : 'pointer',
+                            transition: 'all 0.3s',
                             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                            borderStyle: 'solid', borderWidth: '1px', borderColor: isCompleted ? 'rgba(255,255,255,0.1)' : (isThisGenerating ? 'rgba(0,229,255,0.3)' : 'transparent')
+                            borderStyle: 'solid', borderWidth: '1px',
+                            borderColor: isCompleted ? 'rgba(255,255,255,0.1)' : (isThisGenerating ? 'rgba(0,229,255,0.3)' : canGenerate ? 'transparent' : 'rgba(255,255,255,0.05)')
                           }}
                         >
                           <Icon name={isThisGenerating ? 'progress_activity' : (isCompleted ? 'movie_filter' : 'movie')} className={isThisGenerating ? 'animate-spin' : ''} style={{ fontSize: '18px' }} />
-                          {isThisGenerating ? 'Waiting...' : (isCompleted ? 'Regenerate Video' : 'Generate Video')}
+                          {isThisGenerating ? 'Generating...' : (isCompleted ? (canRegenerate ? 'Regenerate Video' : 'Locked (Next Frame Active)') : (canGenerate ? 'Generate Video' : 'Waiting for Previous Frame'))}
                         </button>
                       </div>
                     </div>
@@ -464,7 +553,7 @@ const FrameResults = () => {
                   }}
                 >
                   {combining ? <Icon name="progress_activity" className="animate-spin" style={{ fontSize: '28px' }} /> : <Icon name="auto_videocam" style={{ fontSize: '28px' }} />}
-                  {combining ? 'Compiling Full Video...' : 'Compile Full Video'}
+                  {combining ? 'Uploading Final Video...' : 'Preview Final Video'}
                 </button>
               </div>
             )}
@@ -489,10 +578,10 @@ const FrameResults = () => {
           </div>
           
           <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '28px', fontWeight: 900, color: '#f0f0fd', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 16px 0' }}>
-            Compiling Final Video
+            Uploading Final Video
           </h2>
           <p style={{ color: '#aaaab7', fontFamily: "'Inter', sans-serif", fontSize: '16px', maxWidth: '400px', textAlign: 'center', lineHeight: 1.6 }}>
-            Please wait while we stitch your beautiful frames and audio together. This shouldn't take long...
+            Uploading your Veo-generated video to permanent storage. No stitching needed — this is your complete video.
           </p>
         </div>
       )}

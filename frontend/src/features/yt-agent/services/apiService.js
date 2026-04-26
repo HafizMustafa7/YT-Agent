@@ -181,12 +181,14 @@ export const checkHealth = async () => {
  * @param {string} title - Project/story title
  * @param {Array<{frame_num, ai_video_prompt, scene_description?, duration_seconds?}>} frames
  * @param {string} [channelId] - Optional YouTube channel ID
+ * @param {string} [aspectRatio] - Aspect ratio for Veo generation (default '9:16' for Shorts)
+ * @param {string} [resolution] - Video resolution (default '720p')
  * @returns {Promise<object>} - { project_id, total_frames }
  */
-export const createVideoProject = async (title, frames, channelId) => {
+export const createVideoProject = async (title, frames, channelId, aspectRatio = '9:16', resolution = '720p') => {
     return callApi(
         ENDPOINTS.VIDEO_CREATE_PROJECT,
-        { title, frames, channel_id: channelId },
+        { title, frames, channel_id: channelId, aspect_ratio: aspectRatio, resolution },
         TIMEOUTS.VIDEO_OPERATION
     );
 };
@@ -204,7 +206,7 @@ export const getVideoProject = async (projectId) => {
 };
 
 /**
- * Start generating all pending frames (Sora)
+ * Start generating all pending frames sequentially via Veo 3.1
  * @param {string} projectId
  * @returns {Promise<object>}
  */
@@ -247,7 +249,8 @@ export const updateFramePrompt = async (projectId, frameId, prompt) => {
 };
 
 /**
- * Combine all completed clips into one video
+ * Promote the final Veo-generated video to permanent R2 storage.
+ * No stitching needed — Veo extend returns the fully merged video on each call.
  * @param {string} projectId
  * @returns {Promise<object>}
  */
@@ -302,10 +305,11 @@ export const startYouTubeOAuth = async () => {
  * @param {string} projectId
  * @returns {Promise<object>}
  */
-export const uploadProjectToYoutube = async (projectId) => {
+export const uploadProjectToYoutube = async (projectId, customTitle = null) => {
+    const payload = customTitle ? { custom_title: customTitle } : {};
     return callApi(
         ENDPOINTS.VIDEO_UPLOAD(projectId),
-        {},
+        payload,
         TIMEOUTS.VIDEO_OPERATION
     );
 };

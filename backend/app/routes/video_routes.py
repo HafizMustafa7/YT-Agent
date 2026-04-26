@@ -43,11 +43,11 @@ def _check_video_config():
         )
 
 
-def _check_sora_config():
-    """Pre-flight check for Sora API configuration."""
+def _check_veo_config():
+    """Pre-flight check for Veo 3.1 + R2 API configuration."""
     missing = []
-    if not settings.OPENAI_API_KEY:
-        missing.append("OPENAI_API_KEY")
+    if not settings.GEMINI_API_KEY:
+        missing.append("GEMINI_API_KEY")
     if not settings.WORKER_URL:
         missing.append("WORKER_URL")
     if not settings.R2_UPLOAD_API_KEY:
@@ -55,7 +55,7 @@ def _check_sora_config():
     if missing:
         raise HTTPException(
             status_code=503,
-            detail=f"Sora/R2 not configured. Missing env vars: {', '.join(missing)}",
+            detail=f"Veo/R2 not configured. Missing env vars: {', '.join(missing)}",
         )
 
 
@@ -87,7 +87,9 @@ async def create_video_project(
             request.title, 
             frames_payload, 
             user_id=user_id,
-            channel_id=request.channel_id
+            channel_id=request.channel_id,
+            aspect_ratio=request.aspect_ratio,
+            resolution=request.resolution,
         )
         logger.info(
             "Video project created: %s for user %s (channel: %s)", 
@@ -170,7 +172,7 @@ async def start_generate_all(
     """Start background task to generate all pending frames with ownership check."""
     _validate_uuid(project_id, "project_id")
     _check_video_config()
-    _check_sora_config()
+    _check_veo_config()
 
     try:
         proj = video_service.get_project_with_frames_and_assets(project_id)
@@ -190,8 +192,11 @@ async def start_generate_all(
         credits_needed = calculate_required_credits(total_seconds)
         await check_and_deduct_credits(current_user["id"], credits_needed)
 
-        background_tasks.add_task(video_service.generate_all_pending_frames, project_id)
-        logger.info("Started generation for project %s (%d frames, %d credits deducted)", project_id, len(pending), credits_needed)
+        # Read aspect_ratio from project metadata (set at project creation time)
+        aspect_ratio = (proj.get("metadata") or {}).get("aspect_ratio", "9:16")
+
+        background_tasks.add_task(video_service.generate_all_pending_frames, project_id, aspect_ratio)
+        logger.info("Started generation for project %s (%d frames, %d credits deducted, ratio=%s)", project_id, len(pending), credits_needed, aspect_ratio)
 
         return {
             "success": True,
@@ -218,7 +223,7 @@ async def generate_one_frame(
     _validate_uuid(project_id, "project_id")
     _validate_uuid(body.frame_id, "frame_id")
     _check_video_config()
-    _check_sora_config()
+    _check_veo_config()
 
     try:
         proj = video_service.get_project_with_frames_and_assets(project_id)
@@ -244,6 +249,9 @@ async def generate_one_frame(
         credits_needed = calculate_required_credits(frame_seconds)
         await check_and_deduct_credits(current_user["id"], credits_needed)
 
+        # Read aspect_ratio from project metadata
+        aspect_ratio = (proj.get("metadata") or {}).get("aspect_ratio", "9:16")
+
         background_tasks.add_task(
             video_service.generate_single_frame,
             frame["id"],
@@ -251,8 +259,9 @@ async def generate_one_frame(
             frame["frame_num"],
             frame["ai_video_prompt"],
             frame.get("duration_seconds", 8),
+            aspect_ratio,
         )
-        logger.info("Started single frame generation: %s (frame %d)", frame["id"], frame["frame_num"])
+        logger.info("Started single frame generation: %s (frame %d, ratio=%s)", frame["id"], frame["frame_num"], aspect_ratio)
 
         return {"success": True, "message": f"Frame {frame['frame_num']} generation started."}
     except HTTPException:
@@ -306,10 +315,10 @@ async def combine_videos(
     background_tasks: BackgroundTasks,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Combine all completed clips into one video with ownership check."""
+    """Promote the last completed Veo frame to the final R2 bucket (no FFmpeg needed)."""
     _validate_uuid(project_id, "project_id")
     _check_video_config()
-    _check_sora_config()
+    _check_veo_config()
 
     try:
         proj = video_service.get_project_with_frames_and_assets(project_id)
@@ -335,12 +344,12 @@ async def combine_videos(
                 "already_combined": True,
             }
 
-        background_tasks.add_task(video_service.combine_project, project_id)
-        logger.info("Started combine for project %s (%d clips)", project_id, len(completed))
+        background_tasks.add_task(video_service.promote_final_video, project_id)
+        logger.info("Started promote_final_video for project %s (%d frames completed)", project_id, len(completed))
 
         return {
             "success": True,
-            "message": f"Combining {len(completed)} clips. Check back shortly.",
+            "message": "Final video is being promoted to permanent storage. Check back shortly.",
             "clips_count": len(completed),
         }
     except Exception as e:
@@ -352,6 +361,7 @@ async def combine_videos(
 async def upload_to_youtube(
     project_id: str,
     background_tasks: BackgroundTasks,
+    custom_title: Optional[str] = Body(None, description="Optional custom title for the YouTube video"),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
@@ -372,10 +382,10 @@ async def upload_to_youtube(
             raise HTTPException(status_code=400, detail="No YouTube channel linked to this project.")
 
         if not proj.get("video_url"):
-            raise HTTPException(status_code=400, detail="No video generated yet. Run combine first.")
+            raise HTTPException(status_code=400, detail="No final video yet. Run 'Promote Final Video' first.")
 
-        background_tasks.add_task(video_service.upload_project_to_youtube, project_id)
-        logger.info("Started YouTube upload for project %s", project_id)
+        background_tasks.add_task(video_service.upload_project_to_youtube, project_id, custom_title)
+        logger.info("Started YouTube upload for project %s with custom title: %s", project_id, bool(custom_title))
 
         return {
             "success": True,

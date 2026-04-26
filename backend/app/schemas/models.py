@@ -60,7 +60,7 @@ class FrameInput(BaseModel):
     frame_num: int = Field(..., ge=1)
     ai_video_prompt: str = Field(..., min_length=1, max_length=5000)
     scene_description: Optional[str] = None
-    duration_seconds: int = Field(8, description="Clip duration in seconds", ge=4, le=60)
+    duration_seconds: int = Field(8, description="Clip duration in seconds", ge=1, le=60)
 
 
 class CreateVideoProjectRequest(BaseModel):
@@ -68,6 +68,8 @@ class CreateVideoProjectRequest(BaseModel):
     title: str = Field("Story Video", max_length=255, min_length=1)
     channel_id: Optional[str] = Field(None, description="YouTube Channel ID to associate with the project")
     frames: List[FrameInput] = Field(..., min_length=1)
+    aspect_ratio: str = Field("9:16", description="Video aspect ratio for Veo generation (e.g. 9:16, 16:9)")
+    resolution: str = Field("720p", description="Video resolution (locked to 720p for Veo 3.1)")
 
 
 class GenerateFrameRequest(BaseModel):

@@ -1,7 +1,7 @@
 """
 Story generation service — Single-call Veo 3.1 pipeline.
 
-Replaces the legacy 12-stage, 8-LLM-call Sora pipeline.
+Replaces the legacy 12-stage, 8-LLM-call pipeline.
 
 Flow:
   1. calculate_frame_structure(duration)  → frame math (pure code)

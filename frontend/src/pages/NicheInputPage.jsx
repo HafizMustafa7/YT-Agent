@@ -197,7 +197,12 @@ const NicheInputPage = () => {
 
       if (result.success || result.story) {
         setIsModalOpen(false);
-        navigate('/frame-results', { state: { data: result.story || result } });
+        navigate('/frame-results', { 
+          state: { 
+            data: result.story || result,
+            creative_preferences: creativePreferences
+          } 
+        });
       } else {
         throw new Error('Story generation failed');
       }

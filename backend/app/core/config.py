@@ -72,10 +72,8 @@ class Settings:
     TOPIC_SUGGESTION_CACHE_TTL: int = int(os.getenv("TOPIC_SUGGESTION_CACHE_TTL", "1800"))  # 30 min
 
 
-    # Video Generation (Sora 2 + R2)
-    SORA_MODEL: str = os.getenv("SORA_MODEL", "sora-2")
-    SORA_VIDEO_SIZE: str = os.getenv("SORA_VIDEO_SIZE", "720x1280")
-    SORA_MAX_DURATION_SECONDS: int = int(os.getenv("SORA_MAX_DURATION_SECONDS", "12"))
+    # Video Generation (Veo 3.1 + R2)
+    # Model is locked to veo-3.1-generate-preview; resolution locked to 720p in code.
     VIDEO_TEMP_DIR: str = os.getenv("VIDEO_TEMP_DIR", "temp_video_cache")
     WORKER_URL: str = os.getenv("WORKER_URL", "")
     R2_UPLOAD_API_KEY: str = os.getenv("R2_UPLOAD_API_KEY", "")
