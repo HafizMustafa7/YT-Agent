@@ -1,95 +1,75 @@
 """
-Story generation service — Single-call Veo 3.1 pipeline.
+Story generation service — Unified Vertex AI pipeline.
 
-Replaces the legacy 12-stage, 8-LLM-call pipeline.
+Uses Gemini 2.5 Pro (thinking model) on Vertex AI. Single LLM call produces
+both the Story Bible and all frame prompts in one coherent reasoning pass.
+
+Key improvements over the old 2-call Flash Lite pipeline:
+  - Causal narrative continuity: story events flow logically (clouds → lightning → rain,
+    not sunny → sudden rain). Enforced by entry_state/exit_state per frame.
+  - Thinking model: Gemini 2.5 Pro reasons through the full arc before writing.
+  - 6 narrative structures: conflict, transformation, journey, mystery, showcase, crescendo.
+  - One auth path: same Vertex AI service account as Veo video generation.
 
 Flow:
-  1. calculate_frame_structure(duration)  → frame math (pure code)
-  2. build_user_message(...)              → formats the Gemini user message
-  3. _call_gemini(system_prompt, msg)     → single Gemini 2.5 Flash Lite call
-  4. _parse_and_validate(raw, n_frames)   → strict JSON parse + structural check
-     → on failure: one retry of step 3, then raise
-  5. Returns validated story dict directly consumed by the route layer.
+  1. calculate_frame_structure(duration)   → frame math (pure code, unchanged)
+  2. build_unified_message(...)            → single user message
+  3. _call_vertex_ai(system_prompt, msg)   → one Gemini 2.5 Pro call with thinking
+  4. _parse_and_validate_unified(raw)      → strict JSON parse + structural check
+  5. _validate_state_continuity(frames)    → causal chain check (entry ↔ exit states)
+  6. Returns validated story dict
 """
 import asyncio
 import json
 import logging
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
 from app.core.config import settings
-from app.core_yt.llm_client import get_gemini_model
-from app.core_yt.prompts.loader import load_examples, load_system_prompt, load_bible_system_prompt
+
+from app.core_yt.prompts.loader import load_system_prompt, load_examples
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Topic sanitizer
+# Topic sanitizer (unchanged)
 # ---------------------------------------------------------------------------
 
-# Patterns Gemini's prompt scanner permanently rejects (PROHIBITED_CONTENT, code 4).
-# These cannot be bypassed via safety_settings - the model literally never runs.
-# We strip/rephrase them before they reach the API while keeping story intent.
 _AGE_CHILD_PATTERNS = [
-    # "of age 12" / "aged 10" / "age 11" etc.
     (re.compile(r'\bof\s+age\s+\d+\b', re.IGNORECASE), ''),
     (re.compile(r'\baged?\s+\d+\b', re.IGNORECASE), ''),
-    # "baby" as an adjective for a person (baby girl, baby boy)
     (re.compile(r'\bbaby\s+(girl|boy|child|kid)\b', re.IGNORECASE), r'young \1'),
-    # explicit child age numbers adjacent to gender words
     (re.compile(r'\b(girl|boy|child|kid)\s+of\s+\d+\b', re.IGNORECASE), r'young \1'),
-    # "12 year old" / "12-year-old" etc.
     (re.compile(r'\b\d{1,2}[\s-]year[s]?[\s-]old\b', re.IGNORECASE), 'young'),
 ]
 
 
 def _sanitize_topic_for_gemini(topic: str) -> str:
-    """
-    Remove age/child language patterns that trigger Gemini's hard-coded
-    PROHIBITED_CONTENT block (block_reason code 4).  This is a permanent
-    API restriction that cannot be overridden via safety_settings.
-
-    Strategy: keep character names and story intent intact; drop or rephrase
-    the age descriptors that act as scanner trigger tokens.
-
-    Example:
-      IN:  'baby girl of age 12 "Eris" hiding from a monster'
-      OUT: 'young girl "Eris" hiding from a monster'
-    """
+    """Strip age/child patterns that trigger Gemini's hard-coded PROHIBITED_CONTENT block."""
     sanitized = topic
     for pattern, replacement in _AGE_CHILD_PATTERNS:
         sanitized = pattern.sub(replacement, sanitized)
-    # Collapse any double spaces introduced by removals
     sanitized = re.sub(r'  +', ' ', sanitized).strip()
     if sanitized != topic:
         logger.info(
-            "Topic sanitized for Gemini (age/child patterns removed). "
-            "Original: %r | Sanitized: %r",
+            "Topic sanitized. Original: %r | Sanitized: %r",
             topic[:80], sanitized[:80]
         )
     return sanitized
 
 
 # ---------------------------------------------------------------------------
-# Frame structure calculation
+# Frame structure calculation (unchanged — durations: 15, 32, 46, 60)
 # ---------------------------------------------------------------------------
 
 def calculate_frame_structure(duration: int) -> Dict[str, int]:
     """
     Determine first-frame duration F ∈ {8, 6, 4} such that
     (duration - F) is a non-negative multiple of 7.
-
-    Returns:
-        {
-            "first_frame_duration": int,   F seconds
-            "extension_count":      int,   number of 7-second extension frames
-            "total_frames":         int,   first + extension frames
-            "actual_duration":      int,   total seconds (may differ from input
-                                           if no exact fit is found)
-        }
+    Supports durations: 15, 32, 46, 60 (and any other valid combo).
     """
     for f in (8, 6, 4):
         remainder = duration - f
@@ -106,8 +86,7 @@ def calculate_frame_structure(duration: int) -> Dict[str, int]:
     ext = max(0, round((duration - 8) / 7))
     actual = 8 + ext * 7
     logger.warning(
-        "No exact Veo frame split found for %ds. "
-        "Using F=8 + %d×7 = %ds total.",
+        "No exact Veo frame split found for %ds. Using F=8 + %d×7 = %ds total.",
         duration, ext, actual,
     )
     return {
@@ -119,20 +98,22 @@ def calculate_frame_structure(duration: int) -> Dict[str, int]:
 
 
 # ---------------------------------------------------------------------------
-# User message builder
+# Helpers
 # ---------------------------------------------------------------------------
 
 def _is_set(value: Optional[str]) -> bool:
-    """Return True if value is a non-empty, non-placeholder string."""
     return bool(value and value.strip())
 
 
 def _val(value: Optional[str]) -> str:
-    """Return value stripped, or empty string."""
     return value.strip() if value and value.strip() else ""
 
 
-def build_bible_message(
+# ---------------------------------------------------------------------------
+# Unified user message builder
+# ---------------------------------------------------------------------------
+
+def build_unified_message(
     topic: str,
     duration: int,
     frame_structure: Dict[str, int],
@@ -141,156 +122,72 @@ def build_bible_message(
     composition: Optional[str] = None,
     focus_and_lens: Optional[str] = None,
     ambiance: Optional[str] = None,
+    examples: Optional[list] = None,
 ) -> str:
-    """Build the user message for Call 1 (Story Bible Generation)."""
+    """
+    Build the single user message sent to Gemini 2.5 Pro.
+    The message contains everything the model needs to generate both
+    the Story Bible AND all frame prompts in one thinking pass.
+    """
     total_frames = frame_structure["total_frames"]
     f = frame_structure["first_frame_duration"]
-    
-    # Format arc slot list so LLM knows exactly how many beats to write
-    arc_slots = [f"Frame 1 ({f}s): [establish beat]"]
+    actual_duration = frame_structure["actual_duration"]
+
+    # Arc slot template — tells the model exactly how many frames to write and their durations
+    arc_slots = [f"Frame 1 ({f}s): [establish beat — causes Frame 2 to begin]"]
     for i in range(2, total_frames + 1):
-        arc_slots.append(f"Frame {i} (7s): [beat {i}]")
+        if i == total_frames:
+            arc_slots.append(f"Frame {i} (7s): [resolution beat — ends the arc]")
+        else:
+            arc_slots.append(f"Frame {i} (7s): [progression beat — causes Frame {i+1} to begin]")
     arc_template = "\n".join(arc_slots)
-    
-    # User-provided params block
+
+    # User creative parameters
     params = {k: v for k, v in {
-        "Style": style, "Camera Motion": camera_motion,
-        "Composition": composition, "Focus & Lens": focus_and_lens,
-        "Ambiance": ambiance
+        "Style": style,
+        "Camera Motion": camera_motion,
+        "Composition": composition,
+        "Focus & Lens": focus_and_lens,
+        "Ambiance": ambiance,
     }.items() if _is_set(v)}
-    params_block = "\n".join(f"{k}: {v}" for k, v in params.items()) or "(none specified — infer all from topic and topic nature)"
-    
-    return f"""Build a Story Bible for this video.
+    params_block = (
+        "\n".join(f"{k}: {v}" for k, v in params.items())
+        or "(none specified — infer all from topic and its nature)"
+    )
+
+    # Few-shot examples block
+    examples_block = _format_examples(examples)
+
+    # Output schema for frames section
+    frame_schema = _build_frame_schema(total_frames, f, actual_duration)
+
+    return f"""Generate a unified Story Bible + frame-by-frame Veo video script.
+Apply your thinking to plan the FULL causal narrative arc before writing any frame.
 
 === INPUT ===
 Topic: {topic}
-Total Duration: {duration} seconds
-Total Frames: {total_frames} (Frame 1 = {f}s, Frames 2-{total_frames} = 7s each)
+Total Duration: {actual_duration} seconds
+Total Frames: {total_frames}
+Frame 1 duration: {f} seconds
+Extension frames (2-{total_frames}): 7 seconds each
 
 === USER CREATIVE PARAMETERS ===
-Follow these explicit user preferences when building the world, visual constants, and style details:
 {params_block}
 
-=== STORY ARC SLOTS (fill exactly these {total_frames} entries) ===
+=== STORY ARC SLOTS (plan these before writing frames) ===
+Each beat must causally lead to the next — no abrupt scene changes.
 {arc_template}
 
-Respond with the Story Bible JSON only."""
-
-
-def build_frames_message(
-    topic: str,
-    duration: int,
-    frame_structure: Dict[str, int],
-    bible: Dict[str, Any],
-    examples: Optional[list] = None,
-) -> str:
-    """Build the complete user message sent to Gemini for Call 2 (Frames)."""
-    f = frame_structure["first_frame_duration"]
-    ext_count = frame_structure["extension_count"]
-    total_frames = frame_structure["total_frames"]
-    actual_duration = frame_structure["actual_duration"]
-
-    # Build extension line for frame structure section
-    if ext_count > 0:
-        ext_line = (
-            f"Frames 2 to {total_frames} → Extension Frames → 7 seconds each "
-            f"(continuation prompts)"
-        )
-    else:
-        ext_line = "(No extension frames — single frame video)"
-
-    # Inject bible as a locked block
-    char = bible.get("character", {})
-    world = bible.get("world", {})
-    vc = bible.get("visual_constants", {})
-    ac = bible.get("audio_constants", {})
-    arc = bible.get("story_arc", [])
-    vt = bible.get("visual_treatment", {})
-    
-    arc_block = "\n".join(f"  {entry}" for entry in arc)
-    
-    locked_bible_block = f"""
-=== LOCKED STORY BIBLE — DO NOT DEVIATE FROM THIS ===
-
-CHARACTER:
-  Name: {char.get('name', 'N/A')}
-  Appearance: {char.get('appearance', 'N/A')}
-  Wardrobe: {char.get('wardrobe', 'N/A')}  ← USE THIS EXACT TOKEN IN EVERY FRAME PROMPT
-  Signature Prop: {char.get('signature_prop', 'N/A')}  ← must appear in ≥1 frame prompts
-
-WORLD:
-  Location: {world.get('location', 'N/A')}
-  Time of Day: {world.get('time_of_day', 'N/A')}
-  Environment: {world.get('environment', 'N/A')}
-
-VISUAL CONSTANTS (embed in every frame):
-  Color Palette: {vc.get('color_palette', 'N/A')}
-  Lighting Rule: {vc.get('lighting_rule', 'N/A')}  ← EMBED VERBATIM
-  Style Lock: {vc.get('style_lock', 'N/A')}  ← EMBED VERBATIM
-
-AUDIO CONSTANTS:
-  Ambient Layer: {ac.get('ambient_layer', 'N/A')}  ← MUST BE ACTIVE THROUGH EVERY CLIP'S FINAL SECOND
-  Music: {ac.get('music', 'none')}
-  Dialogue Style: {ac.get('dialogue_style', 'purely ambient')}
-
-VISUAL TREATMENT (MANDATORY — EXECUTE THIS IN EVERY FRAME):
-  Mode: {vt.get('mode', 'real-time')}  ← THIS IS THE TIME SCALE FOR ALL FRAMES
-  Reason: {vt.get('reason', 'N/A')}
-  Speed Cues (embed these environmental markers if mode is not real-time): {', '.join(vt.get('speed_cues', [])) or 'N/A'}
-
-STORY ARC (each frame executes its beat — no substitutions):
-{arc_block}
-
-====================================================
-"""
-
-    examples_block = _format_examples(examples)
-
-    return f"""Generate a frame-by-frame Veo video script using the locked bible below.
-
-=== VIDEO SUMMARY ===
-Topic: {topic}
-Total Duration: {actual_duration} seconds
-
-{locked_bible_block}
-=== FRAME STRUCTURE (strictly follow this) ===
-Total Frames: {total_frames}
-Frame 1 → First Frame → {f} seconds (complete scene setup prompt)
-{ext_line}
-{examples_block}
-=== OUTPUT FORMAT (return only this JSON, nothing else) ===
-{{
-  "topic": "restate the topic cleanly",
-  "total_duration": {actual_duration},
-  "pacing": "slow | medium | fast",
-  "full_story": "2-3 sentence plain English overview of the complete story arc",
-  "frames": [
-    {{
-      "frame_number": 1,
-      "type": "first",
-      "duration": {f},
-      "prompt": "complete Veo-ready scene setup prompt with all technical parameters embedded naturally"
-    }}{_extension_frame_schema(ext_count, total_frames)}
-  ]
-}}"""
-
+{examples_block}=== OUTPUT (return ONLY the JSON object below, no other text) ===
+{frame_schema}"""
 
 
 def _format_examples(examples: Optional[list]) -> str:
-    """
-    Format few-shot examples into a compact, pedagogically useful block.
-
-    Shows the LLM:
-      - The example's topic + creative input (so it understands the context)
-      - The output section only (topic, pacing, full_story, and each frame prompt)
-
-    This avoids sending raw full-JSON dumps (which are noisy and token-heavy)
-    and instead produces a clean, human-readable reference.
-    """
+    """Format few-shot examples for the LLM."""
     if not examples:
         return ""
 
-    lines = ["\n=== REFERENCE EXAMPLES (study these, do not copy) ==="]
+    lines = ["\n=== REFERENCE EXAMPLES (study the causal continuity — do not copy) ==="]
     for i, ex in enumerate(examples, 1):
         label = ex.get("label", f"example_{i}")
         description = ex.get("description", "")
@@ -301,210 +198,290 @@ def _format_examples(examples: Optional[list]) -> str:
         if description:
             lines.append(f"Context: {description}")
 
-        # Input summary (compact)
         if inp:
             inp_parts = []
-            for k in ("topic", "duration", "style", "camera_motion",
-                      "composition", "focus_and_lens", "ambiance", "aspect_ratio"):
+            for k in ("topic", "duration", "style", "camera_motion", "composition",
+                      "focus_and_lens", "ambiance", "aspect_ratio"):
                 if k in inp:
                     inp_parts.append(f"{k}={inp[k]!r}")
             lines.append(f"Input:   {', '.join(inp_parts)}")
 
-        # Output — full_story + each frame prompt
         if out:
+            bible = out.get("story_bible", {})
+            ns = bible.get("narrative_structure", "N/A")
+            lines.append(f"Narrative Structure: {ns}")
             lines.append(f"Pacing:  {out.get('pacing', 'N/A')}")
             lines.append(f"Story:   {out.get('full_story', '')}")
             for frame in out.get("frames", []):
                 fnum = frame.get("frame_number", "?")
                 ftype = frame.get("type", "?")
                 fdur = frame.get("duration", "?")
+                entry = frame.get("entry_state", "")
+                exit_ = frame.get("exit_state", "")
                 fprompt = frame.get("prompt", "")
                 lines.append(
-                    f"  Frame {fnum} ({ftype}, {fdur}s): {fprompt}"
+                    f"  Frame {fnum} ({ftype}, {fdur}s):"
+                    f"\n    entry_state: {entry}"
+                    f"\n    exit_state:  {exit_}"
+                    f"\n    prompt: {fprompt}"
                 )
 
-    lines.append("\n=== END EXAMPLES ===")
+    lines.append("\n=== END EXAMPLES ===\n")
     return "\n".join(lines) + "\n"
 
 
-def _extension_frame_schema(ext_count: int, total_frames: int) -> str:
-    """Generate schema comment lines for extension frames."""
-    if ext_count == 0:
-        return ""
-    lines = []
+def _build_frame_schema(total_frames: int, first_duration: int, total_duration: int) -> str:
+    """Build the output JSON schema string to inject into the user message."""
+    frames_list = []
+    frames_list.append(f"""    {{
+      "frame_number": 1,
+      "type": "first",
+      "duration": {first_duration},
+      "entry_state": "scene opens cold — [opening shot description]",
+      "exit_state": "[exact visual+audio state at the last second of frame 1]",
+      "prompt": "[complete Veo scene-setup prompt — 5-7 lines with all bible tokens]"
+    }}""")
     for i in range(2, total_frames + 1):
-        lines.append(
-            f',\n    {{\n'
-            f'      "frame_number": {i},\n'
-            f'      "type": "extend",\n'
-            f'      "duration": 7,\n'
-            f'      "prompt": "Veo extension prompt — opens with visual continuation, '
-            f'describes progression only"\n'
-            f'    }}'
-        )
-    return "".join(lines)
+        frames_list.append(f"""    {{
+      "frame_number": {i},
+      "type": "extend",
+      "duration": 7,
+      "entry_state": "[must match Frame {i-1} exit_state exactly in meaning]",
+      "exit_state": "[exact visual+audio state at the last second of frame {i}]",
+      "prompt": "[Veo extension prompt — 2-3 lines, opens with continuation phrase]"
+    }}""")
+
+    frames_json = ",\n".join(frames_list)
+
+    return f"""{{
+  "story_bible": {{
+    "character": {{
+      "name": "...",
+      "appearance": "...",
+      "wardrobe": "...",
+      "signature_prop": "..."
+    }},
+    "world": {{
+      "location": "...",
+      "environment": "...",
+      "time_of_day": "..."
+    }},
+    "visual_constants": {{
+      "color_palette": "...",
+      "lighting_rule": "...",
+      "style_lock": "..."
+    }},
+    "audio_constants": {{
+      "ambient_layer": "...",
+      "music": null,
+      "dialogue_style": "purely ambient | spoken dialogue | internal voiceover"
+    }},
+    "narrative_structure": "conflict | transformation | journey | mystery | showcase | crescendo",
+    "narrative_reason": "..."
+  }},
+  "topic": "...",
+  "total_duration": {total_duration},
+  "pacing": "slow | medium | fast",
+  "full_story": "2-3 sentence overview showing the causal chain from start to end",
+  "frames": [
+{frames_json}
+  ]
+}}"""
 
 
 # ---------------------------------------------------------------------------
-# Gemini call
+# Vertex AI call (Gemini 2.5 Pro with thinking)
 # ---------------------------------------------------------------------------
 
-def _call_gemini_sync(system_prompt: str, user_message: str) -> str:
-    """Synchronous Gemini call. Run via executor to avoid blocking event loop."""
-    model = get_gemini_model(
+def _call_vertex_ai_sync(system_prompt: str, user_message: str) -> str:
+    """
+    Call Gemini 2.5 Pro via Vertex AI with thinking enabled.
+    Synchronous — run via executor to avoid blocking the async event loop.
+    """
+    from app.core_yt.llm_client import get_vertex_ai_client
+    from google.genai import types
+
+    client = get_vertex_ai_client()
+
+    config = types.GenerateContentConfig(
         system_instruction=system_prompt,
-        temperature=0.75,
-        max_tokens=16384,
-        json_mode=True,
+        temperature=0.7,
+        max_output_tokens=16384,
+        response_mime_type="application/json",
+        thinking_config=types.ThinkingConfig(include_thoughts=True),
+        safety_settings=[
+            types.SafetySetting(category="HARM_CATEGORY_HARASSMENT",        threshold="BLOCK_NONE"),
+            types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH",       threshold="BLOCK_NONE"),
+            types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
+            types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
+        ],
     )
-    if not model:
-        raise RuntimeError("Gemini model could not be configured — check GEMINI_API_KEY")
 
-    logger.info("Calling Gemini (%s) for story generation.", settings.GEMINI_MODEL)
-    
-    # Lower safety settings to allow fantasy violence / fictional creatures
-    safety_settings = [
-        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-    ]
-    
-    response = model.generate_content(user_message, safety_settings=safety_settings)
+    logger.info("Calling Gemini 2.5 Pro (Vertex AI) for story generation.")
+    response = client.models.generate_content(
+        model=settings.STORY_MODEL,
+        contents=user_message,
+        config=config,
+    )
 
     try:
         text = response.text
     except ValueError as e:
-        # Happens when response.candidates is empty due to safety filters
-        reason = "Unknown reason"
-        if response.prompt_feedback and hasattr(response.prompt_feedback, "block_reason"):
-            reason = str(response.prompt_feedback.block_reason)
-        raise ValueError(f"AI refused to generate story (Safety Filter Triggered: {reason})") from e
+        reason = "Unknown"
+        if hasattr(response, "prompt_feedback") and response.prompt_feedback:
+            if hasattr(response.prompt_feedback, "block_reason"):
+                reason = str(response.prompt_feedback.block_reason)
+        raise ValueError(f"AI refused to generate story (Safety Filter: {reason})") from e
 
     if not text:
-        raise ValueError("Gemini returned an empty response")
+        raise ValueError("Gemini 2.5 Pro returned an empty response")
 
     return text.strip()
 
 
-async def _call_gemini(system_prompt: str, user_message: str) -> str:
-    """Async wrapper for the Gemini call."""
+async def _call_vertex_ai(system_prompt: str, user_message: str) -> str:
+    """Async wrapper for the Vertex AI call."""
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _call_gemini_sync, system_prompt, user_message)
+    return await loop.run_in_executor(None, _call_vertex_ai_sync, system_prompt, user_message)
 
 
 # ---------------------------------------------------------------------------
 # JSON parse + validate
 # ---------------------------------------------------------------------------
 
-def _parse_and_validate_bible(raw: str, expected_frames: int) -> Dict[str, Any]:
-    parsed: Optional[Dict] = None
+def _extract_json(raw: str) -> Optional[Dict]:
+    """Try to parse JSON from raw string — direct parse then regex extraction."""
     try:
-        parsed = json.loads(raw)
+        return json.loads(raw)
     except json.JSONDecodeError:
         pass
-
-    if parsed is None:
-        match = re.search(r'\{[\s\S]*\}', raw)
-        if match:
-            try:
-                parsed = json.loads(match.group(0))
-            except json.JSONDecodeError:
-                pass
-
-    if not isinstance(parsed, dict):
-        raise ValueError(f"Bible JSON is invalid. First 300 chars: {raw[:300]}")
-
-    required_sections = ("character", "world", "visual_constants", "audio_constants", "visual_treatment", "story_arc")
-    for section in required_sections:
-        if section not in parsed:
-            raise ValueError(f"Bible missing required section: '{section}'")
-
-    if len(parsed.get("story_arc", [])) != expected_frames:
-        raise ValueError(f"story_arc length must be exactly {expected_frames}")
-    
-    char = parsed.get("character", {})
-    if not str(char.get("wardrobe", "")).strip():
-        raise ValueError("character.wardrobe must be a non-empty string")
-        
-    vc = parsed.get("visual_constants", {})
-    if not str(vc.get("lighting_rule", "")).strip():
-        raise ValueError("visual_constants.lighting_rule must be a non-empty string")
-        
-    ac = parsed.get("audio_constants", {})
-    if not str(ac.get("ambient_layer", "")).strip():
-        raise ValueError("audio_constants.ambient_layer must be a non-empty string")
-
-    vt = parsed.get("visual_treatment", {})
-    valid_modes = {"real-time", "rapid time-lapse", "smooth hyperlapse"}
-    mode = str(vt.get("mode", "")).strip()
-    if mode not in valid_modes:
-        raise ValueError(f"visual_treatment.mode must be one of {valid_modes}, got: '{mode}'")
-
-    logger.info("Story Bible validated (Expected Frames: %d, Visual Treatment: %s)", expected_frames, mode)
-    return parsed
+    match = re.search(r'\{[\s\S]*\}', raw)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            pass
+    return None
 
 
-
-def _parse_and_validate(raw: str, expected_frames: int) -> Dict[str, Any]:
+def _parse_and_validate_unified(raw: str, expected_frames: int) -> Dict[str, Any]:
     """
-    Parse the raw Gemini response as JSON and validate its structure.
-
+    Parse and validate the unified JSON output (bible + frames together).
     Raises ValueError with a descriptive message on any failure.
     """
-    # Attempt 1: direct parse
-    parsed: Optional[Dict] = None
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        pass
-
-    # Attempt 2: extract JSON object from surrounding text
-    if parsed is None:
-        match = re.search(r'\{[\s\S]*\}', raw)
-        if match:
-            try:
-                parsed = json.loads(match.group(0))
-            except json.JSONDecodeError:
-                pass
-
+    parsed = _extract_json(raw)
     if not isinstance(parsed, dict):
+        raise ValueError(f"Response is not a valid JSON object. First 300 chars: {raw[:300]}")
+
+    # --- Validate Story Bible ---
+    bible = parsed.get("story_bible")
+    if not isinstance(bible, dict):
+        raise ValueError("Missing or invalid 'story_bible' section")
+
+    for section in ("character", "world", "visual_constants", "audio_constants"):
+        if section not in bible:
+            raise ValueError(f"story_bible missing required section: '{section}'")
+
+    char = bible.get("character", {})
+    if not str(char.get("wardrobe", "")).strip():
+        raise ValueError("story_bible.character.wardrobe must be a non-empty string")
+
+    vc = bible.get("visual_constants", {})
+    if not str(vc.get("lighting_rule", "")).strip():
+        raise ValueError("story_bible.visual_constants.lighting_rule must be non-empty")
+    if not str(vc.get("style_lock", "")).strip():
+        raise ValueError("story_bible.visual_constants.style_lock must be non-empty")
+
+    ac = bible.get("audio_constants", {})
+    if not str(ac.get("ambient_layer", "")).strip():
+        raise ValueError("story_bible.audio_constants.ambient_layer must be non-empty")
+
+    valid_structures = {"conflict", "transformation", "journey", "mystery", "showcase", "crescendo"}
+    ns = str(bible.get("narrative_structure", "")).strip()
+    if ns not in valid_structures:
         raise ValueError(
-            f"Gemini response is not a valid JSON object. "
-            f"First 300 chars: {raw[:300]}"
+            f"story_bible.narrative_structure must be one of {valid_structures}, got: '{ns}'"
         )
 
-    # Structural validation
-    required_top = ("topic", "total_duration", "pacing", "full_story", "frames")
-    missing_top = [k for k in required_top if k not in parsed]
-    if missing_top:
-        raise ValueError(f"Story JSON missing top-level keys: {missing_top}")
+    # --- Validate top-level fields ---
+    for key in ("topic", "total_duration", "pacing", "full_story", "frames"):
+        if key not in parsed:
+            raise ValueError(f"Story JSON missing top-level key: '{key}'")
 
     frames = parsed.get("frames")
     if not isinstance(frames, list):
         raise ValueError("'frames' must be a list")
 
     if len(frames) != expected_frames:
-        raise ValueError(
-            f"Expected {expected_frames} frame(s), got {len(frames)}"
-        )
+        raise ValueError(f"Expected {expected_frames} frames, got {len(frames)}")
 
+    # --- Validate each frame ---
     for i, frame in enumerate(frames):
-        for key in ("frame_number", "type", "duration", "prompt"):
+        for key in ("frame_number", "type", "duration", "entry_state", "exit_state", "prompt"):
             if key not in frame:
-                raise ValueError(
-                    f"Frame {i + 1} missing required key: '{key}'"
-                )
+                raise ValueError(f"Frame {i + 1} missing required key: '{key}'")
         if not str(frame.get("prompt", "")).strip():
             raise ValueError(f"Frame {i + 1} has an empty prompt")
+        if not str(frame.get("entry_state", "")).strip():
+            raise ValueError(f"Frame {i + 1} has an empty entry_state")
+        if not str(frame.get("exit_state", "")).strip():
+            raise ValueError(f"Frame {i + 1} has an empty exit_state")
 
     logger.info(
-        "Story validated: %d frame(s), pacing=%s, duration=%s",
+        "Story validated: %d frames, pacing=%s, structure=%s, duration=%s",
         len(frames),
         parsed.get("pacing"),
+        ns,
         parsed.get("total_duration"),
     )
     return parsed
+
+
+# ---------------------------------------------------------------------------
+# Narrative state continuity check
+# ---------------------------------------------------------------------------
+
+def _validate_state_continuity(frames: List[Dict[str, Any]]) -> None:
+    """
+    Check that each frame's entry_state semantically matches the previous
+    frame's exit_state — enforces causal narrative continuity.
+
+    Uses simple keyword overlap scoring (no extra LLM call).
+    Logs a warning when continuity looks weak — does not reject the story,
+    since Gemini 2.5 Pro's thinking usually handles this well.
+    """
+    for i in range(1, len(frames)):
+        prev_exit  = str(frames[i - 1].get("exit_state",  "")).lower()
+        curr_entry = str(frames[i].get("entry_state", "")).lower()
+
+        if not prev_exit or not curr_entry:
+            continue
+
+        # Tokenise and check keyword overlap
+        prev_words  = set(re.findall(r'\b\w{4,}\b', prev_exit))
+        entry_words = set(re.findall(r'\b\w{4,}\b', curr_entry))
+
+        if not prev_words:
+            continue
+
+        overlap = len(prev_words & entry_words) / len(prev_words)
+        frame_num = frames[i].get("frame_number", i + 1)
+
+        if overlap < 0.30:
+            logger.warning(
+                "Narrative continuity warning: Frame %d entry_state has low overlap "
+                "(%.0f%%) with Frame %d exit_state.\n"
+                "  exit_state:  %s\n"
+                "  entry_state: %s",
+                frame_num, overlap * 100, frame_num - 1,
+                frames[i - 1].get("exit_state", ""),
+                frames[i].get("entry_state", ""),
+            )
+        else:
+            logger.debug(
+                "Continuity OK: Frame %d → Frame %d (overlap %.0f%%)",
+                frame_num - 1, frame_num, overlap * 100,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -521,11 +498,11 @@ async def generate_story(
     ambiance: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Generate a Veo 3.1 frame-by-frame video script.
+    Generate a Veo 3.1 frame-by-frame video script using Gemini 2.5 Pro on Vertex AI.
 
     Args:
         topic:          User-provided video topic (required).
-        duration:       Total video duration in seconds (from [15, 32, 46, 60]).
+        duration:       Total video duration in seconds ([15, 32, 46, 60]).
         style:          Visual style (optional).
         camera_motion:  Camera movement technique (optional).
         composition:    Scene composition (optional).
@@ -533,24 +510,24 @@ async def generate_story(
         ambiance:       Lighting and atmosphere (optional).
 
     Returns:
-        Validated story dict with keys:
-            topic, total_duration, pacing, full_story, frames[]
+        Validated story dict:
+            story_bible, topic, total_duration, pacing, full_story, frames[]
+            Each frame includes: frame_number, type, duration, entry_state, exit_state, prompt
 
     Raises:
-        HTTPException 500 on Gemini config error.
+        HTTPException 500 on Vertex AI config error.
         HTTPException 422 on persistent parse failure after one retry.
     """
-    if not settings.GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API key not configured")
+    if not settings.VERTEX_AI_PROJECT_ID:
+        raise HTTPException(status_code=500, detail="VERTEX_AI_PROJECT_ID is not configured")
+    if not settings.GOOGLE_APPLICATION_CREDENTIALS:
+        raise HTTPException(status_code=500, detail="GOOGLE_APPLICATION_CREDENTIALS is not configured")
 
     topic = " ".join(topic.strip().split())
     if not topic:
         raise ValueError("Topic cannot be empty")
 
-    # Sanitize topic — strip hard-blocked age/child patterns before
-    # they hit Gemini's prompt scanner (PROHIBITED_CONTENT cannot be bypassed
-    # by safety_settings; the model won't even run if the prompt is flagged).
-    topic_for_gemini = _sanitize_topic_for_gemini(topic)
+    topic_for_llm = _sanitize_topic_for_gemini(topic)
 
     # Step 1: Calculate frame structure
     frame_structure = calculate_frame_structure(duration)
@@ -562,14 +539,13 @@ async def generate_story(
         frame_structure["total_frames"],
     )
 
-    # Step 2: Load system prompts + examples
-    bible_system_prompt = load_bible_system_prompt()
+    # Step 2: Load prompts + examples
     system_prompt = load_system_prompt()
     examples = load_examples()
 
-    # Step 3: Call 1: Story Bible
-    bible_message = build_bible_message(
-        topic=topic_for_gemini,
+    # Step 3: Build unified user message (bible + frames in one prompt)
+    message = build_unified_message(
+        topic=topic_for_llm,
         duration=duration,
         frame_structure=frame_structure,
         style=style,
@@ -577,56 +553,41 @@ async def generate_story(
         composition=composition,
         focus_and_lens=focus_and_lens,
         ambiance=ambiance,
+        examples=examples,
     )
 
     expected_frames = frame_structure["total_frames"]
     last_error: Optional[Exception] = None
-    bible: Optional[Dict] = None
 
+    # Step 4: Single call with one retry
     for attempt in range(2):
         try:
-            raw_bible = await _call_gemini(bible_system_prompt, bible_message)
-            bible = _parse_and_validate_bible(raw_bible, expected_frames)
-            break
-        except Exception as exc:
-            last_error = exc
-            if attempt == 0:
-                logger.warning("Bible generation parse failed attempt 1: %s — retrying...", exc)
-            else:
-                logger.error("Bible generation failed after 2 attempts: %s", exc)
+            raw = await _call_vertex_ai(system_prompt, message)
+            story = _parse_and_validate_unified(raw, expected_frames)
 
-    if not bible:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Story bible generation failed. Last error: {last_error}"
-        )
+            # Step 5: Narrative state continuity check (post-parse, no extra LLM call)
+            _validate_state_continuity(story["frames"])
 
-    # Step 4: Call 2: Frame Prompts
-    frames_message = build_frames_message(
-        topic=topic_for_gemini,
-        duration=duration,
-        frame_structure=frame_structure,
-        bible=bible,
-        examples=examples,
-    )
-    
-    last_error = None
-    for attempt in range(2):
-        try:
-            raw_frames = await _call_gemini(system_prompt, frames_message)
-            story = _parse_and_validate(raw_frames, expected_frames)
-            # Merge bible into final return
-            return {**story, "story_bible": bible}
+            logger.info(
+                "Story generated successfully: %d frames, structure=%s, pacing=%s",
+                len(story["frames"]),
+                story.get("story_bible", {}).get("narrative_structure", "unknown"),
+                story.get("pacing", "unknown"),
+            )
+            return story
+
         except HTTPException:
             raise
         except Exception as exc:
             last_error = exc
             if attempt == 0:
-                logger.warning("Story frames parse failed attempt 1: %s — retrying...", exc)
+                logger.warning(
+                    "Story generation attempt 1 failed: %s — retrying...", exc
+                )
             else:
-                logger.error("Story frames generation failed after 2 attempts: %s", exc)
+                logger.error("Story generation failed after 2 attempts: %s", exc)
 
     raise HTTPException(
         status_code=422,
-        detail=f"Story frames generation failed. Last error: {last_error}"
+        detail=f"Story generation failed after 2 attempts. Last error: {last_error}",
     )

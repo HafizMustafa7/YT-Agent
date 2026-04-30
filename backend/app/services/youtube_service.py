@@ -159,13 +159,16 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
         
         all_trends = []
         
-        # Focused search strategies — 2 queries instead of 4 to save API quota
+        # Focused search strategies — capped by search_pages to control API quota
         # Each search.list costs 100 quota units; daily limit is 10,000
-        search_queries = [
+        search_query_pool = [
             f"{niche} AI generated shorts",
             f"{niche} AI shorts trending",
+            f"{niche} AI video shorts",
+            f"{niche} shorts viral",
         ]
-        
+        search_queries = search_query_pool[:max(1, search_pages)]
+
         for query in search_queries:
             if len(all_trends) >= max_results:
                 break

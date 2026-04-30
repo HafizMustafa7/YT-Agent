@@ -23,6 +23,7 @@ from app.core_yt.engagement_filter import filter_by_engagement, rank_by_engageme
 from app.core_yt.trend_summary_builder import build_trend_summary
 from app.core_yt.topic_suggestion_engine import generate_topic_suggestions
 from app.core_yt.redis_cache import redis_cache
+from app.core_yt.creative_builder import build_creative_brief
 from app.core.config import settings
 
 
@@ -68,12 +69,16 @@ async def fetch_trends(request: TrendRequest, current_user: dict = Depends(get_c
                 detail=f"Invalid mode: {request.mode}"
             )
         
-        # Fetch from YouTube API
-        trends = get_trending_shorts(
-            query, 
-            max_results=settings.YOUTUBE_MAX_RESULTS,
-            ai_threshold=settings.YOUTUBE_AI_THRESHOLD,
-            search_pages=settings.YOUTUBE_SEARCH_PAGES
+        # Fetch from YouTube API — run_in_executor to avoid blocking the event loop
+        loop = asyncio.get_running_loop()
+        trends = await loop.run_in_executor(
+            None,
+            lambda: get_trending_shorts(
+                query,
+                max_results=settings.YOUTUBE_MAX_RESULTS,
+                ai_threshold=settings.YOUTUBE_AI_THRESHOLD,
+                search_pages=settings.YOUTUBE_SEARCH_PAGES,
+            )
         )
         
         if not trends:
@@ -161,13 +166,18 @@ async def suggest_topics(
         return cached
 
     try:
-        # ── Step 1: Fetch trends ──────────────────────────────────────────────
+        # ── Step 1: Fetch trends — run_in_executor so the sync YouTube call
+        # does not block the event loop (each .execute() can take up to 60 s)
+        loop = asyncio.get_running_loop()
         query = niche if request.mode == "analyze_niche" else f"trending {niche} shorts"
-        trends = get_trending_shorts(
-            query,
-            max_results=settings.YOUTUBE_MAX_RESULTS,
-            ai_threshold=settings.YOUTUBE_AI_THRESHOLD,
-            search_pages=settings.YOUTUBE_SEARCH_PAGES,
+        trends = await loop.run_in_executor(
+            None,
+            lambda: get_trending_shorts(
+                query,
+                max_results=settings.YOUTUBE_MAX_RESULTS,
+                ai_threshold=settings.YOUTUBE_AI_THRESHOLD,
+                search_pages=settings.YOUTUBE_SEARCH_PAGES,
+            )
         )
 
         if not trends:
@@ -239,15 +249,20 @@ async def generate_story_endpoint(
     """
     prefs = request.creative_preferences
     try:
+        # DATA-2: validate & sanitise all creative preferences through creative_builder
+        # before they reach the LLM prompt.  Invalid values are silently snapped to
+        # their allowed defaults (cinematic, dolly shot, wide shot, etc.).
+        validated_prefs = build_creative_brief(prefs.model_dump())
+
         story_result = await asyncio.wait_for(
             generate_story(
                 topic=request.topic,
-                duration=prefs.duration,
-                style=prefs.style,
-                camera_motion=prefs.camera_motion,
-                composition=prefs.composition,
-                focus_and_lens=prefs.focus_and_lens,
-                ambiance=prefs.ambiance,
+                duration=validated_prefs["duration"],
+                style=validated_prefs["style"],
+                camera_motion=validated_prefs["camera_motion"],
+                composition=validated_prefs["composition"],
+                focus_and_lens=validated_prefs["focus_and_lens"],
+                ambiance=validated_prefs["ambiance"],
             ),
             timeout=settings.STORY_GENERATION_TIMEOUT,
         )

@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("Backend starting up - initialising shared resources...")
     # Initialize shared HTTP client
-    client = video_service.get_http_client() 
+    client = await video_service.get_http_client() 
     set_google_http_client(client)
     logger.info("Shared HTTP client initialised.")
     
@@ -87,7 +87,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    # DEVOPS-4: restrict to only the HTTP methods the API actually uses.
+    # Wildcard ["*"] unnecessarily permits PATCH, PUT, TRACE, etc.
+    # OPTIONS is required for browser preflight requests.
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])

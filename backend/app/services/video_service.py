@@ -1,13 +1,17 @@
 """
-Video generation service using Google Veo 3.1 API.
+Video generation service using Google Veo via Vertex AI SDK.
 Creates projects/frames in Supabase, generates clips per frame via
 text-to-video (frame 1) and video-extend (frames 2-N), uploads to
 Cloudflare R2 via Worker.  No FFmpeg — Veo extend returns the full
 cumulative merged video on every call.
+
+Authentication: Service account JSON (Google Cloud Console credits).
+Package: google-genai>=1.16.0  (same package used for story/text generation).
 """
 import os
 import json
 import time
+from pathlib import Path
 from datetime import datetime, timezone
 import asyncio
 import logging
@@ -27,19 +31,31 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _http_client: Optional[httpx.AsyncClient] = None
+_http_client_lock = asyncio.Lock()  # guards initialisation only
 
 
-def get_http_client() -> httpx.AsyncClient:
-    """Get or create shared httpx.AsyncClient with connection pooling."""
+async def get_http_client() -> httpx.AsyncClient:
+    """Get or create shared httpx.AsyncClient with connection pooling.
+
+    Thread-safe: uses an asyncio.Lock so concurrent coroutines cannot
+    each create a separate client when _http_client is None.
+    After first initialisation the lock is never contested.
+    """
     global _http_client
-    if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.AsyncClient(
-            timeout=60.0,
-            limits=httpx.Limits(
-                max_connections=20,
-                max_keepalive_connections=20,
-            ),
-        )
+    # Fast path — no lock needed once the client exists
+    if _http_client is not None and not _http_client.is_closed:
+        return _http_client
+    async with _http_client_lock:
+        # Re-check inside lock (another coroutine may have created it)
+        if _http_client is None or _http_client.is_closed:
+            _http_client = httpx.AsyncClient(
+                timeout=60.0,
+                limits=httpx.Limits(
+                    max_connections=20,
+                    max_keepalive_connections=20,
+                ),
+            )
+            logger.debug("Created new shared httpx.AsyncClient")
     return _http_client
 
 
@@ -90,6 +106,25 @@ def ensure_temp_dir():
     except OSError as e:
         logger.error("Failed to create temp directory '%s': %s", TEMP_DIR, e)
         raise RuntimeError(f"Cannot create temp directory: {e}") from e
+
+
+# ---------------------------------------------------------------------------
+# Generation Concurrency Guard
+# ---------------------------------------------------------------------------
+_active_generations: set[str] = set()
+
+
+def try_acquire_generation_lock(project_id: str) -> bool:
+    """Attempt to acquire an in-memory lock for a project's generation. Returns True if acquired."""
+    if project_id in _active_generations:
+        return False
+    _active_generations.add(project_id)
+    return True
+
+
+def release_generation_lock(project_id: str):
+    """Release the in-memory lock for a project's generation."""
+    _active_generations.discard(project_id)
 
 
 # ---------------------------------------------------------------------------
@@ -251,163 +286,231 @@ def update_frame_prompt(frame_id: str, new_prompt: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Veo 3.1 API (async)
+# Vertex AI / Veo SDK client
+# ---------------------------------------------------------------------------
+# The Vertex AI genai.Client singleton now lives in llm_client.py so it is
+# shared between story generation (Gemini 2.5 Pro) and video generation (Veo).
+# We import it here under a local alias — no behaviour change for callers.
+
+from app.core_yt.llm_client import get_vertex_ai_client as _get_veo_client  # noqa: E402
+
+
+
+
+
+# ---------------------------------------------------------------------------
+# GCS URI download helper
 # ---------------------------------------------------------------------------
 
-VEO_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
-VEO_MODEL = "veo-3.1-generate-preview"
-VEO_LRO_BASE = "https://generativelanguage.googleapis.com/v1beta"
+def _download_gcs_uri(gcs_uri: str) -> bytes:
+    """
+    Download a gs:// URI using the service account credentials.
+    Converts  gs://bucket/object  ->  GCS JSON API download URL,
+    then fetches with a short-lived Bearer token from google-auth.
+    """
+    import google.auth
+    import google.auth.transport.requests as ga_requests
+
+    if not gcs_uri.startswith("gs://"):
+        raise ValueError(f"Expected a gs:// URI, got: {gcs_uri}")
+
+    # Parse bucket and object path
+    without_scheme = gcs_uri[len("gs://"):]
+    bucket, _, obj_path = without_scheme.partition("/")
+    if not bucket or not obj_path:
+        raise ValueError(f"Cannot parse GCS URI: {gcs_uri}")
+
+    # URL-encode the object path for the REST endpoint
+    import urllib.parse
+    encoded_obj = urllib.parse.quote(obj_path, safe="")
+    download_url = (
+        f"https://storage.googleapis.com/download/storage/v1/b/{bucket}"
+        f"/o/{encoded_obj}?alt=media"
+    )
+
+    # Get short-lived access token from service account credentials
+    creds, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    auth_req = ga_requests.Request()
+    creds.refresh(auth_req)
+
+    import requests as req_lib
+    resp = req_lib.get(
+        download_url,
+        headers={"Authorization": f"Bearer {creds.token}"},
+        timeout=180,
+        stream=False,
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"GCS download failed ({resp.status_code}) for {gcs_uri}: {resp.text[:300]}"
+        )
+    logger.info("Downloaded %d bytes from GCS: %s", len(resp.content), gcs_uri)
+    return resp.content
 
 
-def _veo_api_key() -> str:
-    if not settings.GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY must be set in .env to use Veo video generation")
-    return settings.GEMINI_API_KEY
+# ---------------------------------------------------------------------------
+# Sync Veo helpers (run inside thread executor — SDK is synchronous)
+# ---------------------------------------------------------------------------
 
+def _sync_veo_generate(
+    prompt: str,
+    duration_seconds: int,
+    aspect_ratio: str,
+):
+    """
+    Start a Veo text-to-video job via Vertex AI SDK (synchronous).
+    Returns the operation object (passed to _sync_poll_and_download).
+    """
+    from google.genai import types as genai_types
+    client = _get_veo_client()
+    model = settings.VEO_MODEL
+
+    logger.info(
+        "Veo generate: model=%s, duration=%ds, ratio=%s",
+        model, duration_seconds, aspect_ratio,
+    )
+    operation = client.models.generate_videos(
+        model=model,
+        prompt=prompt,
+        config=genai_types.GenerateVideosConfig(
+            aspect_ratio=aspect_ratio,
+            duration_seconds=duration_seconds,
+            number_of_videos=1,
+        ),
+    )
+    return operation
+
+
+def _sync_veo_extend(
+    prompt: str,
+    video_object,
+    aspect_ratio: str,
+):
+    """
+    Start a Veo video-extend job via Vertex AI SDK (synchronous).
+    video_object is the SDK Video object saved from the previous frame.
+    Extension duration is fixed to 7s per the API constraint.
+    Returns the operation object.
+    """
+    from google.genai import types as genai_types
+    client = _get_veo_client()
+    model = settings.VEO_MODEL
+
+    logger.info("Veo extend: model=%s, ratio=%s (extension fixed to 7s)", model, aspect_ratio)
+    operation = client.models.generate_videos(
+        model=model,
+        prompt=prompt,
+        config=genai_types.GenerateVideosConfig(
+            aspect_ratio=aspect_ratio,
+            duration_seconds=7,
+            number_of_videos=1,
+        ),
+        video=video_object,
+    )
+    return operation
+
+
+def _sync_poll_and_download(operation) -> Tuple[bytes, Any]:
+    """
+    Poll the Vertex AI operation until done, then download video bytes from GCS.
+    Returns (video_bytes, sdk_video_object).
+    The sdk_video_object is the raw SDK Video object — it is the seed for
+    the next extend call.  We also persist its uri+state as JSON to disk.
+    """
+    poll_interval = 10   # seconds
+    max_wait_sec  = 1800 # 30 minutes
+    elapsed = 0
+
+    client = _get_veo_client()
+    logger.info("Polling Veo operation (SDK)...")
+
+    while not operation.done:
+        if elapsed >= max_wait_sec:
+            raise TimeoutError(f"Veo operation did not complete within {max_wait_sec} seconds")
+        time.sleep(poll_interval)
+        elapsed += poll_interval
+        operation = client.operations.get(operation)
+        if elapsed % 60 == 0:
+            logger.info("Veo still generating... (%ds elapsed)", elapsed)
+
+    logger.info("Veo operation done after %ds", elapsed)
+
+    # Extract first generated video
+    response = operation.response
+    if not response or not hasattr(response, "generated_videos") or not response.generated_videos:
+        raise RuntimeError("Veo returned no videos in completed operation")
+
+    gen_vid = response.generated_videos[0]
+    vid_obj = gen_vid.video
+
+    if not vid_obj:
+        raise RuntimeError("Veo completed but video object is empty")
+
+    # Download video bytes from GCS URI
+    if hasattr(vid_obj, "video_bytes") and vid_obj.video_bytes:
+        video_bytes = vid_obj.video_bytes
+        logger.info("Got %d bytes directly from video_bytes field", len(video_bytes))
+    elif hasattr(vid_obj, "uri") and vid_obj.uri:
+        logger.info("Downloading video from GCS URI: %s", vid_obj.uri)
+        video_bytes = _download_gcs_uri(vid_obj.uri)
+    else:
+        raise RuntimeError(f"Cannot retrieve video data — unknown video object format: {vid_obj}")
+
+    if not video_bytes:
+        raise RuntimeError("Downloaded video is empty")
+
+    return video_bytes, vid_obj
+
+
+# ---------------------------------------------------------------------------
+# Async wrappers (wrap sync SDK calls in thread executor)
+# ---------------------------------------------------------------------------
 
 async def veo_start_generate(
     prompt: str,
     duration_seconds: int,
     aspect_ratio: str,
-) -> str:
+):
     """
-    Start a Veo 3.1 text-to-video generation job.
-    Returns the LRO operation name (used to poll status).
-    Resolution is always locked to 720p.
+    Async wrapper: start Veo text-to-video (Frame 1).
+    Returns the operation object.
     """
-    key = _veo_api_key()
-    endpoint = f"{VEO_BASE}/{VEO_MODEL}:generateVideo?key={key}"
-    payload: Dict[str, Any] = {
-        "prompt": prompt,
-        "durationSeconds": str(duration_seconds),
-        "aspectRatio": aspect_ratio,
-        "resolution": "720p",
-        "numberOfVideos": 1,
-    }
-    logger.info(
-        "Veo generate: duration=%ds, ratio=%s, resolution=720p",
-        duration_seconds, aspect_ratio,
+    loop = asyncio.get_running_loop()
+    operation = await loop.run_in_executor(
+        None, _sync_veo_generate, prompt, duration_seconds, aspect_ratio
     )
-    return await _veo_submit(endpoint, payload)
+    logger.info("Veo generate operation started")
+    return operation
 
 
 async def veo_start_extend(
     prompt: str,
-    video_object: Dict[str, Any],
+    video_object,
     aspect_ratio: str,
-) -> str:
+):
     """
-    Start a Veo 3.1 video-extend job from a previous Veo video object.
-    Extension duration is fixed to 7s per the API constraint.
-    Returns the LRO operation name.
+    Async wrapper: start Veo video-extend (Frames 2-N).
+    Returns the operation object.
     """
-    key = _veo_api_key()
-    endpoint = f"{VEO_BASE}/{VEO_MODEL}:generateVideo?key={key}"
-    payload: Dict[str, Any] = {
-        "prompt": prompt,
-        "video": video_object,
-        "durationSeconds": "7",   # Veo 3.1 extension fixed to 7s
-        "aspectRatio": aspect_ratio,
-        "resolution": "720p",
-        "numberOfVideos": 1,
-    }
-    logger.info("Veo extend: ratio=%s, resolution=720p (extend fixed to 7s)", aspect_ratio)
-    return await _veo_submit(endpoint, payload)
+    loop = asyncio.get_running_loop()
+    operation = await loop.run_in_executor(
+        None, _sync_veo_extend, prompt, video_object, aspect_ratio
+    )
+    logger.info("Veo extend operation started")
+    return operation
 
 
-async def _veo_submit(endpoint: str, payload: Dict[str, Any]) -> str:
-    """POST to a Veo endpoint, retry on transients, return LRO operation name."""
-    max_retries = 3
-    for attempt in range(1, max_retries + 1):
-        try:
-            client = get_http_client()
-            r = await client.post(endpoint, json=payload, timeout=60.0)
-            if r.status_code == 200:
-                op_name = r.json().get("name")
-                if not op_name:
-                    raise RuntimeError("Veo API returned no operation name")
-                logger.info("Veo LRO started: %s", op_name)
-                return op_name
-            # 4xx (except 429) are fatal — do not retry
-            if 400 <= r.status_code < 500 and r.status_code != 429:
-                raise RuntimeError(f"Veo API error ({r.status_code}): {r.text}")
-            # 5xx / 429 — transient, retry with backoff
-            logger.warning(
-                "Veo API transient error (%d) attempt %d/%d: %s",
-                r.status_code, attempt, max_retries, r.text,
-            )
-            if attempt == max_retries:
-                raise RuntimeError(f"Veo API error ({r.status_code}) after {max_retries} attempts")
-            await asyncio.sleep(min(2 ** attempt, 30))
-        except (httpx.TimeoutException, httpx.RequestError) as e:
-            logger.warning("Veo API connection error (attempt %d/%d): %s", attempt, max_retries, e)
-            if attempt == max_retries:
-                raise RuntimeError(f"Veo API connection failed: {e}") from e
-            await asyncio.sleep(min(2 ** attempt, 30))
-    raise RuntimeError("Veo job submission failed")
-
-
-async def veo_poll_and_download(op_name: str) -> Tuple[bytes, Dict[str, Any]]:
+async def veo_poll_and_download(operation) -> Tuple[bytes, Any]:
     """
-    Poll the Google LRO until done, then download the video bytes.
-    Returns (video_bytes, video_object) where video_object is the raw
-    Veo video dict that must be passed to the next extend call.
+    Async wrapper: poll operation and download video bytes.
+    Returns (video_bytes, sdk_video_object).
     """
-    key = _veo_api_key()
-    poll_interval = 10   # seconds
-    max_wait_sec = 1800  # 30 minutes
-    max_polls = max(1, max_wait_sec // poll_interval)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _sync_poll_and_download, operation)
 
-    logger.info("Polling Veo LRO: %s", op_name)
-    client = get_http_client()
 
-    for attempt in range(max_polls):
-        try:
-            url = f"{VEO_LRO_BASE}/{op_name}?key={key}"
-            r = await client.get(url, timeout=30.0)
-            if r.status_code != 200:
-                logger.warning("Veo poll attempt %d failed (%d): %s", attempt + 1, r.status_code, r.text)
-                await asyncio.sleep(poll_interval)
-                continue
-
-            data = r.json()
-            if not data.get("done"):
-                if (attempt + 1) % 6 == 0:
-                    logger.info("Veo LRO %s still processing (attempt %d/%d)...", op_name, attempt + 1, max_polls)
-                await asyncio.sleep(poll_interval)
-                continue
-
-            # Operation is done
-            if "error" in data:
-                raise RuntimeError(f"Veo generation failed: {data['error']}")
-
-            response = data.get("response", {})
-            # Veo API returns camelCase
-            videos = response.get("generatedVideos") or response.get("generated_videos") or []
-            if not videos:
-                raise RuntimeError("Veo returned no videos in completed operation")
-
-            video_obj: Dict[str, Any] = videos[0].get("video") or {}
-            if not video_obj:
-                raise RuntimeError("Veo completed but video object is empty")
-
-            uri = video_obj.get("uri")
-            if not uri:
-                raise RuntimeError("Veo video object has no 'uri' field")
-
-            logger.info("Veo LRO %s done, downloading video from GCS URI...", op_name)
-            dl = await client.get(uri, timeout=180.0)
-            if dl.status_code != 200:
-                raise RuntimeError(f"Failed to download Veo video ({dl.status_code}): {dl.text}")
-
-            logger.info("Downloaded %d bytes for LRO %s", len(dl.content), op_name)
-            return dl.content, video_obj
-
-        except (httpx.TimeoutException, httpx.RequestError) as e:
-            logger.warning("Veo poll network error (attempt %d): %s", attempt + 1, e)
-            await asyncio.sleep(poll_interval)
-
-    raise TimeoutError(f"Veo LRO {op_name} did not complete within {max_wait_sec} seconds")
 
 
 # ---------------------------------------------------------------------------
@@ -434,7 +537,7 @@ async def upload_to_r2(file_data: bytes, bucket: str, path: str) -> Optional[str
     logger.info("Uploading %d bytes to R2: %s/%s", len(file_data), bucket, path)
 
     try:
-        client = get_http_client()
+        client = await get_http_client()
         r = await client.post(
             url,
             headers={
@@ -526,7 +629,7 @@ def create_asset(
 async def download_clip_from_r2(url: str, local_path: str) -> bool:
     """Download a clip from R2 public URL to local path. Returns True on success."""
     try:
-        client = get_http_client()
+        client = await get_http_client()
         r = await client.get(url, timeout=120.0)
         if r.status_code != 200:
             logger.error("R2 download failed (%d) for %s", r.status_code, url)
@@ -579,48 +682,64 @@ async def generate_single_frame(
         # 1. Start Veo job (generate or extend)
         if frame_num == 1:
             # First frame: text-to-video
-            op_name = await veo_start_generate(
+            operation = await veo_start_generate(
                 prompt=prompt,
                 duration_seconds=duration_seconds,
                 aspect_ratio=aspect_ratio,
             )
         else:
-            # Extension frame: load previous frame's video object from temp JSON
-            prev_obj_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num - 1}_video_object.json")
-            if not os.path.exists(prev_obj_path):
+            # Extension frame: load the previous frame's GCS URI from disk,
+            # reconstruct a Video SDK object, then extend.
+            prev_uri_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num - 1}_video_uri.txt")
+            if not os.path.exists(prev_uri_path):
                 raise RuntimeError(
-                    f"Previous frame ({frame_num - 1}) video object not found at {prev_obj_path}. "
+                    f"Previous frame ({frame_num - 1}) video URI not found at {prev_uri_path}. "
                     "Cannot extend — generate preceding frames first."
                 )
-            with open(prev_obj_path, "r", encoding="utf-8") as f:
-                prev_video_object = json.load(f)
-            op_name = await veo_start_extend(
+            with open(prev_uri_path, "r", encoding="utf-8") as fh:
+                prev_gcs_uri = fh.read().strip()
+
+            # Reconstruct a minimal SDK Video object from the saved URI
+            from google.genai import types as genai_types
+            prev_video_object = genai_types.Video(uri=prev_gcs_uri)
+
+            operation = await veo_start_extend(
                 prompt=prompt,
                 video_object=prev_video_object,
                 aspect_ratio=aspect_ratio,
             )
 
-        # 2. Poll LRO and download the completed (merged) video
-        video_data, new_video_object = await veo_poll_and_download(op_name)
+        # 2. Poll operation and download the completed (merged) video
+        video_data, new_video_object = await veo_poll_and_download(operation)
         if not video_data:
             raise RuntimeError("Veo returned empty video data")
 
         # 3. Save MP4 locally (named with _temp suffix per naming convention)
         local_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_temp.mp4")
         try:
-            with open(local_path, "wb") as f:
-                f.write(video_data)
+            with open(local_path, "wb") as fh:
+                fh.write(video_data)
             logger.info("Saved temp clip: %s (%d bytes)", local_path, len(video_data))
         except IOError as e:
             raise RuntimeError(f"Failed to save clip locally: {e}") from e
 
-        # 4. Save the Veo video object JSON (used as extend seed for next frame)
-        obj_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_video_object.json")
-        try:
-            with open(obj_path, "w", encoding="utf-8") as f:
-                json.dump(new_video_object, f)
-        except IOError as e:
-            raise RuntimeError(f"Failed to save video object JSON: {e}") from e
+        # 4. Save the GCS URI of the new video (used as extend seed for next frame)
+        #    We only persist the URI string — much simpler than the full SDK object.
+        uri_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_video_uri.txt")
+        gcs_uri = getattr(new_video_object, "uri", None)
+        if gcs_uri:
+            try:
+                with open(uri_path, "w", encoding="utf-8") as fh:
+                    fh.write(gcs_uri)
+                logger.info("Saved video GCS URI for frame %d: %s", frame_num, gcs_uri)
+            except IOError as e:
+                # Non-fatal if this is the last frame; log and continue
+                logger.warning("Failed to save video URI for frame %d: %s", frame_num, e)
+        else:
+            logger.warning(
+                "Frame %d video object has no URI — extend from this frame will not be possible",
+                frame_num,
+            )
 
         # 5. Upload MP4 to R2 trash bucket (makes it instantly previewable on frontend)
         r2_path = f"trash/videos/{project_id}/clip_{frame_num}.mp4"
@@ -653,6 +772,10 @@ async def generate_single_frame(
         except Exception as refund_err:
             logger.error("Failed to refund credits for failed frame %d: %s", frame_num, refund_err)
         # Do NOT re-raise: runs as BackgroundTask
+    finally:
+        release_generation_lock(project_id)
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -700,7 +823,26 @@ async def generate_all_pending_frames(project_id: str, aspect_ratio: str = "9:16
                         "Frame %d failed — stopping sequential generation (subsequent frames need this frame's video object)",
                         f["frame_num"],
                     )
+
+                    # LOGIC-2: refund credits for frames that were never started
+                    remaining_frames = frames[idx + 1:]
+                    if remaining_frames and project.get("user_id"):
+                        try:
+                            from app.routes.payment import calculate_required_credits, refund_credits
+                            skipped_seconds = sum(
+                                sf.get("duration_seconds", 8) for sf in remaining_frames
+                            )
+                            credits_to_refund = calculate_required_credits(skipped_seconds)
+                            if credits_to_refund > 0:
+                                await refund_credits(project["user_id"], credits_to_refund)
+                                logger.info(
+                                    "Refunded %d credits to user %s for %d skipped frame(s)",
+                                    credits_to_refund, project["user_id"], len(remaining_frames),
+                                )
+                        except Exception as refund_err:
+                            logger.error("Failed to refund credits for skipped frames: %s", refund_err)
                     break
+
 
         # Determine final status
         updated = get_project_with_frames_and_assets(project_id)
@@ -722,15 +864,17 @@ async def generate_all_pending_frames(project_id: str, aspect_ratio: str = "9:16
     except Exception as e:
         logger.error("Unexpected error in generate_all_pending_frames for %s: %s", project_id, e)
         update_project_status(project_id, "failed")
+    finally:
+        release_generation_lock(project_id)
 
 
 async def promote_final_video(project_id: str) -> Dict[str, Any]:
     """
     Promote the last completed frame's merged MP4 to the final R2 bucket.
-    Replaces FFmpeg combine — Veo 3.1 extend already returns the full cumulative
+    Replaces FFmpeg combine — Veo extend already returns the full cumulative
     video on every call, so the last frame's temp file IS the final video.
     Safe for BackgroundTask — never raises.
-    Cleans up all _temp.mp4 and _video_object.json files on success.
+    Cleans up all _temp.mp4 and _video_uri.txt files on success.
     """
     temp_files_to_clean: List[str] = []
     try:
@@ -749,7 +893,7 @@ async def promote_final_video(project_id: str) -> Dict[str, Any]:
         for f in frames:
             fnum = f["frame_num"]
             temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_temp.mp4"))
-            temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_video_object.json"))
+            temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_video_uri.txt"))
 
         # The last completed frame holds the full cumulative merged video
         last_frame = completed_frames[-1]
@@ -882,7 +1026,7 @@ async def _refresh_access_token(channel: Dict[str, Any]) -> Optional[str]:
         return None
 
     try:
-        client = get_http_client()
+        client = await get_http_client()
         response = await client.post(
             "https://oauth2.googleapis.com/token",
             data={

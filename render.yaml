@@ -8,6 +8,9 @@ services:
     plan: free # or your preferred plan
     autoDeploy: true
     envVars:
+      # ---------------------------------------------------------------------------
+      # Redis (auto-linked from the Redis instance below)
+      # ---------------------------------------------------------------------------
       - key: REDIS_ENABLED
         value: "true"
       - key: REDIS_URL
@@ -18,20 +21,118 @@ services:
       - key: REDIS_DB
         value: "0"
       - key: REDIS_SSL
-        value: "false"
+        value: "true"   # Render Redis requires TLS
+      - key: REDIS_TTL_SECONDS
+        value: "3600"
 
-      # Core Keys (Must be manually set in dashboard or added here if public)
+      # ---------------------------------------------------------------------------
+      # Supabase (set manually in Render dashboard)
+      # ---------------------------------------------------------------------------
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_KEY
         sync: false
+
+      # ---------------------------------------------------------------------------
+      # App
+      # ---------------------------------------------------------------------------
       - key: FRONTEND_URL
+        sync: false   # e.g. https://your-app.vercel.app
+
+      # ---------------------------------------------------------------------------
+      # Google OAuth (for YouTube channel linking)
+      # ---------------------------------------------------------------------------
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI_CHANNELS
         sync: false
 
+      # ---------------------------------------------------------------------------
+      # YouTube Data API
+      # ---------------------------------------------------------------------------
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: YOUTUBE_MAX_RESULTS
+        value: "20"
+      - key: YOUTUBE_AI_THRESHOLD
+        value: "30"
+      - key: YOUTUBE_SEARCH_PAGES
+        value: "2"
+
+      # ---------------------------------------------------------------------------
+      # Gemini (lightweight tasks: topic suggestion, topic validation)
+      # ---------------------------------------------------------------------------
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: "gemini-2.5-flash-lite"
+
+      # ---------------------------------------------------------------------------
+      # Vertex AI + Veo (story generation + video generation)
+      # ---------------------------------------------------------------------------
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        sync: false   # path to service account JSON inside the container
+      - key: VERTEX_AI_PROJECT_ID
+        sync: false
+      - key: VERTEX_AI_LOCATION
+        value: "us-central1"
+      - key: STORY_MODEL
+        value: "gemini-2.5-pro"
+      - key: VEO_MODEL
+        value: "veo-3.1-lite-generate-001"
+
+      # ---------------------------------------------------------------------------
+      # Cloudflare R2 video storage
+      # ---------------------------------------------------------------------------
+      - key: WORKER_URL
+        sync: false
+      - key: R2_UPLOAD_API_KEY
+        sync: false
+      - key: R2_FINAL_PUBLIC_URL
+        sync: false
+      - key: R2_TRASH_PUBLIC_URL
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+
+      # ---------------------------------------------------------------------------
+      # Paddle billing
+      # ---------------------------------------------------------------------------
+      - key: PADDLE_API_KEY
+        sync: false
+      - key: PADDLE_WEBHOOK_SECRET
+        sync: false
+      - key: PADDLE_ENVIRONMENT
+        value: "production"   # change to 'sandbox' for testing
+
+      # ---------------------------------------------------------------------------
+      # Topic suggestion tuning (optional — defaults are sensible)
+      # ---------------------------------------------------------------------------
+      - key: TOPIC_SUGGESTION_TIMEOUT
+        value: "60"
+      - key: TOPIC_SUGGESTION_CACHE_TTL
+        value: "1800"
+      - key: STORY_GENERATION_TIMEOUT
+        value: "120"
+
+      # ---------------------------------------------------------------------------
+      # Video temp storage
+      # ---------------------------------------------------------------------------
+      - key: VIDEO_TEMP_DIR
+        value: "/tmp/video_cache"
+
+  # ---------------------------------------------------------------------------
   # Redis Instance
+  # ---------------------------------------------------------------------------
   - type: redis
     name: yt-agent-redis
     plan: free
-    ipAllowList: [] # Only allow internal access from services
+    ipAllowList: []   # only internal access from Render services

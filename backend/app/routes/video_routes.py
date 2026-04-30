@@ -44,10 +44,12 @@ def _check_video_config():
 
 
 def _check_veo_config():
-    """Pre-flight check for Veo 3.1 + R2 API configuration."""
+    """Pre-flight check for Vertex AI (Veo video generation) + R2 configuration."""
     missing = []
-    if not settings.GEMINI_API_KEY:
-        missing.append("GEMINI_API_KEY")
+    if not settings.VERTEX_AI_PROJECT_ID:
+        missing.append("VERTEX_AI_PROJECT_ID")
+    if not settings.GOOGLE_APPLICATION_CREDENTIALS:
+        missing.append("GOOGLE_APPLICATION_CREDENTIALS")
     if not settings.WORKER_URL:
         missing.append("WORKER_URL")
     if not settings.R2_UPLOAD_API_KEY:
@@ -55,8 +57,9 @@ def _check_veo_config():
     if missing:
         raise HTTPException(
             status_code=503,
-            detail=f"Veo/R2 not configured. Missing env vars: {', '.join(missing)}",
+            detail=f"Vertex AI/R2 not configured. Missing env vars: {', '.join(missing)}",
         )
+
 
 
 @router.post("/projects", response_model=Dict[str, Any])
@@ -109,7 +112,7 @@ async def create_video_project(
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         logger.error("Unexpected error creating project: %s", e)
-        handle_error(e)
+        raise handle_error(e)
 
 
 @router.get("/projects/{project_id}", response_model=Dict[str, Any])
@@ -160,7 +163,7 @@ async def get_video_project(
         raise
     except Exception as e:
         logger.error("Error fetching project %s: %s", project_id, e)
-        handle_error(e)
+        raise handle_error(e)
 
 
 @router.post("/projects/{project_id}/generate")
@@ -187,29 +190,37 @@ async def start_generate_all(
         if not pending:
             return {"success": True, "message": "No pending/failed frames to generate.", "pending_count": 0}
 
-        # --- Credit Check & Deduction ---
-        total_seconds = sum(f.get("duration_seconds", 8) for f in pending)
-        credits_needed = calculate_required_credits(total_seconds)
-        await check_and_deduct_credits(current_user["id"], credits_needed)
+        # --- Concurrency Guard ---
+        if not video_service.try_acquire_generation_lock(project_id):
+            return {"success": False, "message": "Generation is already in progress for this project.", "pending_count": len(pending)}
 
-        # Read aspect_ratio from project metadata (set at project creation time)
-        aspect_ratio = (proj.get("metadata") or {}).get("aspect_ratio", "9:16")
+        try:
+            # --- Credit Check & Deduction ---
+            total_seconds = sum(f.get("duration_seconds", 8) for f in pending)
+            credits_needed = calculate_required_credits(total_seconds)
+            await check_and_deduct_credits(current_user["id"], credits_needed)
 
-        background_tasks.add_task(video_service.generate_all_pending_frames, project_id, aspect_ratio)
-        logger.info("Started generation for project %s (%d frames, %d credits deducted, ratio=%s)", project_id, len(pending), credits_needed, aspect_ratio)
+            # Read aspect_ratio from project metadata (set at project creation time)
+            aspect_ratio = (proj.get("metadata") or {}).get("aspect_ratio", "9:16")
 
-        return {
-            "success": True,
-            "message": f"Generation started for {len(pending)} frame(s). {credits_needed} credit(s) deducted.",
-            "pending_count": len(pending),
-            "credits_used": credits_needed,
-        }
+            background_tasks.add_task(video_service.generate_all_pending_frames, project_id, aspect_ratio)
+            logger.info("Started generation for project %s (%d frames, %d credits deducted, ratio=%s)", project_id, len(pending), credits_needed, aspect_ratio)
+
+            return {
+                "success": True,
+                "message": f"Generation started for {len(pending)} frame(s). {credits_needed} credit(s) deducted.",
+                "pending_count": len(pending),
+                "credits_used": credits_needed,
+            }
+        except Exception:
+            video_service.release_generation_lock(project_id)
+            raise
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Error starting generation for project %s: %s", project_id, e)
-        handle_error(e)
+        raise handle_error(e)
 
 
 @router.post("/projects/{project_id}/generate-frame")
@@ -244,31 +255,39 @@ async def generate_one_frame(
         if frame.get("status") not in ("pending", "failed"):
             return {"success": True, "message": f"Frame already in state '{frame.get('status')}', skipping."}
 
-        # --- Credit Check & Deduction (single frame) ---
-        frame_seconds = frame.get("duration_seconds", 8)
-        credits_needed = calculate_required_credits(frame_seconds)
-        await check_and_deduct_credits(current_user["id"], credits_needed)
+        # --- Concurrency Guard ---
+        if not video_service.try_acquire_generation_lock(project_id):
+            return {"success": False, "message": "Generation is already in progress for this project."}
 
-        # Read aspect_ratio from project metadata
-        aspect_ratio = (proj.get("metadata") or {}).get("aspect_ratio", "9:16")
+        try:
+            # --- Credit Check & Deduction (single frame) ---
+            frame_seconds = frame.get("duration_seconds", 8)
+            credits_needed = calculate_required_credits(frame_seconds)
+            await check_and_deduct_credits(current_user["id"], credits_needed)
 
-        background_tasks.add_task(
-            video_service.generate_single_frame,
-            frame["id"],
-            project_id,
-            frame["frame_num"],
-            frame["ai_video_prompt"],
-            frame.get("duration_seconds", 8),
-            aspect_ratio,
-        )
-        logger.info("Started single frame generation: %s (frame %d, ratio=%s)", frame["id"], frame["frame_num"], aspect_ratio)
+            # Read aspect_ratio from project metadata
+            aspect_ratio = (proj.get("metadata") or {}).get("aspect_ratio", "9:16")
 
-        return {"success": True, "message": f"Frame {frame['frame_num']} generation started."}
+            background_tasks.add_task(
+                video_service.generate_single_frame,
+                frame["id"],
+                project_id,
+                frame["frame_num"],
+                frame["ai_video_prompt"],
+                frame.get("duration_seconds", 8),
+                aspect_ratio,
+            )
+            logger.info("Started single frame generation: %s (frame %d, ratio=%s)", frame["id"], frame["frame_num"], aspect_ratio)
+
+            return {"success": True, "message": f"Frame {frame['frame_num']} generation started."}
+        except Exception:
+            video_service.release_generation_lock(project_id)
+            raise
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Error starting frame generation: %s", e)
-        handle_error(e)
+        raise handle_error(e)
 
 
 @router.patch("/projects/{project_id}/frames/{frame_id}")
@@ -306,7 +325,7 @@ async def update_frame_prompt_route(
         raise
     except Exception as e:
         logger.error("Error updating frame prompt: %s", e)
-        handle_error(e)
+        raise handle_error(e)
 
 
 @router.post("/projects/{project_id}/combine")
@@ -352,9 +371,11 @@ async def combine_videos(
             "message": "Final video is being promoted to permanent storage. Check back shortly.",
             "clips_count": len(completed),
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Error starting combine for project %s: %s", project_id, e)
-        handle_error(e)
+        raise handle_error(e)
 
 
 @router.post("/projects/{project_id}/upload")

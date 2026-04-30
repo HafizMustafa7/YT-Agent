@@ -39,11 +39,14 @@ class Settings:
     
     # API Keys
     YOUTUBE_API_KEY: str = os.getenv("YOUTUBE_API_KEY", "")
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     
     # Gemini API Settings
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+    
+    # Story generation model (Vertex AI — same service account as Veo, no extra key)
+    STORY_MODEL: str = os.getenv("STORY_MODEL", "gemini-2.5-pro")
     
     # Application Settings
     APP_NAME: str = "YouTube Trend Analyzer API"
@@ -73,7 +76,7 @@ class Settings:
 
 
     # Video Generation (Veo 3.1 + R2)
-    # Model is locked to veo-3.1-generate-preview; resolution locked to 720p in code.
+    # Model is configurable via VEO_MODEL env var; resolution locked to 720p in code.
     VIDEO_TEMP_DIR: str = os.getenv("VIDEO_TEMP_DIR", "temp_video_cache")
     WORKER_URL: str = os.getenv("WORKER_URL", "")
     R2_UPLOAD_API_KEY: str = os.getenv("R2_UPLOAD_API_KEY", "")
@@ -84,6 +87,13 @@ class Settings:
     R2_ACCOUNT_ID: str = os.getenv("R2_ACCOUNT_ID", "")
     R2_ACCESS_KEY_ID: str = os.getenv("R2_ACCESS_KEY_ID", "")
     R2_SECRET_ACCESS_KEY: str = os.getenv("R2_SECRET_ACCESS_KEY", "")
+
+    # Vertex AI (for Veo video generation using Google Cloud Console credits)
+    # GOOGLE_APPLICATION_CREDENTIALS: filename only (resolved relative to backend/ at runtime)
+    GOOGLE_APPLICATION_CREDENTIALS: str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+    VERTEX_AI_PROJECT_ID: str = os.getenv("VERTEX_AI_PROJECT_ID", "")
+    VERTEX_AI_LOCATION: str = os.getenv("VERTEX_AI_LOCATION", "us-central1")
+    VEO_MODEL: str = os.getenv("VEO_MODEL", "veo-3.1-lite-generate-001")
     
     # Supabase Settings (Reusing existing env vars where possible)
     SUPABASE_URL: str = SUPABASE_URL

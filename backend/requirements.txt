@@ -44,7 +44,9 @@ google-auth==2.38.0
 
 
 # YT-Agent-Umar Dependencies
-google-generativeai==0.8.3
+# Unified Google AI SDK — supports Gemini text generation (Developer API)
+# AND Vertex AI video generation (Veo) using service account JSON.
+google-genai>=1.16.0
 
 redis==7.1.0
 paddle-python-sdk>=1.2.0

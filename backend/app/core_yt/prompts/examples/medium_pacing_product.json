@@ -1,6 +1,6 @@
 {
-  "label": "medium_pacing_product",
-  "description": "Barista crafting a specialty coffee in a modern cafe — medium pacing, hyperrealistic style, dolly shot",
+  "label": "medium_pacing_showcase",
+  "description": "Barista crafting specialty coffee — medium pacing, showcase structure (intro → demonstration → highlight/serve)",
   "input": {
     "topic": "a skilled barista crafting a specialty coffee drink in a modern minimalist cafe",
     "duration": 22,
@@ -32,41 +32,44 @@
       "visual_constants": {
         "color_palette": "rich amber, cream tones, black, light oak",
         "lighting_rule": "warm Edison lights hanging at different heights above the counter",
-        "style_lock": "Hyperrealistic style, shallow depth of field, warm tone"
+        "style_lock": "hyperrealistic style, shallow depth of field, warm tone"
       },
       "audio_constants": {
         "ambient_layer": "quiet murmur of background cafe atmosphere",
         "music": null,
         "dialogue_style": "spoken dialogue"
       },
-      "story_arc": [
-        "Frame 1 (8s): [brew] — Barista pulls an espresso shot while chatting with a customer off-screen.",
-        "Frame 2 (7s): [steam] — Barista steams oat milk to silky microfoam.",
-        "Frame 3 (7s): [serve] — Barista pours latte art and serves the drink to the customer with a smile."
-      ]
+      "narrative_structure": "showcase",
+      "narrative_reason": "The video introduces the barista and the process, demonstrates the craft step-by-step, and concludes with the finished product being presented — the classic showcase structure."
     },
     "topic": "a skilled barista crafting a specialty coffee drink in a modern minimalist cafe",
     "total_duration": 22,
     "pacing": "medium",
-    "full_story": "A skilled barista pulls an espresso shot while warmly greeting a customer. She steams oat milk to a silky microfoam and pours an intricate latte art pattern. The sequence concludes as she serves the finished drink with a friendly smile.",
+    "full_story": "The barista greets a customer and begins pulling an espresso shot, setting up the craft process. She pivots to steam oat milk to a silky microfoam, the natural next step in the process. The showcase culminates as she pours the latte art and presents the finished drink with a warm smile.",
     "frames": [
       {
         "frame_number": 1,
         "type": "first",
         "duration": 8,
-        "prompt": "Medium hyperrealistic dolly shot pushing slowly toward a young woman barista in a fitted black apron over a white shirt, standing at a gleaming espresso machine in a modern minimalist cafe. The barista locks a portafilter into the machine and starts the shot, looking up to smile warmly. Barista: (smiling warmly at someone off-camera) \"One oat flat white, coming right up!\" The espresso begins to flow into a small white ceramic espresso cup. Hyperrealistic style, shallow depth of field, warm tone. The warm Edison lights hang above the counter. The quiet murmur of background cafe atmosphere is continuous to the end of the clip."
+        "entry_state": "scene opens cold — barista at the espresso machine, customer off-screen, cafe atmosphere humming",
+        "exit_state": "espresso is flowing into the white ceramic cup, barista has greeted the customer, cafe murmur active and continuous",
+        "prompt": "Medium hyperrealistic dolly shot pushing slowly toward a young woman barista in a fitted black apron over a white shirt, standing at a gleaming espresso machine in a modern minimalist cafe. The barista locks a portafilter into the machine and starts the shot, looking up to smile warmly. Barista: (smiling warmly at someone off-camera) \"One oat flat white, coming right up!\" The espresso begins to flow into a small white ceramic espresso cup. Hyperrealistic style, shallow depth of field, warm tone. The warm Edison lights hang above the counter. The quiet murmur of background cafe atmosphere is continuous and remains active to the end of the clip."
       },
       {
         "frame_number": 2,
         "type": "extend",
         "duration": 7,
-        "prompt": "Continuing from the espresso pull, the barista pivots and submerges the steam wand into a steel pitcher of oat milk. She holds the pitcher steady as the milk swirls into a fast vortex, tapping it twice on the counter to settle the silky microfoam. The continuous quiet murmur of the cafe is joined by the sustained hiss of the steam wand, filling the soundscape to the final second."
+        "entry_state": "espresso is flowing into the white ceramic cup, barista has greeted the customer, cafe murmur active and continuous",
+        "exit_state": "barista has tapped the pitcher twice, oat milk is silky microfoam, steam wand hiss joining the cafe murmur, both active to the final second",
+        "prompt": "Continuing from the espresso pull, the barista pivots and submerges the steam wand into a steel pitcher of oat milk. She holds the pitcher steady as the milk swirls into a fast vortex, tapping it twice on the counter to settle the silky microfoam. Hyperrealistic style, shallow depth of field, warm tone. The warm Edison lights hang above the counter. The continuous quiet murmur of the cafe is joined by the sustained hiss of the steam wand, filling the soundscape to the final second."
       },
       {
         "frame_number": 3,
         "type": "extend",
         "duration": 7,
-        "prompt": "Extending from the steaming, the barista pours the milk over the espresso, forming a clean rosetted leaf. She slides the finished cup across the wooden counter. Barista: (sliding the cup forward cheerfully) \"Enjoy your coffee!\" The continuous cafe murmur persists as the glass clinks softly against the wood to the end of the clip."
+        "entry_state": "barista has tapped the pitcher twice, oat milk is silky microfoam, steam wand hiss joining the cafe murmur, both active to the final second",
+        "exit_state": "finished latte art cup is in the customer's hands, barista smiling, cafe murmur sustaining to the final frame — arc resolved",
+        "prompt": "Extending from the steaming, the barista pours the milk over the espresso, forming a clean rosetted leaf. She slides the finished cup across the wooden counter. Barista: (sliding the cup forward cheerfully) \"Enjoy your coffee!\" Hyperrealistic style, shallow depth of field, warm tone. The warm Edison lights hang above the counter. The continuous cafe murmur persists as the glass clinks softly against the wood to the end of the clip."
       }
     ]
   }

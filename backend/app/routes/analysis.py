@@ -240,7 +240,7 @@ async def get_all_channels(current_user: dict = Depends(get_current_user)):
         return {"channels": result.data, "count": len(result.data)}
     except Exception as e:
         logger.error("Database error fetching channels: %s", e)
-        handle_error(e)
+        raise handle_error(e)
 
 
 @router.get("/channels/{user_id}")
@@ -256,7 +256,7 @@ async def get_user_channels(user_id: str, current_user: dict = Depends(get_curre
         raise
     except Exception as e:
         logger.error("Error fetching channels for user %s: %s", user_id, e)
-        handle_error(e)
+        raise handle_error(e)
 
 
 @router.get("/analytics/{channel_id}")
@@ -389,18 +389,31 @@ async def get_channel_analytics(
             channel_stats.get("subscriberCount", "?"),
         )
 
-        return AnalyticsResponse(
+        analytics_response = AnalyticsResponse(
             videos=processed_videos,
             total_videos=len(processed_videos),
             total_views=total_views,
             total_subscribers=int(channel_stats.get("subscriberCount", 0)),
         )
 
+        # DATA-6: cache the result so subsequent requests don't hit YouTube API
+        try:
+            redis_cache.set(
+                cache_key,
+                analytics_response.model_dump(),
+                ttl=settings.REDIS_TTL_SECONDS,
+            )
+            logger.info("[CACHE SET] analytics for channel %s (TTL=%ds)", channel_id, settings.REDIS_TTL_SECONDS)
+        except Exception as cache_err:
+            logger.warning("Failed to cache analytics for channel %s: %s", channel_id, cache_err)
+
+        return analytics_response
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Unexpected error in get_channel_analytics: %s", e, exc_info=True)
-        handle_error(e)
+        raise handle_error(e)
 
 
 @router.get("/ai-insights/{channel_id}")
@@ -507,7 +520,7 @@ async def get_video_analytics(
         raise
     except Exception as e:
         logger.error("Error fetching video analytics: %s", e, exc_info=True)
-        handle_error(e)
+        raise handle_error(e)
 
 
 @router.get("/test-credentials")

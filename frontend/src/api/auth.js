@@ -145,6 +145,16 @@ export const getCurrentUser = async () => {
  */
 export const logout = async () => {
   try {
+    // FE-3: hit backend first so it can delete the Redis auth cache entry immediately,
+    // preventing the 60s window where the token would still be accepted server-side.
+    // We fire-and-forget with a short timeout so a backend hiccup doesn't block the user.
+    try {
+      await api.post("/api/auth/logout", {}, { timeout: 3000 });
+    } catch (backendErr) {
+      // Non-fatal — Supabase signOut still clears the client session
+      console.warn("[FRONTEND] Backend logout call failed (non-fatal):", backendErr.message);
+    }
+
     await supabase.auth.signOut();
     return { message: "Logged out successfully" };
   } catch (err) {

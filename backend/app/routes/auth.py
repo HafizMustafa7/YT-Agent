@@ -1,4 +1,5 @@
 import asyncio
+from collections import OrderedDict
 import logging
 
 import httpx
@@ -180,7 +181,23 @@ async def login(payload: LoginRequest):
 # Dependency: get_current_user
 # ---------------------------------------------------------------------------
 
-_token_locks = {}
+_token_locks: OrderedDict = OrderedDict()
+_TOKEN_LOCKS_MAX = 500  # cap to prevent unbounded memory growth
+
+
+def _get_or_create_token_lock(token: str) -> asyncio.Lock:
+    """Return the asyncio.Lock for a token, creating one if needed (bounded LRU)."""
+    if token in _token_locks:
+        # Move to end (most recently used)
+        _token_locks.move_to_end(token)
+        return _token_locks[token]
+    if len(_token_locks) >= _TOKEN_LOCKS_MAX:
+        # Evict oldest (first) entry
+        _token_locks.popitem(last=False)
+    lock = asyncio.Lock()
+    _token_locks[token] = lock
+    return lock
+
 
 async def get_current_user(authorization: str = Header(None)) -> dict:
     """
@@ -198,14 +215,11 @@ async def get_current_user(authorization: str = Header(None)) -> dict:
     cached_user = redis_cache.get(cache_key)
     if cached_user:
         return cached_user
-        
+
     loop = asyncio.get_running_loop()
 
-    # Create lock if missing (atomic enough for this use case since GIL)
-    if token not in _token_locks:
-        _token_locks[token] = asyncio.Lock()
-        
-    async with _token_locks[token]:
+    # Bounded lock — prevents thundering herd on cache miss
+    async with _get_or_create_token_lock(token):
         # Double-check cache inside lock
         cached_user = redis_cache.get(cache_key)
         if cached_user:
@@ -266,10 +280,21 @@ async def get_current_user(authorization: str = Header(None)) -> dict:
             raise HTTPException(status_code=401, detail="Authentication failed")
 
 async def get_optional_user(authorization: str = Header(None)):
-    """Try to get user; return None instead of raising 401 if unauthenticated."""
+    """Try to get user; return None instead of raising 401 if unauthenticated.
+
+    LOGIC-5: Checks Redis cache first (same key as get_current_user) to avoid
+    a Supabase round-trip on every optional-auth endpoint request.
+    """
     if not authorization:
         return None
     token = authorization.split(" ", 1)[1] if " " in authorization else authorization
+
+    # Fast path: Redis cache hit
+    cache_key = f"auth_token_cache:{token}"
+    cached_user = redis_cache.get(cache_key)
+    if cached_user:
+        return {"id": cached_user.get("id"), "email": cached_user.get("email")}
+
     loop = asyncio.get_running_loop()
     try:
         user = await loop.run_in_executor(None, _sync_get_user, token)
@@ -294,7 +319,16 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
 
 
 @router.post("/logout")
-async def logout():
+async def logout(authorization: str = Header(None)):
+    """
+    Invalidate the server-side auth cache for this token immediately.
+    The client is responsible for clearing its own Supabase session.
+    """
+    if authorization:
+        token = authorization.split(" ", 1)[1] if " " in authorization else authorization
+        cache_key = f"auth_token_cache:{token}"
+        redis_cache.delete(cache_key)
+        logger.info("[AUTH] Logout: invalidated Redis auth cache for token (first 12 chars: %s...)", token[:12])
     return {"message": "Logged out successfully"}
 
 

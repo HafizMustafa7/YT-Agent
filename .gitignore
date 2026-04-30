@@ -7,7 +7,7 @@ backend/.env
 env
 /backend/test_models.py
 /backend/models.txt
-
+/backend/yt-agent-project-494510-28175335b51a.json
 # Python
 venv/
 __pycache__/

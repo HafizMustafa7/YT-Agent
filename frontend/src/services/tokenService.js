@@ -1,5 +1,6 @@
 import { supabase } from '../supabaseClient';
 import { toast } from 'sonner';
+import api from '../api/auth';
 
 // Token Service for managing authentication and service tokens
 export class TokenService {
@@ -79,27 +80,11 @@ export class TokenService {
 
   async _performYouTubeRefresh() {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('No active session');
-      }
-
-      const response = await fetch('/api/channels/refresh', {
-        method: 'POST',
-        headers: {
-          ...(session?.access_token && { 'Authorization': `Bearer ${session.access_token}` }),
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to refresh YouTube token');
-      }
-
-      const data = await response.json();
+      // FE-1: use the configured axios instance (has API_BASE_URL + auth interceptor)
+      // Raw fetch('/api/channels/refresh') resolved to the frontend domain in production
+      const response = await api.post('/api/channels/refresh');
       console.log('[TokenService] YouTube token refreshed successfully');
-      return data;
-
+      return response.data;
     } catch (error) {
       console.error('[TokenService] YouTube token refresh failed:', error);
       throw error;

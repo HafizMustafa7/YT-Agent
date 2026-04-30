@@ -89,7 +89,7 @@ async def start_youtube_oauth(current_user: dict = Depends(get_current_user)):
         return {"url": authorization_url}
     except Exception as e:
         logger.exception("[CHANNELS] start_youtube_oauth failed")
-        handle_error(e)
+        raise handle_error(e)
 
 
 @router.get("/oauth/callback")
@@ -215,7 +215,7 @@ async def oauth_callback(request: Request, state: str = None, code: str = None):
         except Exception:
             pass  # Don't let cleanup errors mask the original error
         logger.exception("[CHANNELS] oauth_callback failed")
-        handle_error(e)
+        raise handle_error(e)
 
 
 @router.get("/")
@@ -288,7 +288,7 @@ async def refresh_youtube_token_route(current_user: dict = Depends(get_current_u
         raise
     except Exception as e:
         logger.exception("[CHANNELS] refresh_youtube_token failed")
-        handle_error(e)
+        raise handle_error(e)
 
 
 # Note: _refresh_youtube_token is now handled by google_service.py
@@ -362,4 +362,4 @@ async def get_channel_stats(channel_id: str, current_user: dict = Depends(get_cu
         raise
     except Exception as e:
         logger.exception("[CHANNELS] get_channel_stats failed")
-        handle_error(e)
+        raise handle_error(e)

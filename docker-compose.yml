@@ -9,6 +9,13 @@ services:
       - "6379:6379"
     networks:
       - yt_agent_network
+    # DEVOPS-2: health check so dependent services wait until Redis is ready
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   backend:
     build: ./backend
@@ -24,9 +31,17 @@ services:
     volumes:
       - ./backend/temp_video_cache:/app/temp_video_cache
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy   # DEVOPS-2: wait until Redis passes its ping
     networks:
       - yt_agent_network
+    # DEVOPS-2: health check so the frontend service waits for the API to be up
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   frontend:
     build:
@@ -39,7 +54,8 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy   # DEVOPS-2: wait until backend API is responding
     networks:
       - yt_agent_network
 

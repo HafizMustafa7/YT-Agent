@@ -17,6 +17,7 @@ import CheckoutPage from "./pages/CheckoutPage";
 import SuccessPage from "./pages/SuccessPage";
 import SettingsPage from "./pages/SettingsPage";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
   const navigate = useNavigate();
@@ -74,9 +75,9 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Run once on mount only
 
-  if (loading) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>;
-  }
+  // NOTE: do NOT add an early return for loading here.
+  // ProtectedRoute handles the loading spinner per-route,
+  // so public routes (WelcomePage, AuthPage) are never blocked.
 
   return (
     <ThemeProvider>
@@ -90,58 +91,58 @@ function App() {
         {/* Dashboard (protected) */}
         <Route
           path="/dashboard"
-          element={user ? <Dashboard /> : <AuthPage />}
+          element={<ProtectedRoute user={user} loading={loading}><Dashboard /></ProtectedRoute>}
         />
 
         {/* Analytics Page (protected) */}
         <Route
           path="/analytics"
-          element={user ? <Analytics /> : <AuthPage />}
+          element={<ProtectedRoute user={user} loading={loading}><Analytics /></ProtectedRoute>}
         />
 
         {/* Niche Input / Generate Flow (New Unified UI) */}
         <Route
           path="/niche-input"
-          element={user ? <NicheInputPage /> : <AuthPage />}
+          element={<ProtectedRoute user={user} loading={loading}><NicheInputPage /></ProtectedRoute>}
         />
         <Route
           path="/results"
-          element={user ? <ResultsScreen /> : <AuthPage />}
+          element={<ProtectedRoute user={user} loading={loading}><ResultsScreen /></ProtectedRoute>}
         />
         <Route
           path="/frame-results"
-          element={user ? <FrameResults /> : <AuthPage />}
+          element={<ProtectedRoute user={user} loading={loading}><FrameResults /></ProtectedRoute>}
         />
         <Route
           path="/final-video"
-          element={user ? <FinalVideoPage /> : <AuthPage />}
+          element={<ProtectedRoute user={user} loading={loading}><FinalVideoPage /></ProtectedRoute>}
         />
 
         {/* This triggers the new UI directly from Dashboard's "Generate Video" click */}
         <Route
           path="/generate-video"
-          element={user ? <NicheInputPage /> : <AuthPage />}
+          element={<ProtectedRoute user={user} loading={loading}><NicheInputPage /></ProtectedRoute>}
         />
 
         {/* The legacy/advanced generation engine handles step=videoGen */}
         <Route
           path="/video-gen-dashboard"
-          element={user ? <YTAgentPage /> : <AuthPage />}
+          element={<ProtectedRoute user={user} loading={loading}><YTAgentPage /></ProtectedRoute>}
         />
 
         {/* Payment Pages */}
         <Route
           path="/pricing"
-          element={user ? <PricingPage /> : <AuthPage />}
+          element={<ProtectedRoute user={user} loading={loading}><PricingPage /></ProtectedRoute>}
         />
         <Route
           path="/checkout"
-          element={user ? <CheckoutPage /> : <AuthPage />}
+          element={<ProtectedRoute user={user} loading={loading}><CheckoutPage /></ProtectedRoute>}
         />
-        <Route path="/success" element={user ? <SuccessPage /> : <AuthPage />} />
+        <Route path="/success" element={<ProtectedRoute user={user} loading={loading}><SuccessPage /></ProtectedRoute>} />
         <Route
           path="/settings"
-          element={user ? <SettingsPage /> : <AuthPage />}
+          element={<ProtectedRoute user={user} loading={loading}><SettingsPage /></ProtectedRoute>}
         />
       </Routes>
     </ThemeProvider>

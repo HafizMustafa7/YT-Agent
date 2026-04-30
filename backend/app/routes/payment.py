@@ -58,21 +58,27 @@ paddle_client: Optional[Client] = _init_paddle_client()
 
 
 # ---------------------------------------------------------------------------
-# Supabase service-role client helper
+# Supabase service-role client helper  (singleton — created once)
 # ---------------------------------------------------------------------------
+
+_service_supabase = None
+
 
 def _get_service_supabase():
     """
-    Return a Supabase client using the SERVICE_ROLE key for privileged writes
-    (webhook: credit upsert, order status update).  Falls back to the anon
-    client if the service key is not configured.
+    Return a cached Supabase client using the SERVICE_ROLE key for privileged writes.
+    Falls back to the anon client if the service key is not configured.
     """
-    from supabase import create_client
-    service_key = settings.SUPABASE_SERVICE_KEY
-    if service_key:
-        return create_client(settings.SUPABASE_URL, service_key)
-    logger.warning("[PAYMENT] SUPABASE_SERVICE_KEY not set — using anon client for webhook ops")
-    return supabase
+    global _service_supabase
+    if _service_supabase is None:
+        from supabase import create_client
+        service_key = settings.SUPABASE_SERVICE_KEY
+        if service_key:
+            _service_supabase = create_client(settings.SUPABASE_URL, service_key)
+        else:
+            logger.warning("[PAYMENT] SUPABASE_SERVICE_KEY not set — using anon client for webhook ops")
+            _service_supabase = supabase
+    return _service_supabase
 
 
 # ---------------------------------------------------------------------------
@@ -86,95 +92,120 @@ def calculate_required_credits(duration_seconds: int) -> int:
 
 async def check_and_deduct_credits(user_id: str, credits_needed: int) -> None:
     """
-    Atomically verify and deduct credits for video generation.
+    Atomically verify and deduct credits using optimistic locking.
+    Retries up to 3 times on concurrent modification conflicts.
     Raises HTTP 402 if the user has insufficient credits.
     Raises HTTP 500 on DB error.
     """
-    user_id = str(user_id)  # ensure text match against credits.user_id (text column)
+    user_id = str(user_id)
     loop = asyncio.get_running_loop()
 
-    def _fetch():
-        return supabase.table("credits").select("credits, total_used").eq("user_id", user_id).execute()
+    for attempt in range(3):
+        def _fetch():
+            return supabase.table("credits").select("credits, total_used").eq("user_id", user_id).execute()
 
-    resp = await loop.run_in_executor(None, _fetch)
-    data = getattr(resp, "data", [])
+        resp = await loop.run_in_executor(None, _fetch)
+        data = getattr(resp, "data", [])
 
-    if not data:
-        raise HTTPException(
-            status_code=402,
-            detail="Insufficient credits. Please purchase credits to generate video.",
+        if not data:
+            raise HTTPException(
+                status_code=402,
+                detail="Insufficient credits. Please purchase credits to generate video.",
+            )
+
+        available = data[0].get("credits", 0)
+        if available < credits_needed:
+            raise HTTPException(
+                status_code=402,
+                detail="Insufficient credits. Please purchase credits to generate video.",
+            )
+
+        # Optimistic locking: only update if credits haven't changed since we read them.
+        # If another concurrent request already deducted, this returns 0 rows → retry.
+        current_snapshot = available
+        total_used_now = data[0].get("total_used", 0) + credits_needed
+
+        def _deduct():
+            return (
+                supabase.table("credits")
+                .update({
+                    "credits": current_snapshot - credits_needed,
+                    "total_used": total_used_now,
+                })
+                .eq("user_id", user_id)
+                .eq("credits", current_snapshot)  # Optimistic lock: reject stale writes
+                .execute()
+            )
+
+        deduct_resp = await loop.run_in_executor(None, _deduct)
+        if getattr(deduct_resp, "data", None):
+            # Deduction succeeded
+            logger.info(
+                "[PAYMENT] Deducted %d credits from user %s (remaining: %d, attempt=%d)",
+                credits_needed, user_id, current_snapshot - credits_needed, attempt + 1,
+            )
+            return
+
+        # 0 rows updated → concurrent modification, retry with fresh data
+        logger.warning(
+            "[PAYMENT] Credit deduction conflict for user %s (attempt %d/3) — retrying",
+            user_id, attempt + 1,
         )
 
-    available = data[0].get("credits", 0)
-    if available < credits_needed:
-        raise HTTPException(
-            status_code=402,
-            detail="Insufficient credits. Please purchase credits to generate video.",
-        )
-
-    # Deduct credits
-    total_used_now = data[0].get("total_used", 0) + credits_needed
-
-    def _deduct():
-        return (
-            supabase.table("credits")
-            .update({
-                "credits": available - credits_needed,
-                "total_used": total_used_now,
-            })
-            .eq("user_id", user_id)
-            .execute()
-        )
-
-    deduct_resp = await loop.run_in_executor(None, _deduct)
-    if not getattr(deduct_resp, "data", None):
-        raise HTTPException(status_code=500, detail="Failed to deduct credits. Please try again.")
-
-    logger.info(
-        "[PAYMENT] Deducted %d credits from user %s (remaining: %d)",
-        credits_needed, user_id, available - credits_needed,
-    )
+    raise HTTPException(status_code=500, detail="Failed to deduct credits due to concurrent requests. Please try again.")
 
 
 async def refund_credits(user_id: str, credits_to_refund: int) -> None:
     """
     Refund credits to a user (usually when a background job fails).
+    Uses optimistic locking with up to 3 retries.
     """
     if credits_to_refund <= 0:
         return
 
-    user_id = str(user_id)  # ensure text match against credits.user_id (text column)
+    user_id = str(user_id)
     loop = asyncio.get_running_loop()
 
-    def _fetch():
-        return supabase.table("credits").select("credits, total_used").eq("user_id", user_id).execute()
+    for attempt in range(3):
+        def _fetch():
+            return supabase.table("credits").select("credits, total_used").eq("user_id", user_id).execute()
 
-    resp = await loop.run_in_executor(None, _fetch)
-    data = getattr(resp, "data", [])
+        resp = await loop.run_in_executor(None, _fetch)
+        data = getattr(resp, "data", [])
 
-    if not data:
-        logger.warning("[PAYMENT] Cannot refund %d credits: user %s not found in credits table", credits_to_refund, user_id)
-        return
+        if not data:
+            logger.warning("[PAYMENT] Cannot refund %d credits: user %s not found in credits table", credits_to_refund, user_id)
+            return
 
-    available = data[0].get("credits", 0)
-    total_used_now = max(0, data[0].get("total_used", 0) - credits_to_refund)
+        current_snapshot = data[0].get("credits", 0)
+        total_used_now = max(0, data[0].get("total_used", 0) - credits_to_refund)
 
-    def _refund():
-        return (
-            supabase.table("credits")
-            .update({
-                "credits": available + credits_to_refund,
-                "total_used": total_used_now,
-            })
-            .eq("user_id", user_id)
-            .execute()
+        def _refund():
+            return (
+                supabase.table("credits")
+                .update({
+                    "credits": current_snapshot + credits_to_refund,
+                    "total_used": total_used_now,
+                })
+                .eq("user_id", user_id)
+                .eq("credits", current_snapshot)  # Optimistic lock
+                .execute()
+            )
+
+        refund_resp = await loop.run_in_executor(None, _refund)
+        if getattr(refund_resp, "data", None):
+            logger.info(
+                "[PAYMENT] Refunded %d credits to user %s (new balance: %d, attempt=%d)",
+                credits_to_refund, user_id, current_snapshot + credits_to_refund, attempt + 1,
+            )
+            return
+
+        logger.warning(
+            "[PAYMENT] Refund conflict for user %s (attempt %d/3) — retrying",
+            user_id, attempt + 1,
         )
 
-    await loop.run_in_executor(None, _refund)
-    logger.info(
-        "[PAYMENT] Refunded %d credits to user %s (remaining: %d)",
-        credits_to_refund, user_id, available + credits_to_refund,
-    )
+    logger.error("[PAYMENT] Failed to refund %d credits to user %s after 3 attempts", credits_to_refund, user_id)
 
 
 # ---------------------------------------------------------------------------

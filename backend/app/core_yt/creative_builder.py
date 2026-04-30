@@ -7,7 +7,7 @@ from typing import Dict, Any
 # Allowed values aligned with CreativeFormScreen (Veo Specs)
 ALLOWED_RESOLUTIONS = ["720p"]
 ALLOWED_ASPECT_RATIOS = ["16:9", "9:16"]
-ALLOWED_DURATIONS = [8, 15, 32, 46, 60]
+ALLOWED_DURATIONS = [15, 32, 46, 60]
 
 ALLOWED_STYLES = [
     "cinematic", "film noir", "sci-fi", "horror film", "animated", 

@@ -2,6 +2,7 @@
 LLM-based topic validation using Gemini.
 Validates topics for YouTube Shorts content with AI-powered analysis.
 """
+import asyncio
 import json
 import logging
 import re
@@ -119,7 +120,13 @@ Respond with JSON only:"""
             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
         ]
         
-        response = model.generate_content(validation_prompt, safety_settings=safety_settings)
+        # LOGIC-1: generate_content() is synchronous/blocking. Run it in a
+        # thread-pool executor so it doesn't freeze the async event loop.
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: model.generate_content(validation_prompt, safety_settings=safety_settings),
+        )
         
         response_text = response.text.strip()
         logger.debug("LLM validation response: %s...", response_text[:200])

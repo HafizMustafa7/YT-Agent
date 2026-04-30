@@ -261,15 +261,16 @@ class RedisCache:
             }
     
     def get_all_keys(self) -> List[str]:
-        """Get all cache keys."""
+        """Get all cache keys (trends, analytics, topic suggestions, auth tokens)."""
         if not self.enabled or not self.client:
             return []
-        
+
         try:
-            pattern = f"{self.key_prefix}trends_*"
+            # Scan ALL keys under our prefix, not just trends
+            pattern = f"{self.key_prefix}*"
             keys = list(self.client.scan_iter(match=pattern))
-            # Remove prefix from keys
-            return [key.replace(self.key_prefix, "") for key in keys]
+            # Strip prefix so callers see bare logical keys
+            return [key.replace(self.key_prefix, "", 1) for key in keys]
         except Exception as e:
             logger.warning("Redis keys error: %s", e)
             return []

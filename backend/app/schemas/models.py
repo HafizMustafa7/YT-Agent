@@ -31,7 +31,7 @@ class CreativePreferencesRequest(BaseModel):
     """Request model for creative preferences using Veo specification."""
     duration: int = Field(..., description="Target duration in seconds", ge=1)
     resolution: str = Field("720p", description="Video resolution")
-    aspect_ratio: str = Field("16:9", description="Video aspect ratio")
+    aspect_ratio: str = Field("9:16", description="Video aspect ratio")
     style: Optional[str] = Field(None, description="Visual style")
     camera_motion: Optional[str] = Field(None, description="Camera motion technique")
     composition: Optional[str] = Field(None, description="Scene composition")
