@@ -251,6 +251,17 @@ def get_project_with_frames_and_assets(project_id: str) -> Optional[Dict[str, An
         logger.error("Failed to fetch project %s: %s", project_id, e)
         raise RuntimeError(f"Failed to fetch project: {e}") from e
 
+def get_user_projects(user_id: str) -> List[Dict[str, Any]]:
+    """Fetch all projects for a specific user, ordered by creation date."""
+    sb = get_supabase()
+    try:
+        # Fetch projects with channel info joined, or just fetch projects and channels and merge
+        proj_res = sb.table("projects").select("*, channels(channel_name, thumbnail_url)").eq("user_id", user_id).order("created_at", desc=True).execute()
+        return proj_res.data or []
+    except Exception as e:
+        logger.error("Failed to fetch projects for user %s: %s", user_id, e)
+        raise RuntimeError(f"Failed to fetch projects: {e}") from e
+
 
 def update_project_status(project_id: str, status: str, video_url: Optional[str] = None):
     """Update project status and optionally the video_url."""
@@ -1138,13 +1149,17 @@ def upload_video_file_to_youtube(
     local_path: str,
     title: str,
     description: str,
-    channel: Dict[str, Any]
+    channel: Dict[str, Any],
+    tags: List[str] = None
 ) -> str:
     """
     Upload a local video file to YouTube using the channel's credentials.
     RETURNS: The YouTube Video ID (str).
     Blocking (synchronous) function - run in executor.
     """
+    if tags is None:
+        tags = []
+
     # 1. Build Credentials
     creds = Credentials(
         token=channel["access_token"],
@@ -1157,11 +1172,12 @@ def upload_video_file_to_youtube(
     # 2. Build Service
     youtube = build("youtube", "v3", credentials=creds)
 
-    # 3. Prepare Metadata - Title only, no description, no explicit tags array
+    # 3. Prepare Metadata
     body = {
         "snippet": {
             "title": title[:100],  # Max 100 chars
             "description": description,
+            "tags": tags,
             "categoryId": "22"  # People & Blogs
         },
         "status": {
@@ -1260,14 +1276,30 @@ async def upload_project_to_youtube(project_id: str, custom_title: Optional[str]
         topic_title = custom_title if custom_title else (project.get("input_value") or project.get("project_name", "AI Generated Video"))
         hashtags = generate_hashtags_for_title(project)
         
-        # Build title with hashtags within 100 chars
-        base_title = topic_title[:75]
-        for tag in hashtags:
+        # Build title with main tags within 100 chars
+        base_title = topic_title[:80]
+        for tag in hashtags[:2]:
             if len(base_title) + len(tag) + 1 <= 100:
                 base_title += f" {tag}"
                 
         title = base_title.strip()
-        description = ""  # Explicitly empty per requirements
+        
+        # Build proper description
+        description_lines = [
+            f"Generated with Youtomize AI Automation.",
+            "",
+            "Topic: " + (project.get("input_value") or "AI Story"),
+            ""
+        ]
+        
+        full_story = project.get("metadata", {}).get("full_story", "")
+        if full_story:
+            description_lines.append(full_story)
+            description_lines.append("")
+            
+        description_lines.append(" ".join(hashtags))
+        description = "\n".join(description_lines)
+        tags = [tag.strip("#") for tag in hashtags]
         
         youtube_id = await loop.run_in_executor(
             None, 
@@ -1275,7 +1307,8 @@ async def upload_project_to_youtube(project_id: str, custom_title: Optional[str]
             temp_file, 
             title, 
             description, 
-            channel
+            channel,
+            tags
         )
 
         # 5. Update Project

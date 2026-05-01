@@ -16,6 +16,7 @@ const Dashboard = () => {
   const [isChannelDropdownOpen, setIsChannelDropdownOpen] = useState(false);
   // remove unused useTheme and toggleTheme
   const [sessionReady, setSessionReady] = useState(false);
+  const [recentProjects, setRecentProjects] = useState([]);
   const navigate = useNavigate();
   const channelDropdownRef = useRef(null);
 
@@ -36,6 +37,16 @@ const Dashboard = () => {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.user) { navigate("/"); return; }
         setSessionReady(true);
+        
+        // Fetch project history
+        try {
+          const res = await apiService.getUserProjects();
+          if (res.success) {
+            setRecentProjects(res.projects.slice(0, 5)); // Show top 5
+          }
+        } catch (err) {
+          console.error("Failed to load project history", err);
+        }
       } catch { navigate("/"); }
     };
     initializeSession();
@@ -230,6 +241,50 @@ const Dashboard = () => {
               letterSpacing: '0.15em', fontWeight: 500,
               opacity: (isSidebarHovered || isMobileMenuOpen) ? 1 : 0, transition: 'opacity 0.3s',
             }}>Recent Automations</div>
+
+            {/* History List */}
+            <div style={{
+              display: 'flex', flexDirection: 'column', gap: '4px',
+              opacity: (isSidebarHovered || isMobileMenuOpen) ? 1 : 0,
+              transition: 'opacity 0.3s', pointerEvents: (isSidebarHovered || isMobileMenuOpen) ? 'auto' : 'none'
+            }}>
+              {recentProjects.length === 0 ? (
+                <div style={{ color: '#475569', fontSize: '12px', marginTop: '8px', fontStyle: 'italic' }}>No recent projects</div>
+              ) : (
+                recentProjects.map(proj => {
+                  const title = proj.project_name || proj.input_value || 'Untitled Project';
+                  const isFinished = proj.status === 'completed';
+                  return (
+                    <div 
+                      key={proj.id} 
+                      onClick={() => navigate('/frame-results', { state: { data: null } })} // Will be intercepted by projectId in session if we set it, or we can just navigate and it will load. Wait, if we navigate to FrameResults we need to set the projectId in sessionStorage.
+                      style={{
+                        padding: '8px 0', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '4px',
+                        borderBottom: '1px solid rgba(255,255,255,0.05)',
+                        transition: 'background 0.2s', paddingLeft: '8px', borderRadius: '4px'
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      onMouseDown={() => sessionStorage.setItem('yt_frame_project_id', proj.id)}
+                    >
+                      <div style={{ fontSize: '13px', color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{
+                          fontSize: '9px', fontWeight: 700, padding: '2px 4px', borderRadius: '4px',
+                          background: isFinished ? 'rgba(0,255,136,0.1)' : 'rgba(0,229,255,0.1)',
+                          color: isFinished ? '#00ff88' : '#00E5FF', textTransform: 'uppercase'
+                        }}>{proj.status}</span>
+                        {proj.channels && (
+                          <span style={{ fontSize: '10px', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            📺 {proj.channels.channel_name || 'Channel'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
 
           {/* Mobile Only Credits */}

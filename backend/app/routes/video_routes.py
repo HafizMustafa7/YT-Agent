@@ -115,6 +115,21 @@ async def create_video_project(
         raise handle_error(e)
 
 
+@router.get("/projects", response_model=Dict[str, Any])
+async def list_user_projects(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """List all projects for the authenticated user, including channel details."""
+    try:
+        user_id = current_user["id"]
+        projects = video_service.get_user_projects(user_id)
+        return {
+            "success": True,
+            "projects": projects
+        }
+    except Exception as e:
+        logger.error("Error listing projects for user %s: %s", current_user.get("id"), e)
+        raise handle_error(e)
+
+
 @router.get("/projects/{project_id}", response_model=Dict[str, Any])
 async def get_video_project(
     project_id: str,

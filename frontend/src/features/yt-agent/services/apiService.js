@@ -206,6 +206,17 @@ export const getVideoProject = async (projectId) => {
 };
 
 /**
+ * Get all video projects for the current user
+ * @returns {Promise<object>} - { projects: Array }
+ */
+export const getUserProjects = async () => {
+    return callApiGet(
+        '/api/v1/video/projects',
+        TIMEOUTS.VIDEO_OPERATION
+    );
+};
+
+/**
  * Start generating all pending frames sequentially via Veo 3.1
  * @param {string} projectId
  * @returns {Promise<object>}
@@ -330,6 +341,7 @@ const apiService = {
     checkHealth,
     createVideoProject,
     getVideoProject,
+    getUserProjects,
     startGenerateAllFrames,
     startGenerateFrame,
     combineVideoProject,

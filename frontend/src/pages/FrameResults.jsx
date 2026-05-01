@@ -623,6 +623,33 @@ const FrameResults = () => {
                 </button>
               </div>
             )}
+
+            {/* View Final Video Button (Already Combined) */}
+            {allCompleted && finalVideoUrl && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '64px', marginBottom: '80px', position: 'relative' }}>
+                <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '300px', height: '100px', background: 'rgba(0,255,136,0.1)', filter: 'blur(60px)', pointerEvents: 'none' }}></div>
+                
+                <button
+                  onClick={() => navigate('/final-video', { 
+                    state: { 
+                      videoUrl: finalVideoUrl, 
+                      projectTitle: project?.project_name || 'Generated Video',
+                      projectId: projectId
+                    } 
+                  })}
+                  style={{
+                    width: '100%', maxWidth: '900px', padding: '24px', borderRadius: '16px', border: 'none',
+                    background: 'linear-gradient(90deg, #00ff88, #00E5FF)',
+                    color: '#003840', fontFamily: "'Space Grotesk', sans-serif", fontSize: '20px', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.2em',
+                    cursor: 'pointer', transition: 'all 0.3s', boxShadow: '0 0 50px rgba(0,255,136,0.3)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px'
+                  }}
+                >
+                  <Icon name="play_circle" style={{ fontSize: '28px' }} />
+                  View Final Video
+                </button>
+              </div>
+            )}
           </>
         )}
       </main>
