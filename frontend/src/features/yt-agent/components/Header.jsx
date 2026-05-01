@@ -1,40 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Sun, Moon, Menu, X, Settings, LogOut, Zap } from 'lucide-react';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { tokenService } from '../../../services/tokenService';
+import { useSelectedChannel } from '../../../contexts/SelectedChannelContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../../components/ui/dialog';
 import { Button } from '../../../components/ui/button';
-import { supabase } from '../../../supabaseClient';
 import '../styles/components/Header.css';
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [credits, setCredits] = useState(null);
+  const { credits } = useSelectedChannel();
   const navigate = useNavigate();
   const location = useLocation();
   const { isDarkTheme, toggleTheme } = useTheme();
-
-  // Fetch credit balance on mount (non-blocking)
-  useEffect(() => {
-    const fetchCredits = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) return;
-        const resp = await fetch(
-          `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/user/credits`,
-          { headers: { Authorization: `Bearer ${session.access_token}` } }
-        );
-        if (resp.ok) {
-          const data = await resp.json();
-          setCredits(data.credits);
-        }
-      } catch (e) {
-        console.error('[Header] Credits fetch failed:', e);
-      }
-    };
-    fetchCredits();
-  }, [location.pathname]);
 
   const toggleMenu = () => setIsMenuOpen(!isMenuOpen);
 

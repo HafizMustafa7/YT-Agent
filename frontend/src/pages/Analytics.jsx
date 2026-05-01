@@ -4,10 +4,11 @@ import { useNavigate } from 'react-router-dom';
 import apiService from '../features/yt-agent/services/apiService';
 import { tokenService } from '../services/tokenService';
 import { showErrorToast } from '../lib/errorUtils';
+import { useSelectedChannel } from '../contexts/SelectedChannelContext';
 
 const Analytics = () => {
   const navigate = useNavigate();
-  const [channels, setChannels] = useState([]);
+  const { channels } = useSelectedChannel();
   const [selectedChannel, setSelectedChannel] = useState('');
   const [videosData, setVideosData] = useState([]);
   const [selectedVideo, setSelectedVideo] = useState(null);
@@ -30,17 +31,8 @@ const Analytics = () => {
   }, []);
 
   useEffect(() => {
-    loadChannels();
     return () => { Object.values(chartsRef.current).forEach(c => { if (c?.destroy) c.destroy(); }); };
   }, []);
-
-  const loadChannels = async () => {
-    try {
-      const data = await apiService.listChannels();
-      setChannels(data || []);
-      if (!data?.length) console.warn('No channels found.');
-    } catch { console.error('Failed to load channels.'); }
-  };
 
   const loadChannelAnalytics = async () => {
     if (!selectedChannel) return;

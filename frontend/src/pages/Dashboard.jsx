@@ -9,9 +9,8 @@ import dashboardBg from '../assets/dashboard_bg.jpg';
 const Dashboard = () => {
   const {
     channels, selectedChannelId, setSelectedChannelId,
-    refreshChannels
+    refreshChannels, credits
   } = useSelectedChannel();
-  const [credits, setCredits] = useState(null);
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isChannelDropdownOpen, setIsChannelDropdownOpen] = useState(false);
@@ -36,23 +35,12 @@ const Dashboard = () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.user) { navigate("/"); return; }
-        // Username unused, removed
         setSessionReady(true);
-        try {
-          const resp = await fetch(
-            `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/user/credits`,
-            { headers: { Authorization: `Bearer ${session.access_token}` } }
-          );
-          if (resp.ok) { const d = await resp.json(); setCredits(d.credits); }
-        } catch (e) { console.error('[Dashboard] Credits fetch failed:', e); }
       } catch { navigate("/"); }
     };
     initializeSession();
   }, [navigate]);
 
-  useEffect(() => {
-    if (sessionReady && channels.length === 0) refreshChannels();
-  }, [sessionReady, channels.length, refreshChannels]);
 
   const handleAddChannel = async () => {
     try {
@@ -471,8 +459,8 @@ const Dashboard = () => {
               }}>Your Channels</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
                 {channels.map(ch => (
-                  <div key={ch.channel_id} onClick={() => setSelectedChannelId(ch.channel_id || ch.id)} style={{
-                    background: '#171924', borderRadius: '16px', padding: '20px md:padding-24px',
+                  <div key={ch.channel_id} onClick={() => setSelectedChannelId(ch.channel_id || ch.id)} className="p-5 md:p-6" style={{
+                    background: '#171924', borderRadius: '16px',
                     transition: 'all 0.2s', cursor: 'pointer',
                     border: selectedChannelId === (ch.channel_id || ch.id) ? '1px solid rgba(0,229,255,0.3)' : '1px solid rgba(255,255,255,0.05)',
                   }}

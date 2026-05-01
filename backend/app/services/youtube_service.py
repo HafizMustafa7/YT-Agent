@@ -2,7 +2,10 @@
 YouTube API service for fetching trending shorts and AI-generated content.
 Moved from fetchtrend.py to follow service layer architecture.
 """
+import threading
 import logging
+import ssl
+import socket
 from fastapi import HTTPException
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -15,18 +18,26 @@ from app.core_yt.redis_cache import redis_cache
 
 logger = logging.getLogger(__name__)
 
-# Cached YouTube API service singleton (build() does HTTP discovery, so cache it)
-_youtube_service = None
+# Thread-local storage for YouTube API service.
+# google-api-python-client (httplib2) is NOT thread-safe. When run_in_executor
+# is used by multiple concurrent requests, a single global client gets its
+# socket connection corrupted, causing SSL and NoneType read errors.
+_thread_local = threading.local()
 
 
 def get_youtube_service():
-    """Get or create cached YouTube API service singleton."""
-    global _youtube_service
+    """Get or create cached YouTube API service (thread-local)."""
     if not settings.YOUTUBE_API_KEY:
         raise HTTPException(status_code=500, detail="YouTube API key not configured")
-    if _youtube_service is None:
-        _youtube_service = build("youtube", "v3", developerKey=settings.YOUTUBE_API_KEY)
-    return _youtube_service
+        
+    if getattr(_thread_local, "youtube_service", None) is None:
+        try:
+            _thread_local.youtube_service = build("youtube", "v3", developerKey=settings.YOUTUBE_API_KEY, cache_discovery=False)
+        except Exception as e:
+            _thread_local.youtube_service = None  # Don't cache a broken service
+            raise HTTPException(status_code=500, detail=f"Failed to initialise YouTube client: {e}")
+            
+    return _thread_local.youtube_service
 
 
 def format_duration(seconds: int) -> str:
@@ -129,23 +140,25 @@ def is_ai_generated(title: str, description: str, tags: List[str], channel_title
     return score >= threshold
 
 
-def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 30, search_pages: int = 3) -> List[Dict]:
+def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 30, search_pages: int = 3, ai_filter: bool = True, days_window: int = 15) -> List[Dict]:
     """
-    Fetch trending YouTube Shorts videos for a given niche, focusing on AI-generated content.
-    Now with Redis caching support.
-    
+    Fetch trending YouTube Shorts videos for a given niche.
+
     Args:
-        niche: The content niche to search for (e.g., "facts", "motivation", "tech tips")
-        max_results: Maximum number of AI-generated results to return
-        ai_threshold: AI confidence threshold (0-100). Default 30. Higher = stricter filtering.
+        niche: The content niche to search for (e.g., "renovation", "motivation", "tech tips")
+        max_results: Maximum number of results to return
+        ai_threshold: AI confidence threshold (0-100). Only applied when ai_filter=True.
         search_pages: Number of search pages to fetch (max 50 results per page)
-    
+        ai_filter: When True (default), only return AI-generated/related content.
+                   The threshold is applied; callers can pass a lower threshold for a
+                   wider net without disabling AI filtering entirely.
+        days_window: How many days back to look for trending videos. Default 15.
+
     Returns:
-        List of dictionaries containing AI-generated video information, sorted by views
+        List of dictionaries containing video information, sorted by views
     """
-    # Generate cache key
-    # Scoped cache keys (M-8) — using "public" for now as there's no auth yet
-    cache_key = f"public:trends_{niche}_{max_results}_{ai_threshold}"
+    # Generate cache key — include ai_threshold so graduated retries are cached separately
+    cache_key = f"public:trends_{niche}_{max_results}_{ai_threshold}_{ai_filter}_{days_window}"
     
     # Try to get from cache first
     cached_data = redis_cache.get(cache_key)
@@ -155,7 +168,7 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
     # Cache miss - fetch from YouTube API
     try:
         youtube = get_youtube_service()
-        fifteen_days_ago = (datetime.now() - timedelta(days=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        window_start = (datetime.now() - timedelta(days=days_window)).strftime("%Y-%m-%dT%H:%M:%SZ")
         
         all_trends = []
         
@@ -181,9 +194,9 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
                     order="viewCount",
                     type="video",
                     videoDuration="short",
-                    publishedAfter=fifteen_days_ago,
-                    regionCode="US",  # Set region to United States
-                    relevanceLanguage="en",  # Prioritize English content
+                    publishedAfter=window_start,
+                    regionCode="US",
+                    relevanceLanguage="en",
                 ).execute()
 
                 items = search_response.get("items", [])
@@ -227,7 +240,11 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
                         snippet["channelTitle"]
                     )
                     
-                    if ai_score < ai_threshold:
+                    # AI filter: only skip videos that score below the threshold.
+                    # ai_filter=True is the standard mode — AI-related content only.
+                    # Callers can pass a lower ai_threshold (graduated fallback) for
+                    # niches where AI content uses softer signals.
+                    if ai_filter and ai_score < ai_threshold:
                         continue  # Skip non-AI content
 
                     # Parse and format duration
@@ -274,6 +291,12 @@ def get_trending_shorts(niche: str, max_results: int = 20, ai_threshold: int = 3
         if e.resp.status == 403:
             raise HTTPException(status_code=403, detail="YouTube API quota exceeded or key invalid")
         raise HTTPException(status_code=502, detail="YouTube API error. Please try again later.")
+    except (ssl.SSLError, socket.error, ConnectionError, OSError) as e:
+        # SSL/network errors leave the thread-local client in a broken state — reset it
+        logger.error("SSL/Network error in get_trending_shorts (client reset): %s", e)
+        if hasattr(_thread_local, "youtube_service"):
+            _thread_local.youtube_service = None
+        raise HTTPException(status_code=503, detail="Network error connecting to YouTube. Please try again.")
     except Exception as e:
         logger.error("Unexpected error in get_trending_shorts: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch trends. Please try again.")

@@ -1,11 +1,7 @@
-/**
- * SettingsPage — Cinema AI Stitch Design
- * Based on setting.htm stitch source.
- */
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../supabaseClient';
 import { tokenService } from '../services/tokenService';
+import { useSelectedChannel } from '../contexts/SelectedChannelContext';
 
 /* ── Material icon helper ── */
 const Icon = ({ name, filled, style = {} }) => (
@@ -24,9 +20,9 @@ const sectionNames = ['Appearance', 'Accounts', 'Security', 'Billing'];
 
 const SettingsPage = () => {
   const navigate = useNavigate();
+  const { credits } = useSelectedChannel();
   const [darkMode, setDarkMode] = useState(true);
   const [activeSection, setActiveSection] = useState('Appearance');
-  const [credits, setCredits] = useState(null);
 
   /* Refs for scroll-spy */
   const sectionRefs = useRef({});
@@ -59,25 +55,6 @@ const SettingsPage = () => {
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  useEffect(() => {
-    const fetchCredits = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) return;
-        const resp = await fetch(
-          `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/user/credits`,
-          { headers: { Authorization: `Bearer ${session.access_token}` } }
-        );
-        if (resp.ok) {
-          const d = await resp.json();
-          setCredits(d.credits);
-        }
-      } catch (e) {
-        console.error('[Settings] Credits fetch failed:', e);
-      }
-    };
-    fetchCredits();
-  }, []);
 
   const handleLogout = async () => {
     await tokenService.logout();

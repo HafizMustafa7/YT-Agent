@@ -99,10 +99,13 @@ async def check_and_deduct_credits(user_id: str, credits_needed: int) -> None:
     """
     user_id = str(user_id)
     loop = asyncio.get_running_loop()
+    # Use service-role client to bypass RLS on the credits table.
+    # The anon client is blocked by Supabase RLS and always returns 0 rows.
+    svc_supabase = _get_service_supabase()
 
     for attempt in range(3):
         def _fetch():
-            return supabase.table("credits").select("credits, total_used").eq("user_id", user_id).execute()
+            return svc_supabase.table("credits").select("credits, total_used").eq("user_id", user_id).execute()
 
         resp = await loop.run_in_executor(None, _fetch)
         data = getattr(resp, "data", [])
@@ -117,7 +120,7 @@ async def check_and_deduct_credits(user_id: str, credits_needed: int) -> None:
         if available < credits_needed:
             raise HTTPException(
                 status_code=402,
-                detail="Insufficient credits. Please purchase credits to generate video.",
+                detail=f"Insufficient credits. You need {credits_needed} credit(s) but only have {available}.",
             )
 
         # Optimistic locking: only update if credits haven't changed since we read them.
@@ -127,7 +130,7 @@ async def check_and_deduct_credits(user_id: str, credits_needed: int) -> None:
 
         def _deduct():
             return (
-                supabase.table("credits")
+                svc_supabase.table("credits")
                 .update({
                     "credits": current_snapshot - credits_needed,
                     "total_used": total_used_now,
@@ -165,10 +168,12 @@ async def refund_credits(user_id: str, credits_to_refund: int) -> None:
 
     user_id = str(user_id)
     loop = asyncio.get_running_loop()
+    # Use service-role client to bypass RLS on the credits table.
+    svc_supabase = _get_service_supabase()
 
     for attempt in range(3):
         def _fetch():
-            return supabase.table("credits").select("credits, total_used").eq("user_id", user_id).execute()
+            return svc_supabase.table("credits").select("credits, total_used").eq("user_id", user_id).execute()
 
         resp = await loop.run_in_executor(None, _fetch)
         data = getattr(resp, "data", [])
@@ -182,7 +187,7 @@ async def refund_credits(user_id: str, credits_to_refund: int) -> None:
 
         def _refund():
             return (
-                supabase.table("credits")
+                svc_supabase.table("credits")
                 .update({
                     "credits": current_snapshot + credits_to_refund,
                     "total_used": total_used_now,

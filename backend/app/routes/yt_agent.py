@@ -69,8 +69,10 @@ async def fetch_trends(request: TrendRequest, current_user: dict = Depends(get_c
                 detail=f"Invalid mode: {request.mode}"
             )
         
-        # Fetch from YouTube API — run_in_executor to avoid blocking the event loop
         loop = asyncio.get_running_loop()
+        is_niche = request.mode == "analyze_niche"
+
+        # ── Primary fetch: full AI threshold (e.g. 30) ──────────────────────
         trends = await loop.run_in_executor(
             None,
             lambda: get_trending_shorts(
@@ -78,10 +80,45 @@ async def fetch_trends(request: TrendRequest, current_user: dict = Depends(get_c
                 max_results=settings.YOUTUBE_MAX_RESULTS,
                 ai_threshold=settings.YOUTUBE_AI_THRESHOLD,
                 search_pages=settings.YOUTUBE_SEARCH_PAGES,
+                ai_filter=True,  # Always filter for AI content
+                days_window=settings.YOUTUBE_DAYS_WINDOW,
             )
         )
-        
+
+        # ── Graduated fallback (niche mode only) ────────────────────────────
+        # For niche searches, AI-generated videos may use softer signals
+        # (e.g. no "AI" in the title but tagged with #aivideo). If fewer than
+        # 5 videos pass the primary threshold, retry with a lower threshold
+        # to widen the net while still requiring some AI relevance.
+        if is_niche and len(trends) < 5:
+            logger.info(
+                "Niche '%s': only %d results at threshold %d — retrying at fallback threshold %d",
+                query, len(trends), settings.YOUTUBE_AI_THRESHOLD, settings.YOUTUBE_AI_THRESHOLD_FALLBACK,
+            )
+            fallback_trends = await loop.run_in_executor(
+                None,
+                lambda: get_trending_shorts(
+                    query,
+                    max_results=settings.YOUTUBE_MAX_RESULTS,
+                    ai_threshold=settings.YOUTUBE_AI_THRESHOLD_FALLBACK,
+                    search_pages=settings.YOUTUBE_SEARCH_PAGES,
+                    ai_filter=True,
+                    days_window=settings.YOUTUBE_DAYS_WINDOW,
+                )
+            )
+            if len(fallback_trends) > len(trends):
+                trends = fallback_trends
+                logger.info("Fallback threshold yielded %d results for niche '%s'", len(trends), query)
+
         if not trends:
+            if is_niche:
+                raise HTTPException(
+                    status_code=404,
+                    detail=(
+                        f"No AI-generated trending videos found for '{query}' in the last "
+                        f"{settings.YOUTUBE_DAYS_WINDOW} days. Try a different niche or keyword."
+                    ),
+                )
             raise HTTPException(
                 status_code=502,
                 detail="Unable to fetch trends. Please check your YouTube API key and try again."
@@ -170,6 +207,9 @@ async def suggest_topics(
         # does not block the event loop (each .execute() can take up to 60 s)
         loop = asyncio.get_running_loop()
         query = niche if request.mode == "analyze_niche" else f"trending {niche} shorts"
+        is_niche = request.mode == "analyze_niche"
+
+        # ── Primary fetch with full AI threshold ────────────────────────────
         trends = await loop.run_in_executor(
             None,
             lambda: get_trending_shorts(
@@ -177,8 +217,26 @@ async def suggest_topics(
                 max_results=settings.YOUTUBE_MAX_RESULTS,
                 ai_threshold=settings.YOUTUBE_AI_THRESHOLD,
                 search_pages=settings.YOUTUBE_SEARCH_PAGES,
+                ai_filter=True,
+                days_window=settings.YOUTUBE_DAYS_WINDOW,
             )
         )
+
+        # ── Graduated fallback for niche mode ───────────────────────────────
+        if is_niche and len(trends) < 5:
+            fallback_trends = await loop.run_in_executor(
+                None,
+                lambda: get_trending_shorts(
+                    query,
+                    max_results=settings.YOUTUBE_MAX_RESULTS,
+                    ai_threshold=settings.YOUTUBE_AI_THRESHOLD_FALLBACK,
+                    search_pages=settings.YOUTUBE_SEARCH_PAGES,
+                    ai_filter=True,
+                    days_window=settings.YOUTUBE_DAYS_WINDOW,
+                )
+            )
+            if len(fallback_trends) > len(trends):
+                trends = fallback_trends
 
         if not trends:
             return {
@@ -191,8 +249,19 @@ async def suggest_topics(
 
         # ── Step 2: Engagement filter ─────────────────────────────────────────
         filtered = filter_by_engagement(trends, min_ratio=request.min_engagement)
-        # Fall back to all trends if filter removes everything
-        pool = rank_by_engagement(filtered) if filtered else trends[:15]
+        if filtered:
+            # Sort filtered videos by engagement ratio descending
+            pool = rank_by_engagement(filtered)
+        else:
+            # No video met the min_engagement threshold (common for new/small niches).
+            # Fall back to the full trend list already sorted by views from YouTube.
+            # Attach engagement_ratio=0.0 so build_trend_summary doesn't fail on the key.
+            pool = [{**v, "engagement_ratio": 0.0} for v in trends]
+            logger.info(
+                "Engagement filter removed all %d videos for niche '%s' — "
+                "falling back to view-sorted pool.",
+                len(trends), niche,
+            )
 
         # ── Step 3: Build trend summary for LLM ──────────────────────────────
         trend_summary = build_trend_summary(pool, niche)

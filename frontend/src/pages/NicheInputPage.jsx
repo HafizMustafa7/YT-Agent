@@ -107,12 +107,15 @@ const NicheInputPage = () => {
       setIsLoadingSuggestions(true);
       setSuggestionsError(null);
 
-      const trendsPromise = apiService.fetchTrends('analyze_niche', 'Top Trending AI Videos')
+      // Use search_trends on initial load: backend uses 'trending ai shorts' as query
+      // and applies ai_filter=True to show only AI-generated content on the home screen.
+      const trendsPromise = apiService.fetchTrends('search_trends', null)
         .then(result => setTrends(result?.trends || []))
         .catch(() => setError('Failed to fetch initial trends.'))
         .finally(() => setIsLoading(false));
 
-      const topicsPromise = apiService.suggestTopics('Top Trending AI Videos', 'search_trends', 0.01, 5)
+      // suggestTopics for the general home screen — search_trends mode is correct here
+      const topicsPromise = apiService.suggestTopics('AI YouTube Shorts', 'search_trends', 0.01, 5)
         .then(suggestionsData => setSuggestedTopics(suggestionsData?.topics || []))
         .catch(() => setSuggestionsError('Failed to fetch suggested topics.'))
         .finally(() => setIsLoadingSuggestions(false));
@@ -141,7 +144,9 @@ const NicheInputPage = () => {
       .catch(() => setError('Failed to fetch trends. Please try again.'))
       .finally(() => setIsLoading(false));
 
-    const topicsPromise = apiService.suggestTopics(niche, 'search_trends', 0.01, 5)
+    // analyze_niche mode: ai_filter=False on backend, so niche results (renovation,
+    // cooking, fitness, etc.) are NOT filtered by AI score — user gets actual trends.
+    const topicsPromise = apiService.suggestTopics(niche, 'analyze_niche', 0.01, 5)
       .then(suggestionsData => setSuggestedTopics(suggestionsData?.topics || []))
       .catch(() => setSuggestionsError('Failed to fetch suggested topics.'))
       .finally(() => setIsLoadingSuggestions(false));

@@ -1,33 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { supabase } from '../../../supabaseClient';
+import React, { useState } from 'react';
 import { useSelectedChannel } from '../../../contexts/SelectedChannelContext';
 import '../styles/components/StoryResultsScreen.css';
 const StoryResultsScreen = ({ storyResult, topic, onGenerateVideo }) => {
-  const { channels, selectedChannelId: selectedChannel, loading: loadingChannels } = useSelectedChannel();
+  const { channels, selectedChannelId: selectedChannel, loading: loadingChannels, credits } = useSelectedChannel();
   const [expandedFrame, setExpandedFrame] = useState(null);
   const [copiedFrame, setCopiedFrame] = useState(null);
   const [videoCreating, setVideoCreating] = useState(false);
-  const [availableCredits, setAvailableCredits] = useState(null);
-
-  useEffect(() => {
-    const fetchCredits = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) return;
-        const resp = await fetch(
-          `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/user/credits`,
-          { headers: { Authorization: `Bearer ${session.access_token}` } }
-        );
-        if (resp.ok) {
-          const data = await resp.json();
-          setAvailableCredits(data.credits);
-        }
-      } catch (e) {
-        console.error('Failed to fetch credits:', e);
-      }
-    };
-    fetchCredits();
-  }, []);
+  const availableCredits = credits;
 
   const story = storyResult?.story || {};
   const frames = story?.frames || [];

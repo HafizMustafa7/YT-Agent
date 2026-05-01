@@ -59,9 +59,11 @@ class Settings:
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
     
     # YouTube API Settings
-    YOUTUBE_MAX_RESULTS: int = 20
-    YOUTUBE_SEARCH_PAGES: int = 3
-    YOUTUBE_AI_THRESHOLD: int = 30
+    YOUTUBE_MAX_RESULTS: int = int(os.getenv("YOUTUBE_MAX_RESULTS", "20"))
+    YOUTUBE_SEARCH_PAGES: int = int(os.getenv("YOUTUBE_SEARCH_PAGES", "3"))
+    YOUTUBE_AI_THRESHOLD: int = int(os.getenv("YOUTUBE_AI_THRESHOLD", "30"))  # primary AI confidence filter
+    YOUTUBE_AI_THRESHOLD_FALLBACK: int = int(os.getenv("YOUTUBE_AI_THRESHOLD_FALLBACK", "15"))  # niche fallback
+    YOUTUBE_DAYS_WINDOW: int = int(os.getenv("YOUTUBE_DAYS_WINDOW", "15"))  # trend lookback in days
     
     # Story Generation Settings
     DEFAULT_VIDEO_DURATION: int = 44
@@ -93,7 +95,7 @@ class Settings:
     GOOGLE_APPLICATION_CREDENTIALS: str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
     VERTEX_AI_PROJECT_ID: str = os.getenv("VERTEX_AI_PROJECT_ID", "")
     VERTEX_AI_LOCATION: str = os.getenv("VERTEX_AI_LOCATION", "us-central1")
-    VEO_MODEL: str = os.getenv("VEO_MODEL", "veo-3.1-lite-generate-001")
+    VEO_MODEL: str = os.getenv("VEO_MODEL", "veo-3.1-fast-generate-001")
     
     # Supabase Settings (Reusing existing env vars where possible)
     SUPABASE_URL: str = SUPABASE_URL

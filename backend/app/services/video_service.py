@@ -113,6 +113,15 @@ def ensure_temp_dir():
 # ---------------------------------------------------------------------------
 _active_generations: set[str] = set()
 
+# ---------------------------------------------------------------------------
+# In-process video seed cache
+# Keyed by (project_id, frame_num) -> SDK Video object
+# Primary source for extension: avoids disk I/O for the common case where
+# Frame N+1 is triggered in the same server process as Frame N.
+# Falls back to disk if the cache misses (cross-request or after restart).
+# ---------------------------------------------------------------------------
+_video_seed_cache: dict = {}
+
 
 def try_acquire_generation_lock(project_id: str) -> bool:
     """Attempt to acquire an in-memory lock for a project's generation. Returns True if acquired."""
@@ -378,6 +387,8 @@ def _sync_veo_generate(
             aspect_ratio=aspect_ratio,
             duration_seconds=duration_seconds,
             number_of_videos=1,
+            # Request GCS storage URI so Frame 2+ can extend from Frame 1
+            generate_audio=False,
         ),
     )
     return operation
@@ -533,34 +544,38 @@ async def upload_to_r2(file_data: bytes, bucket: str, path: str) -> Optional[str
 
     url = f"{settings.WORKER_URL}?bucket={bucket}&path={path}"
     content_type = "video/mp4" if path.endswith(".mp4") else "application/octet-stream"
+    max_retries = 3
+    base_delay = 2.0
 
-    logger.info("Uploading %d bytes to R2: %s/%s", len(file_data), bucket, path)
+    for attempt in range(1, max_retries + 1):
+        try:
+            client = await get_http_client()
+            r = await client.post(
+                url,
+                headers={
+                    "x-api-key": settings.R2_UPLOAD_API_KEY,
+                    "Content-Type": content_type,
+                },
+                content=file_data,
+                timeout=120.0,
+            )
+            if r.status_code != 200:
+                logger.error("R2 upload failed (%d): %s (attempt %d/%d)", r.status_code, r.text, attempt, max_retries)
+                if attempt == max_retries:
+                    raise RuntimeError(f"R2 upload failed ({r.status_code}): {r.text}")
+            else:
+                public_url = build_public_url(path, bucket)
+                logger.info("R2 upload successful on attempt %d. Public URL: %s", attempt, public_url or "(not configured)")
+                return public_url
 
-    try:
-        client = await get_http_client()
-        r = await client.post(
-            url,
-            headers={
-                "x-api-key": settings.R2_UPLOAD_API_KEY,
-                "Content-Type": content_type,
-            },
-            content=file_data,
-            timeout=120.0,
-        )
-        if r.status_code != 200:
-            logger.error("R2 upload failed (%d): %s", r.status_code, r.text)
-            raise RuntimeError(f"R2 upload failed ({r.status_code}): {r.text}")
-
-        public_url = build_public_url(path, bucket)
-        logger.info("R2 upload successful. Public URL: %s", public_url or "(not configured)")
-        return public_url
-
-    except httpx.TimeoutException as e:
-        logger.error("R2 upload timed out: %s", e)
-        raise TimeoutError("R2 upload timed out") from e
-    except httpx.RequestError as e:
-        logger.error("R2 upload connection error: %s", e)
-        raise RuntimeError(f"R2 upload connection error: {e}") from e
+        except (httpx.TimeoutException, httpx.RequestError) as e:
+            logger.warning("R2 upload network error: %s (attempt %d/%d)", e, attempt, max_retries)
+            if attempt == max_retries:
+                raise RuntimeError(f"R2 upload connection error: {e}") from e
+                
+        # Wait before retrying (exponential backoff: 2s, 4s...)
+        await asyncio.sleep(base_delay * (2 ** (attempt - 1)))
+        logger.info("Retrying R2 upload to %s (%d/%d)...", bucket, attempt + 1, max_retries)
 
 
 def create_asset(
@@ -688,20 +703,42 @@ async def generate_single_frame(
                 aspect_ratio=aspect_ratio,
             )
         else:
-            # Extension frame: load the previous frame's GCS URI from disk,
-            # reconstruct a Video SDK object, then extend.
-            prev_uri_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num - 1}_video_uri.txt")
-            if not os.path.exists(prev_uri_path):
+            # Extension frame: load the previous frame's video seed from disk
+            # and reconstruct the SDK Video object for the extend call.
+            # The official Veo SDK docs show:
+            #   video=operation.response.generated_videos[0].video
+            # We replicate this by saving either the GCS URI or the raw bytes.
+            from google.genai import types as genai_types
+
+            prev_uri_path   = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num - 1}_video_uri.txt")
+            prev_bytes_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num - 1}_video_seed.mp4")
+            cache_key = (project_id, frame_num - 1)
+
+            if cache_key in _video_seed_cache:
+                # Fast path: video object is still in memory (bulk generation or quick retry)
+                prev_video_object = _video_seed_cache[cache_key]
+                logger.info("Frame %d extension: cache hit for frame %d seed", frame_num, frame_num - 1)
+
+            elif os.path.exists(prev_uri_path):
+                with open(prev_uri_path, "r", encoding="utf-8") as fh:
+                    prev_gcs_uri = fh.read().strip()
+                prev_video_object = genai_types.Video(uri=prev_gcs_uri)
+                logger.info("Frame %d extension: using GCS URI seed from frame %d", frame_num, frame_num - 1)
+
+            elif os.path.exists(prev_bytes_path):
+                with open(prev_bytes_path, "rb") as fh:
+                    prev_seed_bytes = fh.read()
+                prev_video_object = genai_types.Video(video_bytes=prev_seed_bytes)
+                logger.info(
+                    "Frame %d extension: using video_bytes seed (%d bytes) from frame %d",
+                    frame_num, len(prev_seed_bytes), frame_num - 1,
+                )
+
+            else:
                 raise RuntimeError(
-                    f"Previous frame ({frame_num - 1}) video URI not found at {prev_uri_path}. "
+                    f"Previous frame ({frame_num - 1}) video seed not found. "
                     "Cannot extend — generate preceding frames first."
                 )
-            with open(prev_uri_path, "r", encoding="utf-8") as fh:
-                prev_gcs_uri = fh.read().strip()
-
-            # Reconstruct a minimal SDK Video object from the saved URI
-            from google.genai import types as genai_types
-            prev_video_object = genai_types.Video(uri=prev_gcs_uri)
 
             operation = await veo_start_extend(
                 prompt=prompt,
@@ -723,21 +760,45 @@ async def generate_single_frame(
         except IOError as e:
             raise RuntimeError(f"Failed to save clip locally: {e}") from e
 
-        # 4. Save the GCS URI of the new video (used as extend seed for next frame)
-        #    We only persist the URI string — much simpler than the full SDK object.
-        uri_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_video_uri.txt")
-        gcs_uri = getattr(new_video_object, "uri", None)
+        # 4. Save the video seed for the NEXT frame's extension.
+        #    Per official Veo docs, extension takes the full Video object:
+        #      video=operation.response.generated_videos[0].video
+        #    Strategy:
+        #      a) Always store the live SDK object in the in-process cache (zero cost).
+        #      b) Also persist to disk as a fallback for cross-request / post-restart access.
+        uri_path   = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_video_uri.txt")
+        bytes_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_video_seed.mp4")
+        gcs_uri    = getattr(new_video_object, "uri", None)
+        raw_bytes  = getattr(new_video_object, "video_bytes", None)
+
+        # a) In-process cache — always available within this server process lifetime
+        _video_seed_cache[(project_id, frame_num)] = new_video_object
+        logger.info("Cached video seed object for frame %d in memory", frame_num)
+
+        # b) Disk fallback — survives restarts and cross-request scenarios
         if gcs_uri:
             try:
                 with open(uri_path, "w", encoding="utf-8") as fh:
                     fh.write(gcs_uri)
-                logger.info("Saved video GCS URI for frame %d: %s", frame_num, gcs_uri)
+                logger.info("Saved GCS URI seed for frame %d: %s", frame_num, gcs_uri)
             except IOError as e:
-                # Non-fatal if this is the last frame; log and continue
                 logger.warning("Failed to save video URI for frame %d: %s", frame_num, e)
+        elif raw_bytes:
+            # Veo returned bytes-only (no GCS URI). Save the bytes as the seed file.
+            # The next frame will reconstruct Video(video_bytes=...) from this file.
+            try:
+                with open(bytes_path, "wb") as fh:
+                    fh.write(raw_bytes)
+                logger.info(
+                    "Saved video_bytes seed for frame %d (%d bytes) — extension will use bytes mode.",
+                    frame_num, len(raw_bytes),
+                )
+            except IOError as e:
+                logger.warning("Failed to save video_bytes seed for frame %d: %s", frame_num, e)
         else:
-            logger.warning(
-                "Frame %d video object has no URI — extend from this frame will not be possible",
+            logger.error(
+                "Frame %d: Veo video object has neither URI nor video_bytes — "
+                "extension from this frame will not be possible.",
                 frame_num,
             )
 
@@ -894,6 +955,7 @@ async def promote_final_video(project_id: str) -> Dict[str, Any]:
             fnum = f["frame_num"]
             temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_temp.mp4"))
             temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_video_uri.txt"))
+            temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_video_seed.mp4"))
 
         # The last completed frame holds the full cumulative merged video
         last_frame = completed_frames[-1]
@@ -950,6 +1012,13 @@ async def promote_final_video(project_id: str) -> Dict[str, Any]:
                 cleanup_temp_file(path)
                 cleaned += 1
         logger.info("Cleaned up %d temp files for project %s", cleaned, project_id)
+
+        # Evict in-process video seed cache for this project
+        evicted = [k for k in _video_seed_cache if k[0] == project_id]
+        for k in evicted:
+            del _video_seed_cache[k]
+        if evicted:
+            logger.info("Evicted %d video seed cache entries for project %s", len(evicted), project_id)
 
         return {
             "asset_id": asset_id,

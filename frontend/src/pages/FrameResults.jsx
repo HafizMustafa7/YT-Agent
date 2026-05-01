@@ -17,12 +17,28 @@ const FrameResults = () => {
   const navigate = useNavigate();
   
   const [error, setError] = useState(null);
-  const [projectId, setProjectId] = useState(null);
+  // Restore projectId from sessionStorage on refresh so completed frames survive reloads
+  const [projectId, setProjectId] = useState(() => sessionStorage.getItem('yt_frame_project_id') || null);
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // Generation specific states
-  const [generatingAll, setGeneratingAll] = useState(false);
+  // generatingAll is persisted to sessionStorage so a page refresh during Generate All
+  // correctly resumes rather than leaving pending frames orphaned.
+  const [generatingAll, _setGeneratingAll] = useState(
+    () => sessionStorage.getItem('yt_generating_all') === 'true'
+  );
+  // Stable wrapper: syncs generatingAll to sessionStorage on every change.
+  // useCallback ensures a stable reference so it can safely be used in effects.
+  const setGeneratingAll = useCallback((val) => {
+    if (val) {
+      sessionStorage.setItem('yt_generating_all', 'true');
+    } else {
+      sessionStorage.removeItem('yt_generating_all');
+    }
+    _setGeneratingAll(val);
+  }, []);
+
   const [generatingFrameId, setGeneratingFrameId] = useState(null);
   const [combining, setCombining] = useState(false);
   const [finalVideoUrl, setFinalVideoUrl] = useState(null);
@@ -30,6 +46,9 @@ const FrameResults = () => {
   const [retryAttempts, setRetryAttempts] = useState({});  // { frameId: attemptN }
   const pollCountRef = useRef(0);
   const isCreatingRef = useRef(false);
+  // Prevents the sequential driver from firing duplicate API requests
+  // when the effect re-runs before the previous request completes.
+  const isTriggering = useRef(false);
   // Flag to stop sequential generation if user cancelled or frame fatally failed
   const stopSequentialRef = useRef(false);
 
@@ -105,14 +124,16 @@ const FrameResults = () => {
       const payloadTitle = (normalizedTitle || 'Story Video').slice(0, 255);
 
       try {
-      const res = await apiService.createVideoProject(
-          payloadTitle,
-          normalizedFrames,
-          null,          // channelId — supplied later at upload time
-          aspectRatio,   // from creative preferences
-          '720p',        // resolution always 720p for Veo 3.1
-        );
-        setProjectId(res.project_id);
+        const res = await apiService.createVideoProject(
+            payloadTitle,
+            normalizedFrames,
+            null,          // channelId — supplied later at upload time
+            aspectRatio,   // from creative preferences
+            '720p',        // resolution always 720p for Veo 3.1
+          );
+          // Persist so the project survives a page refresh
+          sessionStorage.setItem('yt_frame_project_id', res.project_id);
+          setProjectId(res.project_id);
       } catch (err) {
         setError(err.message || 'Failed to initialize backend video project.');
         setLoading(false);
@@ -121,6 +142,7 @@ const FrameResults = () => {
     };
     
     createProjectBackend();
+  // Only run if there is no existing projectId (either from state or sessionStorage)
   }, [storyResultRaw, projectId, project, rawFrames, rawStory]);
 
   // Whenever projectId is obtained, load it once
@@ -129,6 +151,26 @@ const FrameResults = () => {
       fetchProject().then(() => setLoading(false));
     }
   }, [projectId, project, fetchProject]);
+
+  // Clear sessionStorage when navigating away (browser back, link click, etc.)
+  // so the next story session starts fresh instead of reloading this project.
+  useEffect(() => {
+    return () => {
+      sessionStorage.removeItem('yt_frame_project_id');
+      sessionStorage.removeItem('yt_generating_all');
+    };
+  }, []);
+
+  // Auto-resume: when the page reloads mid-generation (generatingAll was persisted as true)
+  // AND the project has loaded AND there's no frame actively generating on the backend,
+  // the sequential driver is already enabled via sessionStorage restore. We just need to
+  // make sure polling is active by ensuring the project status triggers the poll effect.
+  // If generatingAll=true but all remaining frames are pending and nothing is 'generating',
+  // the sequential driver useEffect will fire and trigger the next pending frame automatically.
+  //
+  // Edge case: generatingAll=true restored from sessionStorage but backend already finished
+  // (e.g. user left browser open for hours). The driver will find no pending frames and
+  // call setGeneratingAll(false), cleaning up sessionStorage.
 
   // Adaptive Polling
   useEffect(() => {
@@ -164,7 +206,11 @@ const FrameResults = () => {
   const allCompleted = liveFrames.length > 0 && completedCount === liveFrames.length;
 
   useEffect(() => {
-    if (project?.status && project.status !== 'generating' && project.status !== 'queued' && project.status !== 'clips_ready') {
+    // Only clear generatingAll on terminal project states.
+    // Do NOT clear on 'pending' — that would kill the restored flag on page refresh
+    // before the sequential driver gets a chance to fire.
+    const terminalStates = ['failed', 'completed', 'cancelled'];
+    if (project?.status && terminalStates.includes(project.status)) {
       setGeneratingAll(false);
     }
     if (finalVideoUrl) {
@@ -176,26 +222,33 @@ const FrameResults = () => {
         setGeneratingFrameId(null);
       }
     }
-  }, [project?.status, finalVideoUrl, generatingFrameId, liveFrames]);
+  }, [project?.status, finalVideoUrl, generatingFrameId, liveFrames, setGeneratingAll]);
 
   // -----------------------------------------------------------------------
   // Sequential "Generate All" driver
   // Runs entirely on the frontend using polling data.
   // After each frame reaches SUCCESS it triggers the next frame.
   // Stops if a frame becomes 'failed' (FATAL on backend) or all done.
+  // Survives page refresh: generatingAll is persisted to sessionStorage.
   // -----------------------------------------------------------------------
   useEffect(() => {
     if (!generatingAll || !projectId || !liveFrames.length) return;
+    // Prevent re-entrant calls (effect may re-run while a request is in-flight)
+    if (isTriggering.current) return;
 
-    const pendingFrame = liveFrames.find(
-      (f) => f.status === 'pending' || f.status === 'failed'
-    );
+    // Only auto-advance 'pending' frames. Failed frames halt the chain — they
+    // require explicit user action (manual retry button) to avoid infinite loops.
+    const pendingFrame = liveFrames.find((f) => f.status === 'pending');
     const anyGenerating = liveFrames.some((f) => f.status === 'generating');
 
-    if (anyGenerating) return;  // wait for current backend generation to finish
+    if (anyGenerating) return;  // Backend is processing — wait for next poll
 
     if (!pendingFrame) {
-      // All frames are either completed or fatally failed
+      // No more pending frames — either all done or a frame failed and halted the chain
+      const anyFailed = liveFrames.some((f) => f.status === 'failed');
+      if (anyFailed) {
+        setError('A frame failed during generation. You can retry individual frames manually.');
+      }
       setGeneratingAll(false);
       return;
     }
@@ -209,12 +262,19 @@ const FrameResults = () => {
       return;
     }
 
-    // Trigger the next frame
+    // Trigger the next frame — guard with isTriggering to prevent duplicate calls
+    isTriggering.current = true;
     apiService.startGenerateFrame(projectId, pendingFrame.id)
       .then(() => fetchProject())
       .catch((e) => {
-        console.error('Sequential generation error:', e);
-        setGeneratingAll(false);
+        const msg = e.message || '';
+        setError(msg.toLowerCase().includes('insufficient')
+          ? 'Not enough credits to continue generation. Please purchase more credits.'
+          : (msg || 'Generation failed. Please try again.'));
+        setGeneratingAll(false);  // Always reset so button re-enables
+      })
+      .finally(() => {
+        isTriggering.current = false;  // Release lock regardless of outcome
       });
   }, [generatingAll, liveFrames, projectId, fetchProject]);
 
@@ -229,13 +289,18 @@ const FrameResults = () => {
       // Call backend to deduct credits and set project status to 'generating'
       const res = await apiService.startGenerateAllFrames(projectId);
       if (res.pending_count === 0) {
-        return;  // nothing to do
+        return;  // nothing to do — button stays enabled, which is correct
       }
-      // Now enable the sequential driver — it will pick up liveFrames and start Frame 1
+      // Enable the sequential driver — it will pick up liveFrames and start Frame 1
       setGeneratingAll(true);
       await fetchProject();
     } catch (e) {
-      setError(e.message || 'Failed to start bulk generation');
+      // Show a user-friendly message for 402 insufficient credits
+      const msg = e.message || 'Failed to start bulk generation';
+      setError(msg.toLowerCase().includes('insufficient') 
+        ? 'Not enough credits. Please purchase credits to generate video.' 
+        : msg);
+      setGeneratingAll(false);  // Ensure button re-enables on any failure
     }
   };
 
@@ -260,6 +325,9 @@ const FrameResults = () => {
       const res = await apiService.combineVideoProject(projectId);
       if (res.video_url) {
         setFinalVideoUrl(res.video_url);
+        // Clear persisted state — this project is complete, next story starts fresh
+        sessionStorage.removeItem('yt_frame_project_id');
+        sessionStorage.removeItem('yt_generating_all');
         navigate('/final-video', { 
           state: { 
             videoUrl: res.video_url, 

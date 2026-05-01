@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import apiService from "../features/yt-agent/services/apiService";
 import { supabase } from "../supabaseClient";
 
@@ -8,6 +8,8 @@ const SelectedChannelContext = createContext({
   selectedChannelId: null,
   setSelectedChannelId: () => { },
   refreshChannels: async () => { },
+  credits: null,
+  refreshCredits: async () => { },
   loading: false,
 });
 
@@ -15,6 +17,7 @@ export function SelectedChannelProvider({ children }) {
   const [channels, setChannels] = useState([]);
   const [selectedChannelId, setSelectedChannelIdState] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [credits, setCredits] = useState(null);
 
   const LOCAL_KEY = "selectedChannelId";
 
@@ -43,6 +46,18 @@ export function SelectedChannelProvider({ children }) {
     }
   };
 
+  // Standalone credits fetch — can be called by any consumer after credit-consuming actions
+  const refreshCredits = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const data = await apiService.getUserCredits();
+      setCredits(data.credits ?? data ?? null);
+    } catch (err) {
+      console.error("[SelectedChannelContext] Credits fetch failed:", err);
+    }
+  }, []);
+
   // Initial load
   useEffect(() => {
     const init = async () => {
@@ -55,7 +70,12 @@ export function SelectedChannelProvider({ children }) {
           return;
         }
 
-        const res = await apiService.listChannels();
+        // Fetch channels and credits in parallel
+        const [res] = await Promise.all([
+          apiService.listChannels(),
+          refreshCredits(),
+        ]);
+
         const list = Array.isArray(res) ? res : (res?.items || []);
 
         // Set basic list immediately for UI responsiveness
@@ -78,7 +98,7 @@ export function SelectedChannelProvider({ children }) {
           localStorage.setItem(LOCAL_KEY, firstId);
         }
 
-        // Now enrich with stats in the background
+        // Enrich with stats in the background
         const enriched = await enrichChannelsWithStats(list);
         setChannels(enriched);
       } catch (err) {
@@ -88,7 +108,7 @@ export function SelectedChannelProvider({ children }) {
       }
     };
     init();
-  }, []);
+  }, [refreshCredits]);
 
   const refreshChannels = async () => {
     setLoading(true);
@@ -145,6 +165,8 @@ export function SelectedChannelProvider({ children }) {
         selectedChannelId,
         setSelectedChannelId,
         refreshChannels,
+        credits,
+        refreshCredits,
         loading,
       }}
     >

@@ -280,6 +280,13 @@ export const getChannelAnalytics = async (channelId) => {
 };
 
 /**
+ * Fetch the current user's credit balance
+ */
+export const getUserCredits = async () => {
+    return callApiGet('/api/user/credits');
+};
+
+/**
  * List all YouTube channels for the authenticated user
  */
 export const listChannels = async () => {
@@ -332,6 +339,7 @@ const apiService = {
     listChannels,
     getChannelStats,
     startYouTubeOAuth,
+    getUserCredits,
 };
 
 export default apiService;
