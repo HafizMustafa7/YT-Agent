@@ -397,7 +397,7 @@ async def combine_videos(
 async def upload_to_youtube(
     project_id: str,
     background_tasks: BackgroundTasks,
-    custom_title: Optional[str] = Body(None, description="Optional custom title for the YouTube video"),
+    custom_title: Optional[str] = Body(None, embed=True, description="Optional custom title for the YouTube video"),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
