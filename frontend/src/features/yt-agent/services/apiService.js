@@ -222,11 +222,15 @@ export const getUserProjects = async () => {
  * @returns {Promise<object>}
  */
 export const startGenerateAllFrames = async (projectId) => {
-    return callApi(
+    const result = await callApi(
         ENDPOINTS.VIDEO_GENERATE_ALL(projectId),
         {},
         TIMEOUTS.VIDEO_OPERATION
     );
+    if (result.success) {
+        window.dispatchEvent(new CustomEvent('creditsConsumed'));
+    }
+    return result;
 };
 
 /**
@@ -236,11 +240,15 @@ export const startGenerateAllFrames = async (projectId) => {
  * @returns {Promise<object>}
  */
 export const startGenerateFrame = async (projectId, frameId) => {
-    return callApi(
+    const result = await callApi(
         ENDPOINTS.VIDEO_GENERATE_FRAME(projectId),
         { frame_id: frameId },
         TIMEOUTS.VIDEO_OPERATION
     );
+    if (result.success) {
+        window.dispatchEvent(new CustomEvent('creditsConsumed'));
+    }
+    return result;
 };
 
 /**

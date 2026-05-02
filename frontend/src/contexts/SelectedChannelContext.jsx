@@ -108,15 +108,15 @@ export function SelectedChannelProvider({ children }) {
       }
     };
     init();
-  }, [refreshCredits]);
+  }, [refreshCredits, enrichChannelsWithStats]);
 
-  const refreshChannels = async () => {
+  const refreshChannels = useCallback(async () => {
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
         setChannels([]);
-        setSelectedChannelId(null);
+        setSelectedChannelIdState(null);
         return;
       }
 
@@ -127,17 +127,22 @@ export function SelectedChannelProvider({ children }) {
       setChannels(list);
 
       // Verify current selection still exists
-      if (selectedChannelId) {
-        const found = list.find((c) => c.channel_id === selectedChannelId || c.id === selectedChannelId);
-        if (!found && list.length > 0) {
-          const firstId = list[0].channel_id || list[0].id;
-          setSelectedChannelId(firstId);
-        } else if (!found) {
-          setSelectedChannelId(null);
+      setSelectedChannelIdState(prev => {
+        let newSelection = prev;
+        if (prev) {
+          const found = list.find((c) => c.channel_id === prev || c.id === prev);
+          if (!found && list.length > 0) {
+            newSelection = list[0].channel_id || list[0].id;
+          } else if (!found) {
+            newSelection = null;
+          }
+        } else if (list.length > 0) {
+          newSelection = list[0].channel_id || list[0].id;
         }
-      } else if (list.length > 0) {
-        setSelectedChannelId(list[0].channel_id || list[0].id);
-      }
+        if (newSelection) localStorage.setItem(LOCAL_KEY, newSelection);
+        else localStorage.removeItem(LOCAL_KEY);
+        return newSelection;
+      });
 
       // Enrich with stats
       const enriched = await enrichChannelsWithStats(list);
@@ -147,17 +152,55 @@ export function SelectedChannelProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [enrichChannelsWithStats]);
 
-  const setSelectedChannelId = (channelId) => {
+  const setSelectedChannelId = useCallback((channelId) => {
     setSelectedChannelIdState(channelId);
     if (channelId) {
       localStorage.setItem(LOCAL_KEY, channelId);
     } else {
       localStorage.removeItem(LOCAL_KEY);
     }
-  };
+  }, []);
 
+  // --- Auth State Listener ---
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_IN' && session) {
+          refreshChannels();
+          refreshCredits();
+        } else if (event === 'SIGNED_OUT') {
+          setChannels([]);
+          setCredits(null);
+          setSelectedChannelIdState(null);
+          localStorage.removeItem(LOCAL_KEY);
+        }
+      }
+    );
+    return () => subscription.unsubscribe();
+  }, [refreshChannels, refreshCredits]);
+
+  // --- Background Periodic Refresh ---
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // Check if we are logged in before refreshing
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.access_token) {
+          refreshChannels();
+          refreshCredits();
+        }
+      });
+    }, 2 * 60 * 1000); // Every 2 minutes
+    return () => clearInterval(interval);
+  }, [refreshChannels, refreshCredits]);
+
+  // --- Credits Consumption Listener ---
+  useEffect(() => {
+    const handleCreditsConsumed = () => refreshCredits();
+    window.addEventListener('creditsConsumed', handleCreditsConsumed);
+    return () => window.removeEventListener('creditsConsumed', handleCreditsConsumed);
+  }, [refreshCredits]);
   return (
     <SelectedChannelContext.Provider
       value={{

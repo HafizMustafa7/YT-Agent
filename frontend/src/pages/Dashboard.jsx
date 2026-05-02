@@ -47,10 +47,17 @@ const Dashboard = () => {
         } catch (err) {
           console.error("Failed to load project history", err);
         }
+
+        // Check if we just linked a channel
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('linked_channel')) {
+          refreshChannels();
+          window.history.replaceState({}, '', '/dashboard');
+        }
       } catch { navigate("/"); }
     };
     initializeSession();
-  }, [navigate]);
+  }, [navigate, refreshChannels]);
 
 
   const handleAddChannel = async () => {
