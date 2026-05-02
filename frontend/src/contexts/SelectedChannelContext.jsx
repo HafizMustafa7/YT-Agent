@@ -22,7 +22,7 @@ export function SelectedChannelProvider({ children }) {
   const LOCAL_KEY = "selectedChannelId";
 
   // Helper to fetch stats for all channels
-  const enrichChannelsWithStats = async (list) => {
+  const enrichChannelsWithStats = useCallback(async (list) => {
     try {
       const enriched = await Promise.all(
         list.map(async (channel) => {
@@ -44,7 +44,7 @@ export function SelectedChannelProvider({ children }) {
       console.error("[SelectedChannelContext] enrichment failed", err);
       return list;
     }
-  };
+  }, []);
 
   // Standalone credits fetch — can be called by any consumer after credit-consuming actions
   const refreshCredits = useCallback(async () => {
@@ -58,57 +58,7 @@ export function SelectedChannelProvider({ children }) {
     }
   }, []);
 
-  // Initial load
-  useEffect(() => {
-    const init = async () => {
-      setLoading(true);
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) {
-          setChannels([]);
-          setSelectedChannelIdState(null);
-          return;
-        }
-
-        // Fetch channels and credits in parallel
-        const [res] = await Promise.all([
-          apiService.listChannels(),
-          refreshCredits(),
-        ]);
-
-        const list = Array.isArray(res) ? res : (res?.items || []);
-
-        // Set basic list immediately for UI responsiveness
-        setChannels(list);
-
-        // Pre-select logic
-        const localSaved = localStorage.getItem(LOCAL_KEY);
-        if (localSaved) {
-          const found = list.find((c) => c.channel_id === localSaved || c.id === localSaved);
-          if (found) {
-            setSelectedChannelIdState(found.channel_id || found.id);
-          } else if (list.length > 0) {
-            const firstId = list[0].channel_id || list[0].id;
-            setSelectedChannelIdState(firstId);
-            localStorage.setItem(LOCAL_KEY, firstId);
-          }
-        } else if (list.length > 0) {
-          const firstId = list[0].channel_id || list[0].id;
-          setSelectedChannelIdState(firstId);
-          localStorage.setItem(LOCAL_KEY, firstId);
-        }
-
-        // Enrich with stats in the background
-        const enriched = await enrichChannelsWithStats(list);
-        setChannels(enriched);
-      } catch (err) {
-        console.error("[SelectedChannelContext] Init failed", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    init();
-  }, [refreshCredits, enrichChannelsWithStats]);
+  // Initial load is now handled entirely by the onAuthStateChange listener
 
   const refreshChannels = useCallback(async () => {
     setLoading(true);
@@ -167,7 +117,10 @@ export function SelectedChannelProvider({ children }) {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        if (event === 'SIGNED_IN' && session) {
+        // Only fetch on explicit login or initial app load.
+        // Ignore TOKEN_REFRESHED and USER_UPDATED to prevent background spam.
+        const triggers = ['INITIAL_SESSION', 'SIGNED_IN'];
+        if (triggers.includes(event) && session?.access_token) {
           refreshChannels();
           refreshCredits();
         } else if (event === 'SIGNED_OUT') {
