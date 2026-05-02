@@ -263,7 +263,7 @@ def get_user_projects(user_id: str) -> List[Dict[str, Any]]:
             return []
             
         # Fetch channels for this user to map channel info
-        channel_res = sb.table("channels").select("channel_id, channel_name, thumbnail_url").eq("user_id", user_id).execute()
+        channel_res = sb.table("channels").select("channel_id, channel_name").eq("user_id", user_id).execute()
         channels = {c["channel_id"]: c for c in (channel_res.data or [])}
         
         # Merge channel info into projects
@@ -271,8 +271,7 @@ def get_user_projects(user_id: str) -> List[Dict[str, Any]]:
             ch_id = proj.get("channel_id")
             if ch_id and ch_id in channels:
                 proj["channels"] = {
-                    "channel_name": channels[ch_id].get("channel_name"),
-                    "thumbnail_url": channels[ch_id].get("thumbnail_url")
+                    "channel_name": channels[ch_id].get("channel_name")
                 }
                 
         return projects
