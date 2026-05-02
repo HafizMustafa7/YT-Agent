@@ -11,6 +11,7 @@ import datetime
 import uuid
 import logging
 import httpx
+import asyncio
 
 # Cache TTLs
 _TTL_CHANNELS_LIST = 300   # 5 min — channel list changes rarely
@@ -36,6 +37,18 @@ SCOPES = [
 
 # TTL for state (seconds)
 STATE_TTL_SECONDS = 60 * 15  # 15 minutes
+
+def invalidate_channel_cache(user_id: str):
+    """Helper to clear the cached list of channels for a user."""
+    cache_key = f"channels_list:{user_id}"
+    redis_cache.delete(cache_key)
+    logger.info("[CACHE INVALIDATED] Cleared channel list for user %s", user_id)
+
+def invalidate_channel_stats_cache(channel_id: str, user_id: str):
+    """Helper to clear the cached stats for a specific channel."""
+    cache_key = f"stats:{channel_id}:{user_id}"
+    redis_cache.delete(cache_key)
+    logger.info("[CACHE INVALIDATED] Cleared stats for channel %s (user %s)", channel_id, user_id)
 
 
 def _build_flow():
@@ -203,6 +216,9 @@ async def oauth_callback(request: Request, state: str = None, code: str = None):
         # cleanup used state
         supabase.table("oauth_states").delete().eq("state", state).execute()
 
+        # Invalidate the cache so the new channel appears immediately
+        invalidate_channel_cache(user_id)
+
         # Redirect the user back to frontend dashboard (you can pass a param or flash)
         redirect_url = f"{FRONTEND_URL.rstrip('/')}/dashboard?linked_channel={channel_id}"
         return RedirectResponse(url=redirect_url)
@@ -235,7 +251,7 @@ async def list_channels(current_user: dict = Depends(get_current_user)):
 
     logger.info("[CHANNELS] Listing %d channels for user %s", len(channels), current_user["id"])
 
-    for channel in channels:
+    async def _enrich_channel(channel):
         token_expiry = channel.get("token_expiry")
         token_valid = False
         if token_expiry:
@@ -255,13 +271,17 @@ async def list_channels(current_user: dict = Depends(get_current_user)):
                     channel["thumbnail_url"] = thumb_url
         except Exception as e:
             logger.warning("[CHANNELS] Failed to fetch thumbnail for channel %s: %s", channel.get("channel_id"), e)
+        
+        return {k: v for k, v in channel.items() if k not in ("access_token", "refresh_token")}
+
+    # Fetch all channel thumbnails concurrently
+    safe_channels = await asyncio.gather(*[_enrich_channel(ch) for ch in channels])
 
     # Cache the result — strip tokens for security before storing
-    safe = [{k: v for k, v in ch.items() if k not in ("access_token", "refresh_token")} for ch in channels]
-    redis_cache.set(cache_key, safe, ttl=_TTL_CHANNELS_LIST)
+    redis_cache.set(cache_key, list(safe_channels), ttl=_TTL_CHANNELS_LIST)
     logger.info("[CACHE SET] channel list for user %s (TTL=%ds)", current_user["id"], _TTL_CHANNELS_LIST)
 
-    return safe
+    return list(safe_channels)
 
 
 @router.post("/refresh")

@@ -1338,6 +1338,12 @@ async def upload_project_to_youtube(project_id: str, custom_title: Optional[str]
             "metadata": current_metadata,
             "uploaded_at": datetime.now(timezone.utc).isoformat()
         }).eq("id", project_id).execute()
+
+        try:
+            from app.routes.channels import invalidate_channel_stats_cache
+            invalidate_channel_stats_cache(channel_id, user_id)
+        except Exception as e:
+            logger.warning("Failed to invalidate channel stats cache: %s", e)
         
         logger.info("Project %s uploaded to YouTube successfully (ID: %s)", project_id, youtube_id)
         return {"success": True, "youtube_id": youtube_id}
