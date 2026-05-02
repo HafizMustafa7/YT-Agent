@@ -255,9 +255,27 @@ def get_user_projects(user_id: str) -> List[Dict[str, Any]]:
     """Fetch all projects for a specific user, ordered by creation date."""
     sb = get_supabase()
     try:
-        # Fetch projects with channel info joined, or just fetch projects and channels and merge
-        proj_res = sb.table("projects").select("*, channels(channel_name, thumbnail_url)").eq("user_id", user_id).order("created_at", desc=True).execute()
-        return proj_res.data or []
+        # Fetch projects
+        proj_res = sb.table("projects").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
+        projects = proj_res.data or []
+        
+        if not projects:
+            return []
+            
+        # Fetch channels for this user to map channel info
+        channel_res = sb.table("channels").select("channel_id, channel_name, thumbnail_url").eq("user_id", user_id).execute()
+        channels = {c["channel_id"]: c for c in (channel_res.data or [])}
+        
+        # Merge channel info into projects
+        for proj in projects:
+            ch_id = proj.get("channel_id")
+            if ch_id and ch_id in channels:
+                proj["channels"] = {
+                    "channel_name": channels[ch_id].get("channel_name"),
+                    "thumbnail_url": channels[ch_id].get("thumbnail_url")
+                }
+                
+        return projects
     except Exception as e:
         logger.error("Failed to fetch projects for user %s: %s", user_id, e)
         raise RuntimeError(f"Failed to fetch projects: {e}") from e
