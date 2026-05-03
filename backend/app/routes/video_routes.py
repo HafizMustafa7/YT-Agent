@@ -398,6 +398,7 @@ async def upload_to_youtube(
     project_id: str,
     background_tasks: BackgroundTasks,
     custom_title: Optional[str] = Body(None, embed=True, description="Optional custom title for the YouTube video"),
+    channel_id: Optional[str] = Body(None, embed=True, description="Optional channel_id to link/update for this project"),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
@@ -414,8 +415,22 @@ async def upload_to_youtube(
         if proj.get("user_id") != current_user["id"]:
             raise HTTPException(status_code=403, detail="Not authorized to access this project")
 
-        if not proj.get("channel_id"):
-            raise HTTPException(status_code=400, detail="No YouTube channel linked to this project.")
+        # 1. Update channel_id if provided (Switch channel feature)
+        final_channel_id = channel_id or proj.get("channel_id")
+        
+        if channel_id:
+            # Verify ownership of the NEW channel
+            if not video_service.verify_channel_ownership(current_user["id"], channel_id):
+                raise HTTPException(status_code=403, detail=f"Channel {channel_id} does not belong to you.")
+            
+            # Update project in DB
+            sb = video_service.get_supabase()
+            sb.table("projects").update({"channel_id": channel_id}).eq("id", project_id).execute()
+            logger.info("Project %s channel updated to %s", project_id, channel_id)
+            final_channel_id = channel_id
+
+        if not final_channel_id:
+            raise HTTPException(status_code=400, detail="No YouTube channel linked to this project. Please select one.")
 
         if not proj.get("video_url"):
             raise HTTPException(status_code=400, detail="No final video yet. Run 'Promote Final Video' first.")
@@ -431,4 +446,4 @@ async def upload_to_youtube(
         raise
     except Exception as e:
         logger.error("Error starting upload for project %s: %s", project_id, e)
-        handle_error(e)
+        raise handle_error(e)

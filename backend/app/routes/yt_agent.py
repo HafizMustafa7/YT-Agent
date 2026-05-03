@@ -15,10 +15,11 @@ from app.schemas.models import (
     TopicValidationRequest,
     GenerateStoryRequest,
     TopicSuggestionRequest,
+    SuggestCreativeParamsRequest,
 )
 from app.services.youtube_service import get_trending_shorts
 from app.core_yt.topic_validator import validate_topic
-from app.services.story_service import generate_story
+from app.services.story_service import generate_story, suggest_dynamic_creative_params
 from app.core_yt.engagement_filter import filter_by_engagement, rank_by_engagement
 from app.core_yt.trend_summary_builder import build_trend_summary
 from app.core_yt.topic_suggestion_engine import generate_topic_suggestions
@@ -302,6 +303,29 @@ async def suggest_topics(
         raise HTTPException(
             status_code=500,
             detail="An error occurred while generating topic suggestions. Please try again.",
+        )
+
+
+@router.post("/suggest-creative-params")
+async def suggest_creative_params_endpoint(
+    request: SuggestCreativeParamsRequest,
+    current_user: dict = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Generate dynamic creative parameters (styles, camera motions, etc.) 
+    tailored to a specific topic using the LLM.
+    """
+    try:
+        suggestions = await suggest_dynamic_creative_params(request.topic, request.context)
+        return {
+            "success": True,
+            "suggestions": suggestions
+        }
+    except Exception as e:
+        logger.error("Error generating creative params: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while suggesting creative parameters. Please try again."
         )
 
 

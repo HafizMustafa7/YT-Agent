@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiService from '../features/yt-agent/services/apiService';
 
@@ -16,6 +16,10 @@ const FinalVideoPage = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState(null); // null, 'success', 'error'
   const [errorMessage, setErrorMessage] = useState('');
+  
+  const [channels, setChannels] = useState([]);
+  const [selectedChannelId, setSelectedChannelId] = useState('');
+  const [loadingChannels, setLoadingChannels] = useState(false);
 
   const videoUrl = location.state?.videoUrl;
   const projectTitle = location.state?.projectTitle || 'Final_Video_Render.mp4';
@@ -23,6 +27,33 @@ const FinalVideoPage = () => {
 
   const [videoTitle, setVideoTitle] = useState(projectTitle);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
+
+  useEffect(() => {
+    const fetchChannels = async () => {
+      setLoadingChannels(true);
+      try {
+        const data = await apiService.listChannels();
+        const channelsList = Array.isArray(data) ? data : (data.channels || []);
+        setChannels(channelsList);
+        
+        // If project already has a channel, select it
+        const projData = await apiService.getVideoProject(projectId);
+        if (projData.project?.channel_id) {
+          setSelectedChannelId(projData.project.channel_id);
+        } else if (channelsList.length > 0) {
+          setSelectedChannelId(channelsList[0].channel_id);
+        }
+      } catch (err) {
+        console.error('Failed to load channels', err);
+      } finally {
+        setLoadingChannels(false);
+      }
+    };
+
+    if (projectId) {
+      fetchChannels();
+    }
+  }, [projectId]);
 
   if (!videoUrl) {
     return (
@@ -122,6 +153,41 @@ const FinalVideoPage = () => {
               <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '20px', fontWeight: 700, color: '#f0f0fd' }}>H.264 MP4</span>
             </div>
           </div>
+
+          {/* YouTube Channel Selection */}
+          <div style={{ marginTop: '32px', background: 'rgba(0, 229, 255, 0.03)', padding: '24px', borderRadius: '12px', border: '1px solid rgba(0, 229, 255, 0.1)' }}>
+             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                <Icon name="youtube_activity" style={{ color: '#00E5FF', fontSize: '20px' }} />
+                <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '16px', color: '#f0f0fd' }}>Target YouTube Channel</span>
+             </div>
+             
+             {loadingChannels ? (
+               <div style={{ color: '#737580', fontSize: '14px' }}>Loading your linked channels...</div>
+             ) : channels.length > 0 ? (
+               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                 <select 
+                   value={selectedChannelId} 
+                   onChange={(e) => setSelectedChannelId(e.target.value)}
+                   style={{
+                     width: '100%', padding: '12px', background: '#1c1f2b', color: '#fff', border: '1px solid rgba(115, 117, 128, 0.3)', 
+                     borderRadius: '8px', outline: 'none', cursor: 'pointer', fontFamily: "'Manrope', sans-serif"
+                   }}
+                 >
+                   {channels.map(ch => (
+                     <option key={ch.channel_id} value={ch.channel_id}>
+                       {ch.channel_name || ch.title || ch.channel_id}
+                     </option>
+                   ))}
+                 </select>
+                 <p style={{ color: '#737580', fontSize: '12px', margin: '4px 0 0 0' }}>The video will be uploaded to this channel as a Short.</p>
+               </div>
+             ) : (
+               <div style={{ color: '#ff716c', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                 <Icon name="warning" style={{ fontSize: '18px' }} />
+                 <span>No YouTube channels linked. Please go to Settings to connect your channel.</span>
+               </div>
+             )}
+          </div>
         </section>
 
         {/* Primary Actions */}
@@ -159,7 +225,7 @@ const FinalVideoPage = () => {
                 setUploadStatus(null);
                 setErrorMessage('');
                 try {
-                  await apiService.uploadProjectToYoutube(projectId, videoTitle.trim());
+                  await apiService.uploadProjectToYoutube(projectId, videoTitle.trim(), selectedChannelId);
                   setUploadStatus('success');
                 } catch (err) {
                   setErrorMessage(err.message || 'Failed to start YouTube upload.');

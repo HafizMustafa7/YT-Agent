@@ -115,3 +115,9 @@ class TopicSuggestionResponse(BaseModel):
     niche: str
     topics: List[SuggestedTopic]
     trends_analysed: int = Field(..., description="Number of videos fed to the LLM after filtering")
+
+class SuggestCreativeParamsRequest(BaseModel):
+    """Request model for suggesting dynamic creative parameters."""
+    topic: str = Field(..., description="Topic of the video")
+    context: Optional[str] = Field(None, description="Optional context (e.g. video description)")
+

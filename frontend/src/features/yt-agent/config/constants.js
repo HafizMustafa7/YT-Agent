@@ -15,6 +15,7 @@ export const ENDPOINTS = {
     FETCH_TRENDS: `${API_PREFIX}/trends/fetch`,
     VALIDATE_TOPIC: `${API_PREFIX}/topics/validate`,
     SUGGEST_TOPICS: `${API_PREFIX}/topics/suggest`,
+    SUGGEST_CREATIVE_PARAMS: `${API_PREFIX}/suggest-creative-params`,
     GENERATE_STORY: `${API_PREFIX}/stories/generate`,
     VIDEO_CREATE_PROJECT: `${API_PREFIX}/video/projects`,
     VIDEO_GET_PROJECT: (id) => `${API_PREFIX}/video/projects/${id}`,

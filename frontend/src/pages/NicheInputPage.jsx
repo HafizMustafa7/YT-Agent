@@ -10,9 +10,11 @@ const Icon = ({ name, filled, className = '', style = {} }) => (
   >{name}</span>
 );
 
-const CustomSelect = ({ label, value, options, onChange, isOpen, onToggle }) => (
+const CustomSelect = ({ label, value, options, onChange, isOpen, onToggle, isLoading }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', position: 'relative' }}>
-    <label style={{ fontSize: '11px', fontFamily: "'Space Grotesk', sans-serif", color: '#f0f0fd', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>{label}</label>
+    <label style={{ fontSize: '11px', fontFamily: "'Space Grotesk', sans-serif", color: '#f0f0fd', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>
+      {label}
+    </label>
     <div 
       onClick={onToggle}
       style={{
@@ -20,8 +22,12 @@ const CustomSelect = ({ label, value, options, onChange, isOpen, onToggle }) => 
         color: '#f0f0fd', padding: '12px 14px', borderRadius: '10px', fontSize: '13px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.2s', textTransform: 'capitalize'
       }}
     >
-      {value}
-      <Icon name={isOpen ? "expand_less" : "expand_more"} style={{ fontSize: '18px', color: isOpen ? '#00E5FF' : '#737580' }} />
+      {isLoading ? <span style={{ color: '#aaaab7' }}>Generating...</span> : value}
+      {isLoading ? (
+        <Icon name="progress_activity" className="animate-spin" style={{ fontSize: '18px', color: '#00E5FF' }} />
+      ) : (
+        <Icon name={isOpen ? "expand_less" : "expand_more"} style={{ fontSize: '18px', color: isOpen ? '#00E5FF' : '#737580' }} />
+      )}
     </div>
     {isOpen && (
       <>
@@ -78,7 +84,42 @@ const NicheInputPage = () => {
   const [modalAmbiance, setModalAmbiance] = useState('cool blue tones');
   const [activeDropdown, setActiveDropdown] = useState(null);
 
+  const [modalOptions, setModalOptions] = useState({
+    styles: ["cinematic", "film noir", "sci-fi", "horror film", "animated", "3D cartoon", "surreal", "vintage", "futuristic", "hyperrealistic", "whimsical"],
+    camera_motions: ["dolly shot", "tracking shot", "aerial view", "POV shot", "panning", "slowly pulls back", "slowly flies"],
+    compositions: ["wide shot", "close-up", "medium shot", "eye-level", "low angle", "top-down shot", "worm's eye"],
+    focus_options: ["shallow depth of field", "deep focus", "macro lens", "wide-angle lens"],
+    ambiances: ["cool blue tones", "warm tones", "natural light", "sunlight", "sunrise", "sunset", "night", "torchlight flickering", "neon glow", "moonlit"]
+  });
+  const [isLoadingOptions, setIsLoadingOptions] = useState(false);
+
   const navigate = useNavigate();
+
+  // Fetch dynamic creative options when modal is open and topic changes
+  useEffect(() => {
+    if (isModalOpen && modalTopic.trim().length > 3) {
+      setIsLoadingOptions(true);
+      const handler = setTimeout(async () => {
+        try {
+            const context = modalVideo ? modalVideo.description : null;
+            const res = await apiService.suggestCreativeParams(modalTopic, context);
+            if (res.success && res.suggestions) {
+                setModalOptions(res.suggestions);
+                if (res.suggestions.styles?.length > 0) setModalStyle(res.suggestions.styles[0]);
+                if (res.suggestions.camera_motions?.length > 0) setModalCameraMotion(res.suggestions.camera_motions[0]);
+                if (res.suggestions.compositions?.length > 0) setModalComposition(res.suggestions.compositions[0]);
+                if (res.suggestions.focus_options?.length > 0) setModalFocus(res.suggestions.focus_options[0]);
+                if (res.suggestions.ambiances?.length > 0) setModalAmbiance(res.suggestions.ambiances[0]);
+            }
+        } catch(e) {
+            console.error("Failed to fetch creative options", e);
+        } finally {
+            setIsLoadingOptions(false);
+        }
+      }, 1000); // 1s debounce
+      return () => { clearTimeout(handler); setIsLoadingOptions(false); };
+    }
+  }, [modalTopic, isModalOpen, modalVideo]);
 
   // Initialize Session
   useEffect(() => {
@@ -622,43 +663,48 @@ const NicheInputPage = () => {
                 <CustomSelect 
                   label="Visual Style" 
                   value={modalStyle} 
-                  options={["cinematic", "film noir", "sci-fi", "horror film", "animated", "3D cartoon", "surreal", "vintage", "futuristic", "hyperrealistic", "whimsical"]}
+                  options={modalOptions.styles}
                   isOpen={activeDropdown === 'style'}
                   onToggle={() => setActiveDropdown(activeDropdown === 'style' ? null : 'style')}
                   onChange={setModalStyle}
+                  isLoading={isLoadingOptions}
                 />
                 <CustomSelect 
                   label="Camera Motion" 
                   value={modalCameraMotion} 
-                  options={["dolly shot", "tracking shot", "aerial view", "POV shot", "panning", "slowly pulls back", "slowly flies"]}
+                  options={modalOptions.camera_motions}
                   isOpen={activeDropdown === 'camera_motion'}
                   onToggle={() => setActiveDropdown(activeDropdown === 'camera_motion' ? null : 'camera_motion')}
                   onChange={setModalCameraMotion}
+                  isLoading={isLoadingOptions}
                 />
                 <CustomSelect 
                   label="Composition" 
                   value={modalComposition} 
-                  options={["wide shot", "close-up", "medium shot", "eye-level", "low angle", "top-down shot", "worm's eye"]}
+                  options={modalOptions.compositions}
                   isOpen={activeDropdown === 'composition'}
                   onToggle={() => setActiveDropdown(activeDropdown === 'composition' ? null : 'composition')}
                   onChange={setModalComposition}
+                  isLoading={isLoadingOptions}
                 />
                 <CustomSelect 
                   label="Focus & Lens" 
                   value={modalFocus} 
-                  options={["shallow depth of field", "deep focus", "macro lens", "wide-angle lens"]}
+                  options={modalOptions.focus_options}
                   isOpen={activeDropdown === 'focus'}
                   onToggle={() => setActiveDropdown(activeDropdown === 'focus' ? null : 'focus')}
                   onChange={setModalFocus}
+                  isLoading={isLoadingOptions}
                 />
                 <div style={{ gridColumn: '1 / -1' }}>
                   <CustomSelect 
                     label="Ambiance" 
                     value={modalAmbiance} 
-                    options={["cool blue tones", "warm tones", "natural light", "sunlight", "sunrise", "sunset", "night", "torchlight flickering", "neon glow", "moonlit"]}
+                    options={modalOptions.ambiances}
                     isOpen={activeDropdown === 'ambiance'}
                     onToggle={() => setActiveDropdown(activeDropdown === 'ambiance' ? null : 'ambiance')}
                     onChange={setModalAmbiance}
+                    isLoading={isLoadingOptions}
                   />
                 </div>
               </div>

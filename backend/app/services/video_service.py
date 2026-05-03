@@ -2,8 +2,11 @@
 Video generation service using Google Veo via Vertex AI SDK.
 Creates projects/frames in Supabase, generates clips per frame via
 text-to-video (frame 1) and video-extend (frames 2-N), uploads to
-Cloudflare R2 via Worker.  No FFmpeg — Veo extend returns the full
-cumulative merged video on every call.
+Cloudflare R2 via Worker.
+
+Segmentation: durations > 30s are split into a 30s text-to-video segment
+followed by N x 7s extension segments (Veo extend is fixed at 7s output).
+FFmpeg stitches the final segments together in promote_final_video().
 
 Authentication: Service account JSON (Google Cloud Console credits).
 Package: google-genai>=1.16.0  (same package used for story/text generation).
@@ -15,16 +18,44 @@ from pathlib import Path
 from datetime import datetime, timezone
 import asyncio
 import logging
+import traceback
 from typing import List, Dict, Any, Optional, Tuple
 import httpx
 from supabase import create_client, Client
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+import subprocess
 
 from app.core.config import settings, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_len(value: Any) -> int:
+    """Return len(value) for logging without letting diagnostics raise."""
+    try:
+        return len(value) if value is not None else 0
+    except Exception:
+        return -1
+
+
+def _describe_video_object(video_object: Any) -> Dict[str, Any]:
+    """Small, safe summary of a Google SDK Video object for diagnostics."""
+    if video_object is None:
+        return {"present": False}
+    summary: Dict[str, Any] = {
+        "present": True,
+        "type": type(video_object).__name__,
+        "has_uri": bool(getattr(video_object, "uri", None)),
+        "has_video_bytes": bool(getattr(video_object, "video_bytes", None)),
+        "video_bytes_len": _safe_len(getattr(video_object, "video_bytes", None)),
+        "mime_type": getattr(video_object, "mime_type", None),
+    }
+    uri = getattr(video_object, "uri", None)
+    if uri:
+        summary["uri_preview"] = str(uri)[:160]
+    return summary
 
 # ---------------------------------------------------------------------------
 # Shared HTTP client (connection pooling)
@@ -121,6 +152,212 @@ _active_generations: set[str] = set()
 # Falls back to disk if the cache misses (cross-request or after restart).
 # ---------------------------------------------------------------------------
 _video_seed_cache: dict = {}
+
+
+async def _get_last_8s_clip(input_path: str, output_path: str) -> bool:
+    """
+    Extract the last 8 seconds of a video to use as an extension seed.
+    Veo works best with 8s seeds and has a 30s total output limit.
+
+    Uses run_in_executor + subprocess.run (not asyncio.create_subprocess_exec)
+    because Uvicorn on Windows uses SelectorEventLoop which does NOT support
+    subprocess spawning via asyncio. run_in_executor offloads to a thread pool,
+    keeping the event loop unblocked while remaining Windows-compatible.
+
+    Re-encodes (does NOT use -c copy) to guarantee output timestamps start at
+    exactly 0.0s. Stream copy preserves original timestamps (e.g. 24.1s) which
+    causes Veo to report "Input video must be at least 1 second" even though
+    the clip is 8 seconds long.
+    """
+    loop = asyncio.get_event_loop()
+    try:
+        # 1. Get duration via ffprobe (run in thread pool)
+        cmd_dur = [
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", input_path
+        ]
+        result_dur = await loop.run_in_executor(
+            None, lambda: subprocess.run(cmd_dur, capture_output=True)
+        )
+        if result_dur.returncode != 0:
+            logger.error("ffprobe failed for %s: %s", input_path, result_dur.stderr.decode())
+            return False
+
+        total_dur = float(result_dur.stdout.decode().strip())
+        start_time = max(0, total_dur - 8)
+
+        # 2. Re-encode the last 8 seconds (run in thread pool).
+        # -ss before -i: fast input seek to start_time.
+        # -t 8: output exactly 8 seconds.
+        # -vf "setpts=PTS-STARTPTS": CRITICAL — resets video timestamps to start at 0.0s.
+        # -af "asetpts=PTS-STARTPTS": CRITICAL — resets audio timestamps to start at 0.0s.
+        # -c:v libx264 -preset fast -crf 18: high-quality H.264.
+        cmd_trim = [
+            "ffmpeg", "-y",
+            "-ss", str(start_time), "-i", input_path,
+            "-t", "8",
+            "-vf", "setpts=PTS-STARTPTS",
+            "-af", "asetpts=PTS-STARTPTS",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+            "-c:a", "aac",
+            output_path
+        ]
+        result_trim = await loop.run_in_executor(
+            None, lambda: subprocess.run(cmd_trim, capture_output=True)
+        )
+        if result_trim.returncode != 0:
+            logger.error("ffmpeg re-encode failed for %s: %s", input_path, result_trim.stderr.decode())
+            return False
+
+        # Verify the output file exists and is not empty
+        exists = os.path.exists(output_path)
+        size = os.path.getsize(output_path) if exists else 0
+        logger.info("[TRIM] Success: %s (Size: %.2f MB, Duration: %.2f s)", output_path, size / (1024*1024), total_dur if total_dur < 8 else 8.0)
+        return exists and size > 0
+    except Exception as e:
+        logger.error("[TRIM] Exception in _get_last_8s_clip for %s: %s", input_path, e)
+        return False
+
+
+
+# Veo text-to-video max output: 30s.
+# Veo video-extend ALWAYS produces exactly 7s of NEW content regardless of
+# the duration_seconds parameter — the API ignores it for extend calls.
+VEO_MAX_GENERATE_SECONDS = 30
+VEO_EXTEND_SECONDS = 7
+
+
+def _calculate_segments(duration_seconds: int) -> List[int]:
+    """
+    Break a target duration into Veo-compatible segments.
+    - Segment 0 (text-to-video): up to VEO_MAX_GENERATE_SECONDS (30s).
+    - Segment 1+ (extend):       always VEO_EXTEND_SECONDS (7s) per call.
+    The total may slightly exceed the requested duration (unavoidable with
+    fixed 7s extension chunks). That is acceptable — the final FFmpeg stitch
+    contains exactly the content generated.
+    """
+    if duration_seconds <= VEO_MAX_GENERATE_SECONDS:
+        return [duration_seconds]
+
+    segments = [VEO_MAX_GENERATE_SECONDS]
+    remaining = duration_seconds - VEO_MAX_GENERATE_SECONDS
+    while remaining > 0:
+        segments.append(VEO_EXTEND_SECONDS)
+        remaining -= VEO_EXTEND_SECONDS
+
+    return segments
+
+
+async def _prepare_extension_seed(project_id: str, frame_num: int, segment_idx: int = 0) -> Tuple[Any, str, str]:
+    """
+    Get and prepare the best seed for extension.
+    If the seed video is > 23s, it trims it to the last 8s to stay under the 30s Veo limit.
+    Returns: (seed_object, seed_type, seed_info)
+    """
+    from google.genai import types as genai_types
+
+    # 1. Determine which frame/segment to look for
+    if segment_idx > 0:
+        search_frame = frame_num
+        search_seg = segment_idx - 1
+        cache_key = (project_id, f"{search_frame}_seg_{search_seg}")
+        base_filename = f"{project_id}_frame_{search_frame}_seg_{search_seg}"
+    else:
+        search_frame = frame_num - 1
+        metadata_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{search_frame}_segments_metadata.json")
+        if os.path.exists(metadata_path):
+            with open(metadata_path, "r") as fh:
+                meta = json.load(fh)
+            segment_count = meta.get("segment_count", 1)
+            last_seg_idx = segment_count - 1
+            if segment_count == 1:
+                # Single-segment frame: files were saved WITHOUT the _seg_0 suffix.
+                # Using segmented naming here would cause a cache/disk miss for frame N+1.
+                cache_key = (project_id, search_frame)
+                base_filename = f"{project_id}_frame_{search_frame}"
+            else:
+                # Truly multi-segment frame: use the last segment's naming.
+                cache_key = (project_id, f"{search_frame}_seg_{last_seg_idx}")
+                base_filename = f"{project_id}_frame_{search_frame}_seg_{last_seg_idx}"
+        else:
+            cache_key = (project_id, search_frame)
+            base_filename = f"{project_id}_frame_{search_frame}"
+
+
+    # 2. Try in-memory cache (FASTEST)
+    if cache_key in _video_seed_cache:
+        seed_obj = _video_seed_cache[cache_key]
+        # Check if we have the MP4 on disk — if it's too long, trim it before sending.
+        mp4_path = os.path.join(TEMP_DIR, f"{base_filename}_temp.mp4")
+        if os.path.exists(mp4_path):
+            try:
+                loop = asyncio.get_event_loop()
+                cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                       "-of", "default=noprint_wrappers=1:nokey=1", mp4_path]
+                result = await loop.run_in_executor(
+                    None, lambda: subprocess.run(cmd, capture_output=True)
+                )
+                if result.returncode == 0:
+                    dur = float(result.stdout.decode().strip())
+                    if dur > 23:
+                        trimmed_path = os.path.join(TEMP_DIR, f"{base_filename}_trimmed_8s.mp4")
+                        if await _get_last_8s_clip(mp4_path, trimmed_path):
+                            with open(trimmed_path, "rb") as fh:
+                                return genai_types.Video(video_bytes=fh.read(), mime_type="video/mp4"), "disk_trimmed", f"trimmed 8s from {mp4_path}"
+            except Exception as e:
+                logger.warning("Trimming check failed for cached object %s: %s", cache_key, e)
+        return seed_obj, "memory_cache", f"cached object for {cache_key}"
+
+    # 3. Try disk bytes
+    bytes_path = os.path.join(TEMP_DIR, f"{base_filename}_seed.mp4")
+    if not os.path.exists(bytes_path):
+        # Fallback to temp.mp4 if seed.mp4 missing
+        bytes_path = os.path.join(TEMP_DIR, f"{base_filename}_temp.mp4")
+    
+    if os.path.exists(bytes_path):
+        # Check duration and trim if needed (run_in_executor avoids blocking the event
+        # loop and works on Windows SelectorEventLoop unlike create_subprocess_exec).
+        try:
+            loop = asyncio.get_event_loop()
+            cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                   "-of", "default=noprint_wrappers=1:nokey=1", bytes_path]
+            result = await loop.run_in_executor(
+                None, lambda: subprocess.run(cmd, capture_output=True)
+            )
+            if result.returncode == 0:
+                dur = float(result.stdout.decode().strip())
+                if dur > 23:
+                    trimmed_path = os.path.join(TEMP_DIR, f"{base_filename}_trimmed_8s.mp4")
+                    if await _get_last_8s_clip(bytes_path, trimmed_path):
+                        with open(trimmed_path, "rb") as fh:
+                            return genai_types.Video(video_bytes=fh.read(), mime_type="video/mp4"), "disk_trimmed", f"trimmed 8s from {bytes_path}"
+                    else:
+                        # STRICT: trimming was required but failed — do NOT fall back
+                        # to raw bytes, as the API will reject a video over 30s.
+                        err_msg = f"Trimming required for {bytes_path} ({dur:.1f}s > 23s) but failed. Aborting to protect credits."
+                        logger.error(err_msg)
+                        raise RuntimeError(err_msg)
+            else:
+                logger.warning("ffprobe failed for %s (rc=%d): %s",
+                               bytes_path, result.returncode, result.stderr.decode())
+        except RuntimeError:
+            raise  # Re-raise strict trimming error — do not swallow
+        except Exception as e:
+            logger.warning("Trimming logic exception for %s: %s", bytes_path, e)
+        
+        with open(bytes_path, "rb") as fh:
+            raw = fh.read()
+        return genai_types.Video(video_bytes=raw, mime_type="video/mp4"), "disk_bytes", f"bytes from {bytes_path}"
+
+    # 4. Try GCS URI (LAST RESORT - might exceed 30s limit if > 23s)
+    uri_path = os.path.join(TEMP_DIR, f"{base_filename}_uri.txt")
+    if os.path.exists(uri_path):
+        with open(uri_path, "r", encoding="utf-8") as fh:
+            uri = fh.read().strip()
+        return genai_types.Video(uri=uri, mime_type="video/mp4"), "gcs_uri", f"URI from {uri_path}"
+
+    raise RuntimeError(f"No valid seed found for project {project_id} frame {frame_num} segment {segment_idx}")
+
 
 
 def try_acquire_generation_lock(project_id: str) -> bool:
@@ -405,8 +642,8 @@ def _sync_veo_generate(
     model = settings.VEO_MODEL
 
     logger.info(
-        "Veo generate: model=%s, duration=%ds, ratio=%s",
-        model, duration_seconds, aspect_ratio,
+        "[VEO] Starting Generate: model=%s, duration=%ds, ratio=%s, prompt_len=%d, prompt_preview=%r",
+        model, duration_seconds, aspect_ratio, len(prompt or ""), (prompt or "")[:500],
     )
     operation = client.models.generate_videos(
         model=model,
@@ -415,10 +652,10 @@ def _sync_veo_generate(
             aspect_ratio=aspect_ratio,
             duration_seconds=duration_seconds,
             number_of_videos=1,
-            # Request GCS storage URI so Frame 2+ can extend from Frame 1
             generate_audio=False,
         ),
     )
+    logger.info("[VEO] Generate Operation Created: %s", getattr(operation, "name", "unknown"))
     return operation
 
 
@@ -437,17 +674,27 @@ def _sync_veo_extend(
     client = _get_veo_client()
     model = settings.VEO_MODEL
 
-    logger.info("Veo extend: model=%s, ratio=%s (extension fixed to 7s)", model, aspect_ratio)
+    v_summary = _describe_video_object(video_object)
+    logger.info(
+        "[VEO] Starting Extend: model=%s, ratio=%s, prompt_len=%d, prompt_preview=%r, seed_metadata=%s",
+        model,
+        aspect_ratio,
+        len(prompt or ""),
+        (prompt or "")[:500],
+        json.dumps(v_summary),
+    )
     operation = client.models.generate_videos(
         model=model,
         prompt=prompt,
         config=genai_types.GenerateVideosConfig(
             aspect_ratio=aspect_ratio,
-            duration_seconds=7,
+            duration_seconds=VEO_EXTEND_SECONDS,  # Veo extend always outputs 7s
             number_of_videos=1,
+            generate_audio=False,
         ),
         video=video_object,
     )
+    logger.info("[VEO] Extend Operation Created: %s", getattr(operation, "name", "unknown"))
     return operation
 
 
@@ -463,7 +710,7 @@ def _sync_poll_and_download(operation) -> Tuple[bytes, Any]:
     elapsed = 0
 
     client = _get_veo_client()
-    logger.info("Polling Veo operation (SDK)...")
+    logger.info("Polling Veo operation (SDK): operation_type=%s operation=%s", type(operation).__name__, str(operation)[:500])
 
     while not operation.done:
         if elapsed >= max_wait_sec:
@@ -472,17 +719,42 @@ def _sync_poll_and_download(operation) -> Tuple[bytes, Any]:
         elapsed += poll_interval
         operation = client.operations.get(operation)
         if elapsed % 60 == 0:
-            logger.info("Veo still generating... (%ds elapsed)", elapsed)
+            logger.info(
+                "Veo still generating... (%ds elapsed) done=%s operation_snapshot=%s",
+                elapsed,
+                getattr(operation, "done", None),
+                str(operation)[:500],
+            )
 
-    logger.info("Veo operation done after %ds", elapsed)
+    logger.info("Veo operation done after %ds. operation_snapshot=%s", elapsed, str(operation)[:1000])
 
     # Extract first generated video
     response = operation.response
     if not response or not hasattr(response, "generated_videos") or not response.generated_videos:
-        raise RuntimeError("Veo returned no videos in completed operation")
+        # --- DEBUG LOGGING ---
+        # If generated_videos is empty, it almost always means a safety filter trigger or internal error.
+        try:
+            op_debug = str(operation)
+            logger.error("[VEO] OPERATION FAILED (No Videos). Full Operation State: %s", op_debug)
+            if hasattr(operation, 'error') and operation.error:
+                # Handle both object (SDK-native) and dict (JSON/mock) formats
+                err = operation.error
+                err_code = getattr(err, 'code', None) or (err.get('code') if isinstance(err, dict) else 'N/A')
+                err_msg = getattr(err, 'message', None) or (err.get('message') if isinstance(err, dict) else 'Check logs')
+                logger.error("[VEO] Error details: Code=%s, Message=%s", err_code, err_msg)
+        except Exception as e:
+            logger.error("[VEO] OPERATION FAILED (No Videos). Recovery logger failed: %s", e)
+
+        # Final exception with safe error message extraction
+        err = getattr(operation, 'error', None)
+        final_err_msg = "Check logs"
+        if err:
+            final_err_msg = getattr(err, 'message', None) or (err.get('message') if isinstance(err, dict) else "Check logs")
+        raise RuntimeError(f"Veo returned no videos in completed operation. Error: {final_err_msg}")
 
     gen_vid = response.generated_videos[0]
     vid_obj = gen_vid.video
+    logger.info("Veo generated video object summary: %s", _describe_video_object(vid_obj))
 
     if not vid_obj:
         raise RuntimeError("Veo completed but video object is empty")
@@ -708,6 +980,7 @@ async def generate_single_frame(
     prompt: str,
     duration_seconds: int,
     aspect_ratio: str = "9:16",
+    release_lock_on_exit: bool = True,
 ):
     """
     Generate a single frame using Veo 3.1.
@@ -717,152 +990,191 @@ async def generate_single_frame(
           → upload MP4 to R2 (trash, for preview) → create asset record.
     """
     ensure_temp_dir()
-    logger.info("Generating frame %d (id=%s) for project %s", frame_num, frame_id, project_id)
+    logger.info(
+        "Generating frame %d (id=%s) for project %s: duration=%s ratio=%s prompt_len=%d prompt_preview=%r temp_dir=%s",
+        frame_num,
+        frame_id,
+        project_id,
+        duration_seconds,
+        aspect_ratio,
+        len(prompt or ""),
+        (prompt or "")[:700],
+        TEMP_DIR,
+    )
 
     try:
         update_frame_status(frame_id, "generating")
+        logger.info("Frame %d status set to generating", frame_num)
 
-        # 1. Start Veo job (generate or extend)
-        if frame_num == 1:
-            # First frame: text-to-video
-            operation = await veo_start_generate(
-                prompt=prompt,
-                duration_seconds=duration_seconds,
-                aspect_ratio=aspect_ratio,
-            )
-        else:
-            # Extension frame: load the previous frame's video seed from disk
-            # and reconstruct the SDK Video object for the extend call.
-            # The official Veo SDK docs show:
-            #   video=operation.response.generated_videos[0].video
-            # We replicate this by saving either the GCS URI or the raw bytes.
-            from google.genai import types as genai_types
+        # 1. Handle Segmentation for durations > 30s
+        segments = _calculate_segments(duration_seconds)
+        if len(segments) > 1:
+            logger.info("Frame %d requires %ds - breaking into %d segments: %s", frame_num, duration_seconds, len(segments), segments)
 
-            prev_uri_path   = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num - 1}_video_uri.txt")
-            prev_bytes_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num - 1}_video_seed.mp4")
-            cache_key = (project_id, frame_num - 1)
+        # Store all segment data for potential recovery/stitching
+        segment_results = []
 
-            if cache_key in _video_seed_cache:
-                # Fast path: video object is still in memory (bulk generation or quick retry)
-                prev_video_object = _video_seed_cache[cache_key]
-                logger.info("Frame %d extension: cache hit for frame %d seed", frame_num, frame_num - 1)
+        for seg_idx, seg_dur in enumerate(segments):
+            seg_label = f"frame {frame_num} segment {seg_idx}"
+            logger.info("Processing %s (%ds)", seg_label, seg_dur)
 
-            elif os.path.exists(prev_uri_path):
-                with open(prev_uri_path, "r", encoding="utf-8") as fh:
-                    prev_gcs_uri = fh.read().strip()
-                prev_video_object = genai_types.Video(uri=prev_gcs_uri)
-                logger.info("Frame %d extension: using GCS URI seed from frame %d", frame_num, frame_num - 1)
-
-            elif os.path.exists(prev_bytes_path):
-                with open(prev_bytes_path, "rb") as fh:
-                    prev_seed_bytes = fh.read()
-                prev_video_object = genai_types.Video(video_bytes=prev_seed_bytes)
-                logger.info(
-                    "Frame %d extension: using video_bytes seed (%d bytes) from frame %d",
-                    frame_num, len(prev_seed_bytes), frame_num - 1,
+            # A) Start Veo job
+            if frame_num == 1 and seg_idx == 0:
+                # Absolute beginning of the story
+                operation = await veo_start_generate(
+                    prompt=prompt,
+                    duration_seconds=seg_dur,
+                    aspect_ratio=aspect_ratio,
                 )
-
             else:
-                raise RuntimeError(
-                    f"Previous frame ({frame_num - 1}) video seed not found. "
-                    "Cannot extend — generate preceding frames first."
+                # Extension of previous frame OR previous segment of this frame
+                seed_obj, seed_type, seed_info = await _prepare_extension_seed(project_id, frame_num, seg_idx)
+                logger.info("Extension seed for %s: type=%s info=%s", seg_label, seed_type, seed_info)
+                operation = await veo_start_extend(
+                    prompt=prompt,
+                    video_object=seed_obj,
+                    aspect_ratio=aspect_ratio,
                 )
 
-            operation = await veo_start_extend(
-                prompt=prompt,
-                video_object=prev_video_object,
-                aspect_ratio=aspect_ratio,
-            )
+            # B) Poll and Download
+            video_data, new_video_object = await veo_poll_and_download(operation)
+            if not video_data:
+                raise RuntimeError(f"Veo returned empty video data for {seg_label}")
 
-        # 2. Poll operation and download the completed (merged) video
-        video_data, new_video_object = await veo_poll_and_download(operation)
-        if not video_data:
-            raise RuntimeError("Veo returned empty video data")
+            # C) Save segment locally
+            # BUG-2 FIX: unified seed filename `_seed.mp4` (previously single-segment
+            # used `_video_seed.mp4` which _prepare_extension_seed could never find).
+            if len(segments) > 1:
+                # Multi-segment naming
+                seg_path  = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_seg_{seg_idx}_temp.mp4")
+                bytes_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_seg_{seg_idx}_seed.mp4")
+                uri_path   = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_seg_{seg_idx}_uri.txt")
+                cache_key  = (project_id, f"{frame_num}_seg_{seg_idx}")
+            else:
+                # Single-segment naming — must match _prepare_extension_seed lookup
+                seg_path  = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_temp.mp4")
+                bytes_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_seed.mp4")
+                uri_path   = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_uri.txt")
+                cache_key  = (project_id, frame_num)
 
-        # 3. Save MP4 locally (named with _temp suffix per naming convention)
-        local_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_temp.mp4")
-        try:
-            with open(local_path, "wb") as fh:
+            with open(seg_path, "wb") as fh:
                 fh.write(video_data)
-            logger.info("Saved temp clip: %s (%d bytes)", local_path, len(video_data))
-        except IOError as e:
-            raise RuntimeError(f"Failed to save clip locally: {e}") from e
+            with open(bytes_path, "wb") as fh:
+                fh.write(video_data)
 
-        # 4. Save the video seed for the NEXT frame's extension.
-        #    Per official Veo docs, extension takes the full Video object:
-        #      video=operation.response.generated_videos[0].video
-        #    Strategy:
-        #      a) Always store the live SDK object in the in-process cache (zero cost).
-        #      b) Also persist to disk as a fallback for cross-request / post-restart access.
-        uri_path   = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_video_uri.txt")
-        bytes_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_video_seed.mp4")
-        gcs_uri    = getattr(new_video_object, "uri", None)
-        raw_bytes  = getattr(new_video_object, "video_bytes", None)
-
-        # a) In-process cache — always available within this server process lifetime
-        _video_seed_cache[(project_id, frame_num)] = new_video_object
-        logger.info("Cached video seed object for frame %d in memory", frame_num)
-
-        # b) Disk fallback — survives restarts and cross-request scenarios
-        if gcs_uri:
-            try:
+            gcs_uri = getattr(new_video_object, "uri", None)
+            if gcs_uri:
                 with open(uri_path, "w", encoding="utf-8") as fh:
                     fh.write(gcs_uri)
-                logger.info("Saved GCS URI seed for frame %d: %s", frame_num, gcs_uri)
-            except IOError as e:
-                logger.warning("Failed to save video URI for frame %d: %s", frame_num, e)
-        elif raw_bytes:
-            # Veo returned bytes-only (no GCS URI). Save the bytes as the seed file.
-            # The next frame will reconstruct Video(video_bytes=...) from this file.
-            try:
-                with open(bytes_path, "wb") as fh:
-                    fh.write(raw_bytes)
-                logger.info(
-                    "Saved video_bytes seed for frame %d (%d bytes) — extension will use bytes mode.",
-                    frame_num, len(raw_bytes),
-                )
-            except IOError as e:
-                logger.warning("Failed to save video_bytes seed for frame %d: %s", frame_num, e)
-        else:
-            logger.error(
-                "Frame %d: Veo video object has neither URI nor video_bytes — "
-                "extension from this frame will not be possible.",
-                frame_num,
-            )
 
-        # 5. Upload MP4 to R2 trash bucket (makes it instantly previewable on frontend)
+            _video_seed_cache[cache_key] = new_video_object  # BUG-13 FIX: set only once
+
+            # Determine overlap for stitching (BUG-5 FIX):
+            # Veo extend returns the seed content + 7s of new content.
+            # When stitching we must skip past the seed portion to avoid duplication.
+            overlap = 0.0
+            if frame_num > 1 or seg_idx > 0:
+                if "trimmed" in seed_type:
+                    overlap = 8.0  # We trimmed to exactly 8s
+                else:
+                    # Seed was used as-is. To find the exact duration of the seed
+                    # (which is the exact amount we need to trim), we probe the
+                    # newly generated video's total duration and subtract the
+                    # new extension length (7s).
+                    try:
+                        cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                               "-of", "default=noprint_wrappers=1:nokey=1", seg_path]
+                        # Safe to run synchronously here as we are already in a background thread
+                        result = subprocess.run(cmd, capture_output=True, text=True)
+                        if result.returncode == 0:
+                            total_dur = float(result.stdout.strip())
+                            overlap = max(0.0, total_dur - float(VEO_EXTEND_SECONDS))
+                        else:
+                            overlap = float(VEO_EXTEND_SECONDS) if seg_idx > 0 else 0.0
+                    except Exception as e:
+                        logger.error("Failed to probe %s for overlap: %s", seg_path, e)
+                        overlap = float(VEO_EXTEND_SECONDS) if seg_idx > 0 else 0.0
+
+            # BUG-1 FIX: only ONE append per iteration (previously appended twice)
+            segment_results.append({
+                "path": seg_path,
+                "data": video_data,
+                "duration": VEO_EXTEND_SECONDS if seg_idx > 0 else seg_dur,
+                "overlap": overlap,
+            })
+
+        # 2. Save Metadata if segmented or multi-frame
+        metadata_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{frame_num}_segments_metadata.json")
+        with open(metadata_path, "w") as fh:
+            json.dump({
+                "frame_num": frame_num,
+                "segment_count": len(segments),
+                "total_duration": duration_seconds,
+                "segments": [
+                    {
+                        "index": i, 
+                        "path": os.path.basename(r["path"]), 
+                        "duration": r["duration"],
+                        "overlap": r["overlap"]
+                    }
+                    for i, r in enumerate(segment_results)
+                ]
+            }, fh)
+        logger.info("Saved segmentation metadata for frame %d", frame_num)
+
+        # 3. Upload the LAST segment/result to R2 for preview
+        final_result = segment_results[-1]
         r2_path = f"trash/videos/{project_id}/clip_{frame_num}.mp4"
-        public_url = await upload_to_r2(video_data, "trash", r2_path)
+        public_url = await upload_to_r2(final_result["data"], "trash", r2_path)
 
-        # 6. Create asset record so frontend can find the preview URL
+        # 4. Create asset record so frontend can find the preview URL
         asset_id = create_asset(
             project_id=project_id,
             asset_type="frame",
             file_path=r2_path,
-            file_size=len(video_data),
+            file_size=len(final_result["data"]),
             file_url=public_url,
         )
 
         update_frame_status(frame_id, "completed", asset_id=asset_id)
-        logger.info("Frame %d completed (asset=%s, url=%s)", frame_num, asset_id, public_url or "N/A")
+        logger.info("Frame %d completed (asset=%s, url=%s, r2_path=%s)", frame_num, asset_id, public_url or "N/A", r2_path)
+
+
 
     except Exception as e:
         error_msg = str(e)
-        logger.error("Frame %d generation failed: %s", frame_num, error_msg)
+        logger.error(
+            "Frame %d generation failed: %s\nTraceback:\n%s",
+            frame_num,
+            error_msg,
+            traceback.format_exc(),
+        )
         update_frame_status(frame_id, "failed", error_message=error_msg)
 
-        # Refund credits on failure
+        # Update project status to failed when called from single-frame route
+        # (generate_all_pending_frames handles project status itself when running all frames)
+        if release_lock_on_exit:
+            try:
+                update_project_status(project_id, "failed")
+            except Exception:
+                pass
+
+        # Refund credits on failure — only the segments NOT yet completed
         try:
             from app.routes.payment import calculate_required_credits, refund_credits
             project = get_project_with_frames_and_assets(project_id)
             if project and project.get("user_id"):
-                credits_to_refund = calculate_required_credits(duration_seconds)
-                await refund_credits(project["user_id"], credits_to_refund)
+                completed_seg_seconds = sum(r["duration"] for r in segment_results)
+                failed_seconds = max(0, duration_seconds - completed_seg_seconds)
+                if failed_seconds > 0:
+                    credits_to_refund = calculate_required_credits(failed_seconds)
+                    await refund_credits(project["user_id"], credits_to_refund)
         except Exception as refund_err:
             logger.error("Failed to refund credits for failed frame %d: %s", frame_num, refund_err)
         # Do NOT re-raise: runs as BackgroundTask
     finally:
-        release_generation_lock(project_id)
+        if release_lock_on_exit:
+            release_generation_lock(project_id)
 
 
 
@@ -887,10 +1199,32 @@ async def generate_all_pending_frames(project_id: str, aspect_ratio: str = "9:16
             logger.info("No pending frames for project %s", project_id)
             return
 
-        logger.info("Starting generation of %d frames for project %s", len(frames), project_id)
+        logger.info(
+            "Starting generation of %d frames for project %s. pending_frame_summary=%s",
+            len(frames),
+            project_id,
+            [
+                {
+                    "id": f.get("id"),
+                    "frame_num": f.get("frame_num"),
+                    "status": f.get("status"),
+                    "duration_seconds": f.get("duration_seconds"),
+                    "prompt_len": len(f.get("ai_video_prompt") or ""),
+                }
+                for f in frames
+            ],
+        )
 
         for idx, f in enumerate(frames):
-            logger.info("Processing frame %d/%d (id=%s)", idx + 1, len(frames), f["id"])
+            logger.info(
+                "Processing frame %d/%d: frame_num=%s id=%s duration=%s prompt_len=%d",
+                idx + 1,
+                len(frames),
+                f.get("frame_num"),
+                f.get("id"),
+                f.get("duration_seconds"),
+                len(f.get("ai_video_prompt") or ""),
+            )
             await generate_single_frame(
                 f["id"],
                 project_id,
@@ -898,6 +1232,7 @@ async def generate_all_pending_frames(project_id: str, aspect_ratio: str = "9:16
                 f["ai_video_prompt"],
                 f.get("duration_seconds", 8),
                 aspect_ratio=aspect_ratio,
+                release_lock_on_exit=False,  # BUG-7 FIX: lock held for entire pipeline
             )
             # After each frame, check whether it failed — if so stop the chain
             # (extension frames depend on the previous frame's videoObject)
@@ -944,12 +1279,13 @@ async def generate_all_pending_frames(project_id: str, aspect_ratio: str = "9:16
             if completed == total:
                 update_project_status(project_id, "clips_ready")
                 logger.info("Project %s: all %d frames completed — ready to finalize", project_id, total)
-            elif completed > 0:
-                update_project_status(project_id, "generating")
-                logger.warning("Project %s: %d/%d frames completed (%d failed)", project_id, completed, total, failed)
-            else:
+            elif failed > 0:
                 update_project_status(project_id, "failed")
-                logger.error("Project %s: all frames failed", project_id)
+                logger.warning("Project %s: %d/%d frames completed (%d failed). Project marked as failed so user can retry.", project_id, completed, total, failed)
+            else:
+                # If it stopped but there are no 'failed' frames, something unexpected happened.
+                update_project_status(project_id, "failed")
+                logger.error("Project %s: stopped unexpectedly. %d/%d completed.", project_id, completed, total)
     except Exception as e:
         logger.error("Unexpected error in generate_all_pending_frames for %s: %s", project_id, e)
         update_project_status(project_id, "failed")
@@ -959,18 +1295,14 @@ async def generate_all_pending_frames(project_id: str, aspect_ratio: str = "9:16
 
 async def promote_final_video(project_id: str) -> Dict[str, Any]:
     """
-    Promote the last completed frame's merged MP4 to the final R2 bucket.
-    Replaces FFmpeg combine — Veo extend already returns the full cumulative
-    video on every call, so the last frame's temp file IS the final video.
-    Safe for BackgroundTask — never raises.
-    Cleans up all _temp.mp4 and _video_uri.txt files on success.
+    Finalize the video by stitching all frames and segments together using FFmpeg.
+    Handles overlaps between extended segments to ensure smooth transitions.
     """
     temp_files_to_clean: List[str] = []
     try:
         ensure_temp_dir()
         project = get_project_with_frames_and_assets(project_id)
         if not project:
-            logger.error("Project %s not found for promote", project_id)
             return {"error": f"Project {project_id} not found"}
 
         frames = sorted(project.get("frames") or [], key=lambda x: x["frame_num"])
@@ -978,49 +1310,118 @@ async def promote_final_video(project_id: str) -> Dict[str, Any]:
         if not completed_frames:
             return {"error": "No completed frames to finalize"}
 
-        # Collect all temp files for cleanup regardless of outcome
-        for f in frames:
+        logger.info("Promoting project %s: %d completed frames", project_id, len(completed_frames))
+
+        # 1. Collect all clips to be stitched
+        # We need to look at metadata for each frame to see if it was segmented
+        all_clips = []
+        for f in completed_frames:
             fnum = f["frame_num"]
-            temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_temp.mp4"))
-            temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_video_uri.txt"))
-            temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_video_seed.mp4"))
-
-        # The last completed frame holds the full cumulative merged video
-        last_frame = completed_frames[-1]
-        fnum_last = last_frame["frame_num"]
-        local_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum_last}_temp.mp4")
-
-        if not os.path.exists(local_path):
-            # Fallback: re-download from R2 (e.g. server restart)
-            assets = project.get("assets") or []
-            clip_asset = next(
-                (a for a in assets
-                 if a.get("asset_type") == "frame"
-                 and a.get("file_url")
-                 and f"clip_{fnum_last}" in (a.get("file_path") or "")),
-                None,
-            )
-            if clip_asset and clip_asset.get("file_url"):
-                logger.info("Final frame %d temp file missing, downloading from R2...", fnum_last)
-                ok = await download_clip_from_r2(clip_asset["file_url"], local_path)
-                if not ok:
-                    return {"error": f"Cannot retrieve final frame {fnum_last} from R2"}
+            metadata_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_segments_metadata.json")
+            
+            if os.path.exists(metadata_path):
+                with open(metadata_path, "r") as fh:
+                    meta = json.load(fh)
+                for seg in meta["segments"]:
+                    all_clips.append({
+                        "path": os.path.join(TEMP_DIR, seg["path"]),
+                        "overlap": seg.get("overlap", 0)
+                    })
             else:
-                return {"error": f"Final frame {fnum_last} temp file missing and no R2 URL available"}
+                # Fallback for old/unsegmented frames mixed into a segmented project.
+                # In this edge case we cannot know the true overlap, so we treat
+                # this clip as standalone (overlap=0). If it was generated via extend
+                # it may contain duplicate content from the prior frame, but this is
+                # a safe fallback rather than crashing the pipeline.
+                clip_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_temp.mp4")
+                all_clips.append({
+                    "path": clip_path,
+                    "overlap": 0,
+                })
 
-        with open(local_path, "rb") as fp:
+        # Logic for stitching:
+        # If a clip has an overlap > 0, it means it contains 'overlap' seconds of the previous clips.
+        # But wait, Veo's cumulative return is different.
+        # If Frame 2 extends Frame 1, and Frame 2 is NOT segmented, then Frame 2 IS the whole video.
+        # So we only need the LAST clip of the chain IF it contains everything.
+        
+        # HOWEVER, the 30s limit means we MUST have segmented for anything > 30s.
+        # If we DID NOT segment, and we have multiple frames, then the last frame IS the full video.
+        
+        # Let's check if we actually have any segments.
+        has_segments = any(os.path.exists(os.path.join(TEMP_DIR, f"{project_id}_frame_{f['frame_num']}_segments_metadata.json")) for f in completed_frames)
+        
+        final_mp4_path = os.path.join(TEMP_DIR, f"{project_id}_final_stitched.mp4")
+
+        if not has_segments:
+            # CLASSIC MODE: The last frame's temp file IS the final video.
+            last_fnum = completed_frames[-1]["frame_num"]
+            source_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{last_fnum}_temp.mp4")
+            if not os.path.exists(source_path):
+                return {"error": f"Final frame {last_fnum} file missing"}
+            import shutil
+            shutil.copy(source_path, final_mp4_path)
+            logger.info("Classic mode promotion: copied %s to final", source_path)
+        else:
+            # SEGMENTED MODE: Stitch using FFmpeg
+            logger.info("Segmented mode promotion: stitching %d clips", len(all_clips))
+            
+            # Create a list of trimmed clips
+            trimmed_clips = []
+            for i, clip in enumerate(all_clips):
+                cpath = clip["path"]
+                overlap = clip["overlap"]
+                
+                if not os.path.exists(cpath):
+                    logger.warning("Clip missing during stitch: %s", cpath)
+                    continue
+
+                if i == 0 or overlap == 0:
+                    # First clip or no overlap: use as is
+                    trimmed_clips.append(cpath)
+                else:
+                    # Extension clip: trim the overlap.
+                    # Uses run_in_executor (not create_subprocess_exec) for Windows
+                    # SelectorEventLoop compatibility — same pattern as _get_last_8s_clip.
+                    tpath = cpath.replace(".mp4", f"_trimmed_for_stitch_{i}.mp4")
+                    cmd = ["ffmpeg", "-y", "-ss", str(overlap), "-i", cpath, "-c", "copy", tpath]
+                    loop = asyncio.get_event_loop()
+                    result = await loop.run_in_executor(None, lambda c=cmd: subprocess.run(c, capture_output=True, stdin=subprocess.DEVNULL))
+                    if result.returncode == 0:
+                        trimmed_clips.append(tpath)
+                        temp_files_to_clean.append(tpath)
+                    else:
+                        logger.error("Failed to trim clip %d for stitching. stderr: %s",
+                                     i, result.stderr.decode(errors='replace')[:500])
+                        trimmed_clips.append(cpath)  # Fallback
+
+            # Concatenate all
+            concat_list_path = os.path.join(TEMP_DIR, f"{project_id}_concat_list.txt")
+            with open(concat_list_path, "w") as f:
+                for cp in trimmed_clips:
+                    f.write(f"file '{os.path.abspath(cp)}'\n")
+            
+            temp_files_to_clean.append(concat_list_path)
+            
+            # Uses run_in_executor (not create_subprocess_exec) for Windows
+            # SelectorEventLoop compatibility — same pattern as _get_last_8s_clip.
+            cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path, "-c", "copy", final_mp4_path]
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, lambda c=cmd: subprocess.run(c, capture_output=True, stdin=subprocess.DEVNULL))
+            stdout_data, stderr_data = result.stdout, result.stderr
+
+            if result.returncode != 0:
+                logger.error("FFmpeg concat failed (returncode=%d). stderr: %s",
+                             result.returncode, stderr_data.decode(errors="replace")[:2000])
+                raise RuntimeError("FFmpeg concatenation failed — check logs for details")
+
+        # 2. Upload the final result
+        with open(final_mp4_path, "rb") as fp:
             final_data = fp.read()
 
-        logger.info(
-            "Promoting final video for project %s (%d bytes, last frame=%d)",
-            project_id, len(final_data), fnum_last,
-        )
-
-        # Upload to R2 final bucket
         r2_path = f"final/videos/{project_id}/final.mp4"
         public_url = await upload_to_r2(final_data, "final", r2_path)
-
-        # Create final asset record
+        
         asset_id = create_asset(
             project_id=project_id,
             asset_type="video",
@@ -1029,11 +1430,31 @@ async def promote_final_video(project_id: str) -> Dict[str, Any]:
             file_url=public_url,
         )
 
-        # Mark project as completed
         update_project_status(project_id, "completed", video_url=public_url)
-        logger.info("Project %s finalized. URL: %s", project_id, public_url or "N/A")
+        logger.info("Project %s finalized. URL: %s", project_id, public_url)
 
-        # Cleanup all temp files (MP4s and video object JSONs)
+        # 3. Cleanup
+        # Collect all possible temp files for this project
+        for f in frames:
+            fnum = f["frame_num"]
+            temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_temp.mp4"))
+            temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_segments_metadata.json"))
+            # New naming (_seed.mp4, _uri.txt)
+            temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_seed.mp4"))
+            temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_uri.txt"))
+            # Old naming (backward compat for projects created before the rename)
+            temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_video_seed.mp4"))
+            temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_video_uri.txt"))
+            temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_trimmed_8s.mp4"))
+            # Segments (max 20: 30s + 19x7s = 163s covers all durations)
+            for i in range(20):
+                temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_seg_{i}_temp.mp4"))
+                temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_seg_{i}_seed.mp4"))
+                temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_seg_{i}_uri.txt"))
+                temp_files_to_clean.append(os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_seg_{i}_trimmed_8s.mp4"))
+
+        temp_files_to_clean.append(final_mp4_path)
+        
         cleaned = 0
         for path in set(temp_files_to_clean):
             if os.path.exists(path):
@@ -1041,22 +1462,15 @@ async def promote_final_video(project_id: str) -> Dict[str, Any]:
                 cleaned += 1
         logger.info("Cleaned up %d temp files for project %s", cleaned, project_id)
 
-        # Evict in-process video seed cache for this project
+        # Evict cache
         evicted = [k for k in _video_seed_cache if k[0] == project_id]
-        for k in evicted:
-            del _video_seed_cache[k]
-        if evicted:
-            logger.info("Evicted %d video seed cache entries for project %s", len(evicted), project_id)
+        for k in evicted: del _video_seed_cache[k]
 
-        return {
-            "asset_id": asset_id,
-            "video_url": public_url,
-            "file_size": len(final_data),
-        }
+        return {"asset_id": asset_id, "video_url": public_url, "file_size": len(final_data)}
+
     except Exception as e:
-        logger.error("promote_final_video failed for project %s: %s", project_id, e)
+        logger.error("promote_final_video failed: %s", e, exc_info=True)
         update_project_status(project_id, "failed")
-        # Do NOT re-raise: runs as BackgroundTask
         return {"error": str(e)}
 
 

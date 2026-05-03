@@ -217,7 +217,7 @@ app.add_middleware(
     # DEVOPS-4: restrict to only the HTTP methods the API actually uses.
     # Wildcard ["*"] unnecessarily permits PATCH, PUT, TRACE, etc.
     # OPTIONS is required for browser preflight requests.
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
 )
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])

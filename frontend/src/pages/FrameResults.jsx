@@ -335,15 +335,19 @@ const FrameResults = () => {
             projectId: projectId
           } 
         });
+        return; // Navigation handled — combining stays true until unmount
       }
-      await fetchProject();
+      // Backend returned success but no video_url — show error
+      setError('Video was processed but no URL was returned. Temp files may have been cleared on restart. Please retry.');
     } catch (e) {
       setError(e.message || 'Failed to promote final video');
+    } finally {
+      // Always reset the spinner — prevents infinite lock if video_url is missing
       setCombining(false);
     }
   };
 
-  if (!storyResultRaw) {
+  if (!storyResultRaw && !projectId && !project) {
     return (
       <div style={{ background: '#0c0e17', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f0f0fd' }}>
         <p>No story context available. Please return to the Dashboard.</p>

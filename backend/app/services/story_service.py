@@ -557,6 +557,18 @@ async def generate_story(
     )
 
     expected_frames = frame_structure["total_frames"]
+    logger.info(
+        "Story generation request prepared: topic_len=%d sanitized_topic_len=%d expected_frames=%d "
+        "style=%r camera_motion=%r composition=%r focus_and_lens=%r ambiance=%r",
+        len(topic),
+        len(topic_for_llm),
+        expected_frames,
+        style,
+        camera_motion,
+        composition,
+        focus_and_lens,
+        ambiance,
+    )
     last_error: Optional[Exception] = None
 
     # Step 4: Single call with one retry
@@ -567,6 +579,21 @@ async def generate_story(
 
             # Step 5: Narrative state continuity check (post-parse, no extra LLM call)
             _validate_state_continuity(story["frames"])
+
+            for frame in story["frames"]:
+                prompt_text = str(frame.get("prompt", ""))
+                frame_number = frame.get("frame_number")
+                logger.info(
+                    "Generated story frame %s: type=%r duration=%r prompt_len=%d "
+                    "entry_len=%d exit_len=%d prompt_preview=%r",
+                    frame_number,
+                    frame.get("type"),
+                    frame.get("duration"),
+                    len(prompt_text),
+                    len(str(frame.get("entry_state", ""))),
+                    len(str(frame.get("exit_state", ""))),
+                    prompt_text[:350],
+                )
 
             logger.info(
                 "Story generated successfully: %d frames, structure=%s, pacing=%s",
@@ -591,3 +618,63 @@ async def generate_story(
         status_code=422,
         detail=f"Story generation failed after 2 attempts. Last error: {last_error}",
     )
+
+async def suggest_dynamic_creative_params(topic: str, context: Optional[str] = None) -> Dict[str, List[str]]:
+    """
+    Call Gemini 2.5 Pro to suggest dynamic creative parameters tailored to the topic.
+    Returns lists of strings for style, camera_motion, composition, focus_and_lens, and ambiance.
+    """
+    from app.core_yt.creative_builder import (
+        ALLOWED_STYLES, ALLOWED_CAMERA_MOTIONS, ALLOWED_COMPOSITIONS,
+        ALLOWED_FOCUS_LENS, ALLOWED_AMBIANCE
+    )
+
+    system_prompt = (
+        "You are an expert AI video director. Your task is to select highly tailored, creative, "
+        "and visually striking suggestions for a video's creative parameters based on its topic. "
+        "You MUST ONLY choose options from the provided allowed lists."
+    )
+
+    context_str = f"Context: {context}" if context else ""
+    user_message = f"""Topic: {topic}
+{context_str}
+
+Please select 3-5 options for each of the following video creative parameters, choosing ONLY from the exact allowed lists provided:
+
+Allowed Styles: {ALLOWED_STYLES}
+Allowed Camera Motions: {ALLOWED_CAMERA_MOTIONS}
+Allowed Compositions: {ALLOWED_COMPOSITIONS}
+Allowed Focus Options: {ALLOWED_FOCUS_LENS}
+Allowed Ambiances: {ALLOWED_AMBIANCE}
+
+Return ONLY a JSON object with keys: "styles", "camera_motions", "compositions", "focus_options", "ambiances".
+Each key must map to an array of strings containing your selections. Do NOT include markdown blocks or any other text."""
+
+    for attempt in range(2):
+        try:
+            raw = await _call_vertex_ai(system_prompt, user_message)
+            parsed = _extract_json(raw)
+            if not isinstance(parsed, dict):
+                raise ValueError("Response is not a valid JSON object.")
+
+            # Ensure all keys exist, default to empty list if not
+            return {
+                "styles": parsed.get("styles", []),
+                "camera_motions": parsed.get("camera_motions", []),
+                "compositions": parsed.get("compositions", []),
+                "focus_options": parsed.get("focus_options", []),
+                "ambiances": parsed.get("ambiances", []),
+            }
+        except Exception as exc:
+            if attempt == 0:
+                logger.warning("Dynamic creative params attempt 1 failed: %s — retrying...", exc)
+            else:
+                logger.error("Dynamic creative params failed after 2 attempts: %s", exc)
+                # Fallback to defaults
+                return {
+                    "styles": ALLOWED_STYLES[:5],
+                    "camera_motions": ALLOWED_CAMERA_MOTIONS[:5],
+                    "compositions": ALLOWED_COMPOSITIONS[:5],
+                    "focus_options": ALLOWED_FOCUS_LENS[:4],
+                    "ambiances": ALLOWED_AMBIANCE[:5],
+                }

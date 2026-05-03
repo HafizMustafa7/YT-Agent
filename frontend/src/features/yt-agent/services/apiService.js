@@ -150,6 +150,20 @@ export const suggestTopics = async (niche, mode = 'search_trends', minEngagement
 };
 
 /**
+ * Get dynamic creative parameter suggestions from LLM
+ * @param {string} topic
+ * @param {string} context (optional)
+ * @returns {Promise<object>}
+ */
+export const suggestCreativeParams = async (topic, context = null) => {
+    return callApi(
+        ENDPOINTS.SUGGEST_CREATIVE_PARAMS,
+        { topic, context },
+        TIMEOUTS.TOPIC_SUGGESTION
+    );
+};
+
+/**
  * Generate story and frames
  * @param {string} topic - Topic for the story
  * @param {object} selectedVideo - Selected video data
@@ -331,8 +345,11 @@ export const startYouTubeOAuth = async () => {
  * @param {string} projectId
  * @returns {Promise<object>}
  */
-export const uploadProjectToYoutube = async (projectId, customTitle = null) => {
-    const payload = customTitle ? { custom_title: customTitle } : {};
+export const uploadProjectToYoutube = async (projectId, customTitle = null, channelId = null) => {
+    const payload = {};
+    if (customTitle) payload.custom_title = customTitle;
+    if (channelId) payload.channel_id = channelId;
+    
     return callApi(
         ENDPOINTS.VIDEO_UPLOAD(projectId),
         payload,
@@ -345,6 +362,7 @@ const apiService = {
     fetchTrends,
     validateTopic,
     suggestTopics,
+    suggestCreativeParams,
     generateStory,
     checkHealth,
     createVideoProject,
@@ -360,6 +378,7 @@ const apiService = {
     getChannelStats,
     startYouTubeOAuth,
     getUserCredits,
+    updateFramePrompt,
 };
 
 export default apiService;
