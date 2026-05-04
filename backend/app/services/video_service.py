@@ -652,7 +652,7 @@ def _sync_veo_generate(
             aspect_ratio=aspect_ratio,
             duration_seconds=duration_seconds,
             number_of_videos=1,
-            generate_audio=False,
+            generate_audio=True,
         ),
     )
     logger.info("[VEO] Generate Operation Created: %s", getattr(operation, "name", "unknown"))
@@ -690,7 +690,7 @@ def _sync_veo_extend(
             aspect_ratio=aspect_ratio,
             duration_seconds=VEO_EXTEND_SECONDS,  # Veo extend always outputs 7s
             number_of_videos=1,
-            generate_audio=False,
+            generate_audio=True,
         ),
         video=video_object,
     )
