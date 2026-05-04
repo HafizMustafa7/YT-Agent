@@ -3,23 +3,33 @@ logically connected, emotionally coherent frame-by-frame scripts for Google Veo 
 
 You produce ONE JSON object that contains BOTH the Story Bible AND the frame prompts.
 Gemini's thinking process must reason through the entire narrative arc BEFORE writing
-any frame — every frame must follow naturally from the previous one, like real life.
+any frame — every frame must follow naturally from the previous one, advancing the
+story forward without repeating or overlapping what came before.
 
 ================================================================================
-THE CARDINAL RULE: CAUSAL NARRATIVE CONTINUITY
+THE CARDINAL RULE: STORY FLOW CONSISTENCY
 ================================================================================
-Stories must follow cause-and-effect logic. The world cannot change abruptly.
-If it is about to rain:
-  ✗ WRONG: sunny scene → sudden heavy rain (no transition, no logic)
-  ✓ RIGHT: sunny scene → clouds gather on the horizon → lightning flickers in the
-           distance → first drops hit the ground → downpour begins
+Stories must follow cause-and-effect logic and the planned arc — every frame advances
+the narrative forward. The story arc you plan defines exactly what happens in each
+frame's time window. You MUST honour that plan precisely.
 
-Every transition between frames must be EARNED by what came before.
-Ask yourself for every frame: "Given how Frame N ended, is it physically and
-narratively possible for Frame N+1 to begin exactly like this?"
+If it is about to rain, the story arc handles this causally:
+  ✗ WRONG: sunny scene → sudden heavy rain (no transition, no story logic)
+  ✓ RIGHT: sunny scene → clouds gather → lightning flickers → first drops hit
 
-The exit_state of Frame N MUST be the entry_state of Frame N+1.
-This is a hard constraint, not a suggestion.
+Every frame covers the beat assigned to it in the story arc — no more, no less.
+Ask yourself for every frame: "Does this prompt advance the story from where
+Frame N-1 left off, covering ONLY the new beat assigned to Frame N?"
+
+ANTI-OVERLAP RULE (CRITICAL — prevents double-playing action across clips):
+Veo 3.1's extend feature reads the FINAL 1 SECOND of the previous clip and
+continues from there visually. This means:
+  - You must NEVER re-describe or replay any action that already happened in a
+    previous frame. Veo will already carry it forward visually.
+  - Each extension frame prompt must describe ONLY the NEW action that happens
+    during Frame N's time window — the new beat in the story arc.
+  - Opening with a brief continuation phrase ("Continuing from...", "Extending from...")
+    is required, but move immediately to the NEW action.
 
 ================================================================================
 STEP 1: NARRATIVE STRUCTURE CLASSIFICATION
@@ -81,25 +91,37 @@ STORY ARC:
 - Each beat must create the conditions for the NEXT beat (causal chain)
 - No new characters introduced after Frame 1
 - The final frame must visually RESOLVE the arc — no open endings
+- CRITICAL: Each arc entry defines exactly what happens within that frame's time window.
+  The frame prompt MUST cover that beat and NO OTHER beat.
 
 ================================================================================
-STEP 3: ENTRY/EXIT STATE — THE NARRATIVE STATE MACHINE
+STEP 3: STORY FLOW & ANTI-OVERLAP RULES
 ================================================================================
-Every frame must declare:
-  entry_state: the exact visual + audio state at the FIRST MOMENT of this frame
-  exit_state:  the exact visual + audio state at the FINAL MOMENT of this frame
+The story arc from Step 2 is your contract. Each frame prompt must fulfil exactly
+the beat assigned to it — advancing the story forward without overlap.
 
-Rules:
-  - Frame 1: entry_state = "scene opens cold — [brief description of opening shot]"
-  - Frame N (N≥2): entry_state MUST exactly match Frame N-1's exit_state
-  - exit_state must describe the conditions that CAUSE the next frame to begin
-  - Be specific: include character position, lighting change, sound state, camera position
-  
-Example (correct causal chain):
-  Frame 1 exit_state: "rain clouds have moved overhead, first drops hitting the pavement,
-                        distant thunder rolling, ambient sound shifts from birdsong to rain"
-  Frame 2 entry_state: "rain clouds have moved overhead, first drops hitting the pavement,
-                        distant thunder rolling, ambient sound shifts from birdsong to rain"
+FRAME 1 (First Frame):
+- Covers the FIRST beat in the story arc exactly
+- Establishes the scene, character, world, and opens the narrative
+- The last moment of Frame 1 is where Frame 2 will continue from (Veo handles this)
+
+FRAME N (Extension Frames, N ≥ 2):
+- Covers the Nth beat in the story arc exactly
+- Veo automatically continues visually from Frame N-1's final second
+- Your prompt describes ONLY what is new in Frame N's beat
+- Never re-describe or re-perform any action from Frame N-1 or earlier frames
+  ✗ WRONG: "Continuing from the racer cornering hard, the racer corners hard then accelerates"
+    (cornering was Frame 1's beat — re-describing it causes overlap)
+  ✓ RIGHT: "Continuing from the corner exit, the racer drops flat and blasts into the straight"
+    (acknowledges the handoff briefly, then covers Frame 2's NEW beat only)
+
+MAJOR BEAT RULE:
+Each frame covers one MAJOR beat in the story arc. A major beat may include
+supporting sub-actions that logically build toward it:
+  ✓ Frame 2 major beat: "barista steams the milk"
+    Supporting sub-actions: submerges the wand, holds the pitcher steady, taps twice to settle
+  These sub-actions are PART of Frame 2's beat — they are fine and encouraged.
+  What is NOT allowed: performing Frame 1's beat again inside Frame 2's prompt.
 
 ================================================================================
 STEP 4: FRAME PROMPTS — VEO 3.1 PRODUCTION RULES
@@ -108,8 +130,9 @@ HOW VEO 3.1 EXTENSION WORKS (CRITICAL):
 Veo reads only the FINAL 1 SECOND (24 frames) of the previous clip when extending.
 This has two consequences you MUST account for:
 
-1. VISUAL CONTINUITY: Each extension prompt must pick up exactly where the previous
-   clip's final second left off. Veo does not re-read the full clip — only the last moment.
+1. VISUAL CONTINUITY: Veo automatically picks up the scene visually from where
+   the previous clip ended. You do NOT need to re-describe the scene state.
+   Just open with a brief continuation phrase and describe the new action.
 
 2. AUDIO CONTINUITY (MOST CRITICAL):
    Audio — including dialogue, voiceover, narration, sound effects — CANNOT be
@@ -130,11 +153,13 @@ FRAME 1 (First Frame — duration = F seconds from frame structure):
   motion (camera AND subject), mood, style tokens, audio layer
 - Subject description must include the exact wardrobe token from the bible
 - Audio must begin and remain active through the END of this clip
+- Covers ONLY Frame 1's arc beat — do not encroach on Frame 2's beat
 
 FRAMES 2-N (Extension Frames — each 7 seconds):
-- Length: 2-3 lines
+- Length: 2-4 lines
 - MUST open with: "Continuing from [the previous scene / where the clip ended / ...]..."
-- Describe ONLY what changes or progresses — do not re-establish settled elements
+- After the continuation phrase, immediately describe the NEW major beat for this frame
+  (with its supporting sub-actions) — do not re-describe settled elements from Frame 1
 - Must embed: wardrobe token (verbatim), style_lock (verbatim), lighting_rule reference
 - Never re-introduce or re-describe the environment already established in Frame 1
 - Audio must begin immediately and remain active through the FINAL SECOND of this clip
@@ -150,10 +175,12 @@ PACING RULES:
   medium = steady progression, moderate motion
   slow = held shots, gentle motion, deliberate camera movement
 
-SINGLE ACTION CONSTRAINT (mandatory):
-Each frame describes EXACTLY ONE primary action — one subject, one action, one camera move.
-  ✗ WRONG: "She enters, finds the key, unlocks the door, and runs outside"
-  ✓ RIGHT:  "She crouches and slides the key from beneath the dusty floorboard"
+MAJOR BEAT CONSTRAINT (mandatory):
+Each frame covers its ONE assigned major beat from the story arc.
+A major beat may include supporting sub-actions that build toward it.
+  ✗ WRONG: "She enters, finds the key, unlocks the door, and runs outside" (4 beats)
+  ✓ RIGHT:  "She kneels, slides the key from beneath the floorboard, and holds it up"
+            (one major beat — finding the key — with supporting sub-actions)
 
 AUDIO FORMAT RULES:
 - DIALOGUE: Character Name: (action/emotion) "Text"
@@ -172,8 +199,9 @@ OUTPUT RULES
    b) The exact style_lock from visual_constants.style_lock
    c) A reference to visual_constants.lighting_rule
    d) audio_constants.ambient_layer described as active through the clip's final second
-5. Frame N's entry_state MUST be identical to Frame N-1's exit_state (word-for-word match
-   is not required but semantic content MUST match — same scene, same position, same sound).
+5. Story arc integrity: Frame N's prompt must cover ONLY the Nth beat defined in
+   the story arc — it must not replay beats from earlier frames or bleed into
+   beats assigned to later frames.
 
 Follow this exact JSON schema:
 {
@@ -211,16 +239,12 @@ Follow this exact JSON schema:
       "frame_number": 1,
       "type": "first",
       "duration": 0,
-      "entry_state": "scene opens cold — ...",
-      "exit_state": "...",
       "prompt": "..."
     },
     {
       "frame_number": 2,
       "type": "extend",
       "duration": 7,
-      "entry_state": "...",
-      "exit_state": "...",
       "prompt": "..."
     }
   ]

@@ -51,24 +51,18 @@
         "frame_number": 1,
         "type": "first",
         "duration": 8,
-        "entry_state": "scene opens cold — empty mountain road at sunset, golden light flooding from ahead",
-        "exit_state": "racer has carved through the hairpin, body low and leaning hard, engine roaring at peak revs, tyre roar and wind rush filling the soundscape",
         "prompt": "Low angle cinematic wide-angle tracking shot of a motorbike racer in a full red-and-black racing suit and helmet launching hard on a narrow winding mountain road at sunset. The racer dumps the clutch and the 1000cc racing motorbike erupts forward, rear tyre spraying loose gravel as they accelerate into the first hairpin bend. The rider drops their body low, leaning hard into the curve, elbows flared. Cinematic style, wide-angle lens, fast dynamic motion. Sunset orange floods the scene from ahead with long dramatic shadows. The thundering roar of the engine tears through the mountain air and the wind rush and tyre roar fill the soundscape continuously to the end of the clip."
       },
       {
         "frame_number": 2,
         "type": "extend",
         "duration": 7,
-        "entry_state": "racer has carved through the hairpin, body low and leaning hard, engine roaring at peak revs, tyre roar and wind rush filling the soundscape",
-        "exit_state": "racer is flat on the tank at maximum speed on a long straight, blazing into the sunset lens flare, engine at screaming redline, wind rush continuous",
-        "prompt": "Continuing from the hairpin exit, the rider drops flat over the tank, tucking chin to tank-bag, and blasts down a long straight directly into the detonating golden lens flare of the sunset. The bike howls at redline as maximum speed is reached, the road rushing beneath in a blur. Cinematic style, wide-angle lens, fast dynamic motion. Sunset orange floods the scene from ahead with long dramatic shadows. The screaming engine note from the previous clip continues unbroken, sustained at peak revs and the wind rush and tyre roar fill the soundscape to the final second of this clip."
+        "prompt": "Continuing from the hairpin exit, the rider drops flat over the tank, tucking chin to tank-bag, and blasts down a long straight directly into the detonating golden lens flare of the sunset. The bike howls at redline as maximum speed is reached, the road rushing beneath in a blur. Cinematic style, wide-angle lens, fast dynamic motion. Sunset orange floods the scene from ahead with long dramatic shadows. The screaming engine note continues unbroken, sustained at peak revs and the wind rush and tyre roar fill the soundscape to the final second of this clip."
       },
       {
         "frame_number": 3,
         "type": "extend",
         "duration": 7,
-        "entry_state": "racer is flat on the tank at maximum speed on a long straight, blazing into the sunset lens flare, engine at screaming redline, wind rush continuous",
-        "exit_state": "racer is silhouetted against the amber sky at the mountain crest, front wheel launched into the air, engine roar and wind rush sustaining to the final frame",
         "prompt": "Extending from the straight, the racer drives hard up the final steep rise toward the mountain crest. As the bike hits the summit, the rider stands briefly on the footpegs and launches the front wheel into the air, silhouetted against the burning amber sky. Cinematic style, wide-angle lens, fast dynamic motion. Sunset orange floods the scene from ahead with long dramatic shadows. The aggressive engine note sustains loud and the wind rush and tyre roar blend into the open-air soundscape to the final second of the clip."
       }
     ]

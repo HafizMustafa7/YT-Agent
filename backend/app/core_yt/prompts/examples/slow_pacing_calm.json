@@ -51,24 +51,18 @@
         "frame_number": 1,
         "type": "first",
         "duration": 8,
-        "entry_state": "scene opens cold — woman seated on mossy rock, lake glassy and still, sunrise glow just touching the horizon",
-        "exit_state": "woman is in deep stillness, voiceover ongoing, soft birdsong and faint lake ripple active, sunrise warmth spreading across the scene",
         "prompt": "Cinematic eye-level wide shot of a woman with dark hair tied loosely back wearing a soft sage-green linen top and charcoal grey wide-leg trousers, sitting in deep meditation on a flat mossy rock at the shoreline of a still forest lake at sunrise. She sits perfectly still, eyes closed, hands resting on her knees. Woman: (calm voiceover) \"In the stillness, I find my center.\" The glassy lake surface reflects ancient tall pines and birches. Cinematic style, shallow depth of field, gentle slow pacing. The first light of sunrise casting a delicate warm glow from the horizon. A soft layer of birdsong and faint ripple of the lake shoreline continues and remains active to the very end of the clip."
       },
       {
         "frame_number": 2,
         "type": "extend",
         "duration": 7,
-        "entry_state": "woman is in deep stillness, voiceover ongoing, soft birdsong and faint lake ripple active, sunrise warmth spreading across the scene",
-        "exit_state": "a single golden leaf has landed on the glassy lake surface, creating gentle expanding rings, woman's voiceover continuing, birdsong and lake ripple sustaining",
         "prompt": "Continuing from the meditation, the camera slowly pushes past the woman's shoulder toward the water just as a single golden leaf drifts down from the canopy and settles onto the glassy lake surface, sending gentle expanding rings outward. Woman: (calm voiceover) \"Letting go of the noise.\" Cinematic style, shallow depth of field, gentle slow pacing. The first light of sunrise casting a delicate warm glow from the horizon. The soft birdsong and faint ripple of the lake shoreline persist continuously and remain active to the final second of the clip."
       },
       {
         "frame_number": 3,
         "type": "extend",
         "duration": 7,
-        "entry_state": "a single golden leaf has landed on the glassy lake surface, creating gentle expanding rings, woman's voiceover continuing, birdsong and lake ripple sustaining",
-        "exit_state": "camera has tilted fully up to reveal the vast sunlit forest canopy, pale gold light flooding the scene, woman's voiceover resolving, birdsong sustaining to the final frame",
         "prompt": "Extending from the floating leaf, the camera slowly tilts up from the lake surface to reveal the vast expanse of the ancient forest as the sunrise fully crests the horizon, flooding the canopy with pale gold light. Woman: (calm voiceover) \"Awake to the morning.\" Cinematic style, shallow depth of field, gentle slow pacing. The first light of sunrise casting a delicate warm glow from the horizon. The soft birdsong and faint ripple of the lake shoreline remain unbroken to the very end of the clip."
       }
     ]

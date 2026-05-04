@@ -4,10 +4,14 @@ Story generation service — Unified Vertex AI pipeline.
 Uses Gemini 2.5 Pro (thinking model) on Vertex AI. Single LLM call produces
 both the Story Bible and all frame prompts in one coherent reasoning pass.
 
-Key improvements over the old 2-call Flash Lite pipeline:
-  - Causal narrative continuity: story events flow logically (clouds → lightning → rain,
-    not sunny → sudden rain). Enforced by entry_state/exit_state per frame.
-  - Thinking model: Gemini 2.5 Pro reasons through the full arc before writing.
+Consistency approach:
+  - Story arc is planned in full before any frame is written (thinking model).
+  - Each frame covers exactly the major beat assigned to it in the story arc;
+    supporting sub-actions within a beat are allowed and encouraged.
+  - No entry/exit state machine — Veo 3.1's extend feature handles visual
+    continuity across clip boundaries automatically.
+  - Anti-overlap: extension prompts describe ONLY what is new in their beat;
+    they never re-describe actions that already appeared in a previous frame.
   - 6 narrative structures: conflict, transformation, journey, mystery, showcase, crescendo.
   - One auth path: same Vertex AI service account as Veo video generation.
 
@@ -16,8 +20,7 @@ Flow:
   2. build_unified_message(...)            → single user message
   3. _call_vertex_ai(system_prompt, msg)   → one Gemini 2.5 Pro call with thinking
   4. _parse_and_validate_unified(raw)      → strict JSON parse + structural check
-  5. _validate_state_continuity(frames)    → causal chain check (entry ↔ exit states)
-  6. Returns validated story dict
+  5. Returns validated story dict
 """
 import asyncio
 import json
@@ -187,7 +190,7 @@ def _format_examples(examples: Optional[list]) -> str:
     if not examples:
         return ""
 
-    lines = ["\n=== REFERENCE EXAMPLES (study the causal continuity — do not copy) ==="]
+    lines = ["\n=== REFERENCE EXAMPLES (study story flow and anti-overlap technique — do not copy) ==="]
     for i, ex in enumerate(examples, 1):
         label = ex.get("label", f"example_{i}")
         description = ex.get("description", "")
@@ -216,13 +219,9 @@ def _format_examples(examples: Optional[list]) -> str:
                 fnum = frame.get("frame_number", "?")
                 ftype = frame.get("type", "?")
                 fdur = frame.get("duration", "?")
-                entry = frame.get("entry_state", "")
-                exit_ = frame.get("exit_state", "")
                 fprompt = frame.get("prompt", "")
                 lines.append(
                     f"  Frame {fnum} ({ftype}, {fdur}s):"
-                    f"\n    entry_state: {entry}"
-                    f"\n    exit_state:  {exit_}"
                     f"\n    prompt: {fprompt}"
                 )
 
@@ -237,18 +236,14 @@ def _build_frame_schema(total_frames: int, first_duration: int, total_duration: 
       "frame_number": 1,
       "type": "first",
       "duration": {first_duration},
-      "entry_state": "scene opens cold — [opening shot description]",
-      "exit_state": "[exact visual+audio state at the last second of frame 1]",
-      "prompt": "[complete Veo scene-setup prompt — 5-7 lines with all bible tokens]"
+      "prompt": "[complete Veo scene-setup prompt — 5-7 lines covering Frame 1's major beat with all bible tokens]"
     }}""")
     for i in range(2, total_frames + 1):
         frames_list.append(f"""    {{
       "frame_number": {i},
       "type": "extend",
       "duration": 7,
-      "entry_state": "[must match Frame {i-1} exit_state exactly in meaning]",
-      "exit_state": "[exact visual+audio state at the last second of frame {i}]",
-      "prompt": "[Veo extension prompt — 2-3 lines, opens with continuation phrase]"
+      "prompt": "[Veo extension prompt — 2-4 lines, opens with continuation phrase, covers ONLY Frame {i}'s new major beat]"
     }}""")
 
     frames_json = ",\n".join(frames_list)
@@ -417,15 +412,11 @@ def _parse_and_validate_unified(raw: str, expected_frames: int) -> Dict[str, Any
 
     # --- Validate each frame ---
     for i, frame in enumerate(frames):
-        for key in ("frame_number", "type", "duration", "entry_state", "exit_state", "prompt"):
+        for key in ("frame_number", "type", "duration", "prompt"):
             if key not in frame:
                 raise ValueError(f"Frame {i + 1} missing required key: '{key}'")
         if not str(frame.get("prompt", "")).strip():
             raise ValueError(f"Frame {i + 1} has an empty prompt")
-        if not str(frame.get("entry_state", "")).strip():
-            raise ValueError(f"Frame {i + 1} has an empty entry_state")
-        if not str(frame.get("exit_state", "")).strip():
-            raise ValueError(f"Frame {i + 1} has an empty exit_state")
 
     logger.info(
         "Story validated: %d frames, pacing=%s, structure=%s, duration=%s",
@@ -435,53 +426,6 @@ def _parse_and_validate_unified(raw: str, expected_frames: int) -> Dict[str, Any
         parsed.get("total_duration"),
     )
     return parsed
-
-
-# ---------------------------------------------------------------------------
-# Narrative state continuity check
-# ---------------------------------------------------------------------------
-
-def _validate_state_continuity(frames: List[Dict[str, Any]]) -> None:
-    """
-    Check that each frame's entry_state semantically matches the previous
-    frame's exit_state — enforces causal narrative continuity.
-
-    Uses simple keyword overlap scoring (no extra LLM call).
-    Logs a warning when continuity looks weak — does not reject the story,
-    since Gemini 2.5 Pro's thinking usually handles this well.
-    """
-    for i in range(1, len(frames)):
-        prev_exit  = str(frames[i - 1].get("exit_state",  "")).lower()
-        curr_entry = str(frames[i].get("entry_state", "")).lower()
-
-        if not prev_exit or not curr_entry:
-            continue
-
-        # Tokenise and check keyword overlap
-        prev_words  = set(re.findall(r'\b\w{4,}\b', prev_exit))
-        entry_words = set(re.findall(r'\b\w{4,}\b', curr_entry))
-
-        if not prev_words:
-            continue
-
-        overlap = len(prev_words & entry_words) / len(prev_words)
-        frame_num = frames[i].get("frame_number", i + 1)
-
-        if overlap < 0.30:
-            logger.warning(
-                "Narrative continuity warning: Frame %d entry_state has low overlap "
-                "(%.0f%%) with Frame %d exit_state.\n"
-                "  exit_state:  %s\n"
-                "  entry_state: %s",
-                frame_num, overlap * 100, frame_num - 1,
-                frames[i - 1].get("exit_state", ""),
-                frames[i].get("entry_state", ""),
-            )
-        else:
-            logger.debug(
-                "Continuity OK: Frame %d → Frame %d (overlap %.0f%%)",
-                frame_num - 1, frame_num, overlap * 100,
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -512,7 +456,7 @@ async def generate_story(
     Returns:
         Validated story dict:
             story_bible, topic, total_duration, pacing, full_story, frames[]
-            Each frame includes: frame_number, type, duration, entry_state, exit_state, prompt
+            Each frame includes: frame_number, type, duration, prompt
 
     Raises:
         HTTPException 500 on Vertex AI config error.
@@ -577,21 +521,15 @@ async def generate_story(
             raw = await _call_vertex_ai(system_prompt, message)
             story = _parse_and_validate_unified(raw, expected_frames)
 
-            # Step 5: Narrative state continuity check (post-parse, no extra LLM call)
-            _validate_state_continuity(story["frames"])
-
             for frame in story["frames"]:
                 prompt_text = str(frame.get("prompt", ""))
                 frame_number = frame.get("frame_number")
                 logger.info(
-                    "Generated story frame %s: type=%r duration=%r prompt_len=%d "
-                    "entry_len=%d exit_len=%d prompt_preview=%r",
+                    "Generated story frame %s: type=%r duration=%r prompt_len=%d prompt_preview=%r",
                     frame_number,
                     frame.get("type"),
                     frame.get("duration"),
                     len(prompt_text),
-                    len(str(frame.get("entry_state", ""))),
-                    len(str(frame.get("exit_state", ""))),
                     prompt_text[:350],
                 )
 
