@@ -1,10 +1,11 @@
 FROM python:3.11-slim
 
-# Install system dependencies (FFmpeg removed — Veo 3.1 returns merged video natively)
+# Install system dependencies (FFmpeg restored — required for stitching segments and probing durations)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     libxext6 \
     curl \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # DEVOPS-1: create a non-root user so the container doesn't run as root
