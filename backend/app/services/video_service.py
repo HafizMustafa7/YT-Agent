@@ -62,7 +62,7 @@ def _describe_video_object(video_object: Any) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 _http_client: Optional[httpx.AsyncClient] = None
-_http_client_lock = asyncio.Lock()  # guards initialisation only
+_http_client_lock: Optional[asyncio.Lock] = None  # Lazily initialised to avoid DeprecationWarning at import
 
 
 async def get_http_client() -> httpx.AsyncClient:
@@ -72,10 +72,14 @@ async def get_http_client() -> httpx.AsyncClient:
     each create a separate client when _http_client is None.
     After first initialisation the lock is never contested.
     """
-    global _http_client
+    global _http_client, _http_client_lock
     # Fast path — no lock needed once the client exists
     if _http_client is not None and not _http_client.is_closed:
         return _http_client
+    
+    if _http_client_lock is None:
+        _http_client_lock = asyncio.Lock()
+        
     async with _http_client_lock:
         # Re-check inside lock (another coroutine may have created it)
         if _http_client is None or _http_client.is_closed:
@@ -169,7 +173,8 @@ async def _get_last_8s_clip(input_path: str, output_path: str) -> bool:
     causes Veo to report "Input video must be at least 1 second" even though
     the clip is 8 seconds long.
     """
-    loop = asyncio.get_event_loop()
+    # Fixed B-3: use get_running_loop instead of get_event_loop for 3.12 compat
+    loop = asyncio.get_running_loop()
     try:
         # 1. Get duration via ffprobe (run in thread pool)
         cmd_dur = [
@@ -194,12 +199,10 @@ async def _get_last_8s_clip(input_path: str, output_path: str) -> bool:
         # -c:v libx264 -preset fast -crf 18: high-quality H.264.
         cmd_trim = [
             "ffmpeg", "-y",
-            "-ss", str(start_time), "-i", input_path,
+            "-i", input_path,
+            "-ss", str(start_time),
             "-t", "8",
-            "-vf", "setpts=PTS-STARTPTS",
-            "-af", "asetpts=PTS-STARTPTS",
             "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-            "-c:a", "aac",
             output_path
         ]
         result_trim = await loop.run_in_executor(
@@ -291,7 +294,7 @@ async def _prepare_extension_seed(project_id: str, frame_num: int, segment_idx: 
         mp4_path = os.path.join(TEMP_DIR, f"{base_filename}_temp.mp4")
         if os.path.exists(mp4_path):
             try:
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
                        "-of", "default=noprint_wrappers=1:nokey=1", mp4_path]
                 result = await loop.run_in_executor(
@@ -299,7 +302,7 @@ async def _prepare_extension_seed(project_id: str, frame_num: int, segment_idx: 
                 )
                 if result.returncode == 0:
                     dur = float(result.stdout.decode().strip())
-                    if dur > 23:
+                    if dur > 8.0:
                         trimmed_path = os.path.join(TEMP_DIR, f"{base_filename}_trimmed_8s.mp4")
                         if await _get_last_8s_clip(mp4_path, trimmed_path):
                             with open(trimmed_path, "rb") as fh:
@@ -318,7 +321,7 @@ async def _prepare_extension_seed(project_id: str, frame_num: int, segment_idx: 
         # Check duration and trim if needed (run_in_executor avoids blocking the event
         # loop and works on Windows SelectorEventLoop unlike create_subprocess_exec).
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
                    "-of", "default=noprint_wrappers=1:nokey=1", bytes_path]
             result = await loop.run_in_executor(
@@ -326,7 +329,7 @@ async def _prepare_extension_seed(project_id: str, frame_num: int, segment_idx: 
             )
             if result.returncode == 0:
                 dur = float(result.stdout.decode().strip())
-                if dur > 23:
+                if dur > 8.0:
                     trimmed_path = os.path.join(TEMP_DIR, f"{base_filename}_trimmed_8s.mp4")
                     if await _get_last_8s_clip(bytes_path, trimmed_path):
                         with open(trimmed_path, "rb") as fh:
@@ -334,7 +337,7 @@ async def _prepare_extension_seed(project_id: str, frame_num: int, segment_idx: 
                     else:
                         # STRICT: trimming was required but failed — do NOT fall back
                         # to raw bytes, as the API will reject a video over 30s.
-                        err_msg = f"Trimming required for {bytes_path} ({dur:.1f}s > 23s) but failed. Aborting to protect credits."
+                        err_msg = f"Trimming required for {bytes_path} ({dur:.1f}s > 8.0s) but failed. Aborting to protect credits."
                         logger.error(err_msg)
                         raise RuntimeError(err_msg)
             else:
@@ -349,12 +352,43 @@ async def _prepare_extension_seed(project_id: str, frame_num: int, segment_idx: 
             raw = fh.read()
         return genai_types.Video(video_bytes=raw, mime_type="video/mp4"), "disk_bytes", f"bytes from {bytes_path}"
 
-    # 4. Try GCS URI (LAST RESORT - might exceed 30s limit if > 23s)
+    # 4. Try GCS URI fallback
     uri_path = os.path.join(TEMP_DIR, f"{base_filename}_uri.txt")
     if os.path.exists(uri_path):
         with open(uri_path, "r", encoding="utf-8") as fh:
             uri = fh.read().strip()
         return genai_types.Video(uri=uri, mime_type="video/mp4"), "gcs_uri", f"URI from {uri_path}"
+
+    # 5. [I-3 FALLBACK] Try R2 Asset Download (if container restarted)
+    # If search_frame > 0, check the assets table for the previous clip
+    try:
+        sb = get_supabase()
+        # Look for the asset corresponding to the frame we're extending
+        # clip_1.mp4 for frame 1, etc.
+        res = sb.table("assets").select("*").eq("project_id", project_id).execute()
+        assets = res.data or []
+        
+        # Search for clip_{search_frame}.mp4 or segments if we could infer them
+        # For now, searching for the standard "clip_N.mp4" which is the last segment
+        asset = next((a for a in assets if f"clip_{search_frame}.mp4" in a.get("file_path", "")), None)
+        
+        if asset and asset.get("file_url"):
+            # Download it to local disk so we can use it as a seed (and trim if needed)
+            local_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{search_frame}_temp.mp4")
+            logger.info("[I-3 FALLBACK] Local seed missing (restored disk?). Downloading from R2: %s", asset["file_url"])
+            
+            client = await get_http_client()
+            download_res = await client.get(asset["file_url"], timeout=60.0)
+            download_res.raise_for_status()
+            
+            with open(local_path, "wb") as f:
+                f.write(download_res.content)
+            
+            # Now that it's on disk, recursive call to use the "disk bytes" logic (handles trimming)
+            return await _prepare_extension_seed(project_id, frame_num, segment_idx)
+            
+    except Exception as e:
+        logger.warning("[I-3 FALLBACK] R2 seed download failed: %s", e)
 
     raise RuntimeError(f"No valid seed found for project {project_id} frame {frame_num} segment {segment_idx}")
 
@@ -495,14 +529,14 @@ def get_user_projects(user_id: str) -> List[Dict[str, Any]]:
         # Fetch projects
         proj_res = sb.table("projects").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
         projects = proj_res.data or []
-        
+
         if not projects:
             return []
-            
-        # Fetch channels for this user to map channel info
+
+        # Fetch channels for this user to map channel info (single query, not N queries)
         channel_res = sb.table("channels").select("channel_id, channel_name").eq("user_id", user_id).execute()
         channels = {c["channel_id"]: c for c in (channel_res.data or [])}
-        
+
         # Merge channel info into projects
         for proj in projects:
             ch_id = proj.get("channel_id")
@@ -510,7 +544,13 @@ def get_user_projects(user_id: str) -> List[Dict[str, Any]]:
                 proj["channels"] = {
                     "channel_name": channels[ch_id].get("channel_name")
                 }
-                
+
+        # NOTE: Status sync is intentionally NOT done here.
+        # The list endpoint is called frequently (Dashboard load, sidebar, etc.) and
+        # running sync_project_status per project fires N*2 Supabase queries per request.
+        # Status sync is handled lazily in GET /projects/{id} via sync_project_status_if_needed,
+        # which only fires for transitional states (queued/generating) and skips terminal ones.
+
         return projects
     except Exception as e:
         logger.error("Failed to fetch projects for user %s: %s", user_id, e)
@@ -1328,15 +1368,13 @@ async def promote_final_video(project_id: str) -> Dict[str, Any]:
                         "overlap": seg.get("overlap", 0)
                     })
             else:
-                # Fallback for old/unsegmented frames mixed into a segmented project.
-                # In this edge case we cannot know the true overlap, so we treat
-                # this clip as standalone (overlap=0). If it was generated via extend
-                # it may contain duplicate content from the prior frame, but this is
-                # a safe fallback rather than crashing the pipeline.
+                # If no segment metadata exists, it means the frame was <= 30s.
+                # Since we standardized on strict 8.0s seeds for all extensions,
+                # any frame > 1 will have exactly 8.0s of overlap with the previous frame.
                 clip_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{fnum}_temp.mp4")
                 all_clips.append({
                     "path": clip_path,
-                    "overlap": 0,
+                    "overlap": 8.0 if fnum > 1 else 0,
                 })
 
         # Logic for stitching:
@@ -1348,72 +1386,60 @@ async def promote_final_video(project_id: str) -> Dict[str, Any]:
         # HOWEVER, the 30s limit means we MUST have segmented for anything > 30s.
         # If we DID NOT segment, and we have multiple frames, then the last frame IS the full video.
         
-        # Let's check if we actually have any segments.
-        has_segments = any(os.path.exists(os.path.join(TEMP_DIR, f"{project_id}_frame_{f['frame_num']}_segments_metadata.json")) for f in completed_frames)
-        
         final_mp4_path = os.path.join(TEMP_DIR, f"{project_id}_final_stitched.mp4")
 
-        if not has_segments:
-            # CLASSIC MODE: The last frame's temp file IS the final video.
-            last_fnum = completed_frames[-1]["frame_num"]
-            source_path = os.path.join(TEMP_DIR, f"{project_id}_frame_{last_fnum}_temp.mp4")
-            if not os.path.exists(source_path):
-                return {"error": f"Final frame {last_fnum} file missing"}
-            import shutil
-            shutil.copy(source_path, final_mp4_path)
-            logger.info("Classic mode promotion: copied %s to final", source_path)
-        else:
-            # SEGMENTED MODE: Stitch using FFmpeg
-            logger.info("Segmented mode promotion: stitching %d clips", len(all_clips))
+        # SEGMENTED MODE: Stitch using FFmpeg
+        logger.info("Promoting video: stitching %d clips", len(all_clips))
+        
+        # Create a list of trimmed clips
+        trimmed_clips = []
+        for i, clip in enumerate(all_clips):
+            cpath = clip["path"]
+            overlap = clip["overlap"]
             
-            # Create a list of trimmed clips
-            trimmed_clips = []
-            for i, clip in enumerate(all_clips):
-                cpath = clip["path"]
-                overlap = clip["overlap"]
-                
-                if not os.path.exists(cpath):
-                    logger.warning("Clip missing during stitch: %s", cpath)
-                    continue
+            if not os.path.exists(cpath):
+                logger.warning("Clip missing during stitch: %s", cpath)
+                continue
 
-                if i == 0 or overlap == 0:
-                    # First clip or no overlap: use as is
-                    trimmed_clips.append(cpath)
+            if i == 0 or overlap == 0:
+                # First clip or no overlap: use as is
+                trimmed_clips.append(cpath)
+            else:
+                # Extension clip: trim the overlap.
+                # Uses run_in_executor (not create_subprocess_exec) for Windows
+                # SelectorEventLoop compatibility — same pattern as _get_last_8s_clip.
+                tpath = cpath.replace(".mp4", f"_trimmed_for_stitch_{i}.mp4")
+                cmd = ["ffmpeg", "-y", "-i", cpath, "-ss", str(overlap), "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-c:a", "aac", tpath]
+                loop = asyncio.get_running_loop()
+                result = await loop.run_in_executor(None, lambda c=cmd: subprocess.run(c, capture_output=True, stdin=subprocess.DEVNULL))
+                if result.returncode == 0:
+                    trimmed_clips.append(tpath)
+                    temp_files_to_clean.append(tpath)
                 else:
-                    # Extension clip: trim the overlap.
-                    # Uses run_in_executor (not create_subprocess_exec) for Windows
-                    # SelectorEventLoop compatibility — same pattern as _get_last_8s_clip.
-                    tpath = cpath.replace(".mp4", f"_trimmed_for_stitch_{i}.mp4")
-                    cmd = ["ffmpeg", "-y", "-ss", str(overlap), "-i", cpath, "-c", "copy", tpath]
-                    loop = asyncio.get_event_loop()
-                    result = await loop.run_in_executor(None, lambda c=cmd: subprocess.run(c, capture_output=True, stdin=subprocess.DEVNULL))
-                    if result.returncode == 0:
-                        trimmed_clips.append(tpath)
-                        temp_files_to_clean.append(tpath)
-                    else:
-                        logger.error("Failed to trim clip %d for stitching. stderr: %s",
-                                     i, result.stderr.decode(errors='replace')[:500])
-                        trimmed_clips.append(cpath)  # Fallback
+                    logger.error("Failed to trim clip %d for stitching. stderr: %s",
+                                 i, result.stderr.decode(errors='replace')[:500])
+                    trimmed_clips.append(cpath)  # Fallback
 
-            # Concatenate all
-            concat_list_path = os.path.join(TEMP_DIR, f"{project_id}_concat_list.txt")
-            with open(concat_list_path, "w") as f:
-                for cp in trimmed_clips:
-                    f.write(f"file '{os.path.abspath(cp)}'\n")
-            
-            temp_files_to_clean.append(concat_list_path)
-            
-            # Uses run_in_executor (not create_subprocess_exec) for Windows
-            # SelectorEventLoop compatibility — same pattern as _get_last_8s_clip.
-            cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path, "-c", "copy", final_mp4_path]
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, lambda c=cmd: subprocess.run(c, capture_output=True, stdin=subprocess.DEVNULL))
-            stdout_data, stderr_data = result.stdout, result.stderr
+        # Concatenate all
+        concat_list_path = os.path.join(TEMP_DIR, f"{project_id}_concat_list.txt")
+        with open(concat_list_path, "w") as f:
+            for cp in trimmed_clips:
+                safe_path = os.path.abspath(cp).replace("\\", "/")
+                f.write(f"file '{safe_path}'\n")
+        
+        temp_files_to_clean.append(concat_list_path)
+        
+        # Uses run_in_executor (not create_subprocess_exec) for Windows
+        # SelectorEventLoop compatibility — same pattern as _get_last_8s_clip.
+        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path, "-c", "copy", final_mp4_path]
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, lambda c=cmd: subprocess.run(c, capture_output=True, stdin=subprocess.DEVNULL))
+        stdout_data, stderr_data = result.stdout, result.stderr
 
-            if result.returncode != 0:
-                logger.error("FFmpeg concat failed (returncode=%d). stderr: %s",
-                             result.returncode, stderr_data.decode(errors="replace")[:2000])
-                raise RuntimeError("FFmpeg concatenation failed — check logs for details")
+        if result.returncode != 0:
+            logger.error("FFmpeg concat failed (returncode=%d). stderr: %s",
+                         result.returncode, stderr_data.decode(errors="replace")[:2000])
+            raise RuntimeError("FFmpeg concatenation failed — check logs for details")
 
         # 2. Upload the final result
         with open(final_mp4_path, "rb") as fp:

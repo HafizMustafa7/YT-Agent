@@ -15,7 +15,7 @@ const Icon = ({ name, filled, className = '', style = {} }) => (
 const FrameResults = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  
+
   const [error, setError] = useState(null);
   // Restore projectId from sessionStorage on refresh so completed frames survive reloads
   const [projectId, setProjectId] = useState(() => sessionStorage.getItem('yt_frame_project_id') || null);
@@ -87,7 +87,7 @@ const FrameResults = () => {
   // Project Creation exactly once on mount
   useEffect(() => {
     if (!storyResultRaw || projectId || project || isCreatingRef.current) return;
-    
+
     const createProjectBackend = async () => {
       isCreatingRef.current = true;
       setError(null);
@@ -125,24 +125,24 @@ const FrameResults = () => {
 
       try {
         const res = await apiService.createVideoProject(
-            payloadTitle,
-            normalizedFrames,
-            null,          // channelId — supplied later at upload time
-            aspectRatio,   // from creative preferences
-            '720p',        // resolution always 720p for Veo 3.1
-          );
-          // Persist so the project survives a page refresh
-          sessionStorage.setItem('yt_frame_project_id', res.project_id);
-          setProjectId(res.project_id);
+          payloadTitle,
+          normalizedFrames,
+          null,          // channelId — supplied later at upload time
+          aspectRatio,   // from creative preferences
+          '720p',        // resolution always 720p for Veo 3.1
+        );
+        // Persist so the project survives a page refresh
+        sessionStorage.setItem('yt_frame_project_id', res.project_id);
+        setProjectId(res.project_id);
       } catch (err) {
         setError(err.message || 'Failed to initialize backend video project.');
         setLoading(false);
         isCreatingRef.current = false;
       }
     };
-    
+
     createProjectBackend();
-  // Only run if there is no existing projectId (either from state or sessionStorage)
+    // Only run if there is no existing projectId (either from state or sessionStorage)
   }, [storyResultRaw, projectId, project, rawFrames, rawStory]);
 
   // Whenever projectId is obtained, load it once
@@ -173,34 +173,54 @@ const FrameResults = () => {
   // call setGeneratingAll(false), cleaning up sessionStorage.
 
   // Adaptive Polling
+  // IMPORTANT: `project` is intentionally NOT in the dependency array.
+  // Adding it caused a zombie-timer bug: every time fetchProject() resolved and
+  // updated `project` state, this effect would tear down and immediately re-register
+  // a new setTimeout chain, creating overlapping timers that fired faster and faster.
+  // Instead, we read the active-check criteria inside the tick callback via a ref
+  // so the timer chain stays stable for the full polling session.
+  const projectRef = React.useRef(project);
+  useEffect(() => { projectRef.current = project; }, [project]);
+
   useEffect(() => {
-    if (!projectId || !project) return;
-    const status = project?.status;
-    const isActive = status === 'generating' || status === 'queued' || status === 'clips_ready';
-    const hasActiveFrames = (project?.frames || []).some((f) => f.status === 'generating');
-    
-    if (!isActive && !hasActiveFrames && !generatingAll && !generatingFrameId && !combining) {
+    if (!projectId) return;
+
+    // Check if polling should be active at the time each tick fires.
+    const shouldPoll = () => {
+      const p = projectRef.current;
+      if (!p) return false;
+      const status = p?.status;
+      const isActive = status === 'generating' || status === 'queued' || status === 'clips_ready';
+      const hasActiveFrames = (p?.frames || []).some((f) => f.status === 'generating');
+      return isActive || hasActiveFrames || generatingAll || generatingFrameId || combining;
+    };
+
+    if (!shouldPoll()) {
       pollCountRef.current = 0;
       return;
     }
 
-    const tick = () => {
+    let timeoutId;
+    const poll = () => {
+      if (!shouldPoll()) {
+        pollCountRef.current = 0;
+        return; // Stop the chain quietly when there is nothing to poll
+      }
       pollCountRef.current += 1;
       fetchProject();
+      timeoutId = setTimeout(poll, getPollInterval());
     };
 
-    let timeoutId = setTimeout(function poll() {
-      tick();
-      timeoutId = setTimeout(poll, getPollInterval());
-    }, getPollInterval());
-
+    timeoutId = setTimeout(poll, getPollInterval());
     return () => clearTimeout(timeoutId);
-  }, [projectId, project, fetchProject, generatingAll, generatingFrameId, combining]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, fetchProject, generatingAll, generatingFrameId, combining]);
+  // `project` deliberately omitted — see comment above.
 
   // Engine Status Checking
   const liveFrames = useMemo(() => project?.frames || [], [project?.frames]);
   const liveAssets = useMemo(() => project?.assets || [], [project?.assets]);
-  
+
   const completedCount = liveFrames.filter((f) => f.status === 'completed').length;
   const isGeneratingFull = project?.status === 'generating';
   const allCompleted = liveFrames.length > 0 && completedCount === liveFrames.length;
@@ -297,8 +317,8 @@ const FrameResults = () => {
     } catch (e) {
       // Show a user-friendly message for 402 insufficient credits
       const msg = e.message || 'Failed to start bulk generation';
-      setError(msg.toLowerCase().includes('insufficient') 
-        ? 'Not enough credits. Please purchase credits to generate video.' 
+      setError(msg.toLowerCase().includes('insufficient')
+        ? 'Not enough credits. Please purchase credits to generate video.'
         : msg);
       setGeneratingAll(false);  // Ensure button re-enables on any failure
     }
@@ -328,17 +348,18 @@ const FrameResults = () => {
         // Clear persisted state — this project is complete, next story starts fresh
         sessionStorage.removeItem('yt_frame_project_id');
         sessionStorage.removeItem('yt_generating_all');
-        navigate('/final-video', { 
-          state: { 
-            videoUrl: res.video_url, 
+        navigate('/final-video', {
+          state: {
+            videoUrl: res.video_url,
             projectTitle: project?.project_name || 'Generated Video',
             projectId: projectId
-          } 
+          }
         });
         return; // Navigation handled — combining stays true until unmount
       }
-      // Backend returned success but no video_url — show error
-      setError('Video was processed but no URL was returned. Temp files may have been cleared on restart. Please retry.');
+      // Backend starts the promotion in background. 
+      // The adaptive polling useEffect will detect when final_video_url appears.
+      return;
     } catch (e) {
       setError(e.message || 'Failed to promote final video');
     } finally {
@@ -365,7 +386,7 @@ const FrameResults = () => {
         .prompt-overlay { opacity: 0; transition: opacity 0.3s ease; }
         .prompt-overlay.show { opacity: 1; pointer-events: auto; }
       `}</style>
-      
+
       {/* Top Navigation Anchor */}
       <header className="sticky top-0 z-50 w-full bg-[#11131d] px-4 py-3 md:px-8 md:py-4 flex justify-between items-center border-b border-[#737580]/10">
         <div className="text-[20px] md:text-[24px]" style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 900, color: '#00E5FF', letterSpacing: '-0.05em' }}>
@@ -377,7 +398,7 @@ const FrameResults = () => {
       </header>
 
       <main className="px-4 py-8 md:px-6 md:py-12 max-w-[1280px] mx-auto w-full">
-        
+
         {error && (
           <div style={{ padding: '16px', background: 'rgba(255,113,108,0.1)', border: '1px solid rgba(255,113,108,0.2)', color: '#ff716c', borderRadius: '8px', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Icon name="error" /> {error}
@@ -399,7 +420,7 @@ const FrameResults = () => {
               </div>
               <div className="glass-panel relative overflow-hidden rounded-xl border border-[#737580]/10 p-5 md:p-8">
                 <div style={{ position: 'absolute', top: '-100px', right: '-100px', width: '256px', height: '256px', background: 'rgba(0,229,255,0.05)', filter: 'blur(100px)', pointerEvents: 'none' }}></div>
-                
+
                 <div style={{ color: '#aaaab7', lineHeight: 1.8, fontSize: '18px', fontWeight: 300, fontStyle: 'italic', display: 'flex', flexDirection: 'column', gap: '24px' }}>
                   {rawStory?.full_story ? (
                     <p>{rawStory.full_story}</p>
@@ -449,19 +470,19 @@ const FrameResults = () => {
                   const isThisGenerating = generatingFrameId === frame.id || frame.status === 'generating';
                   const isFailed = frame.status === 'failed';
                   const isCompleted = frame.status === 'completed';
-                  
+
                   // Sequence-lock helpers (Veo: each frame depends on the previous)
                   const frameIndex = liveFrames.findIndex((f) => f.id === frame.id);
                   const prevFrame = frameIndex > 0 ? liveFrames[frameIndex - 1] : null;
                   const nextFrame = frameIndex < liveFrames.length - 1 ? liveFrames[frameIndex + 1] : null;
-                  
+
                   // GENERATE is unlocked only if all previous frames are SUCCESS
                   const prevReady = !prevFrame || prevFrame.status === 'completed';
                   const canGenerate = !isCompleted && !isThisGenerating && prevReady;
                   // REGENERATE is unlocked only if this frame is SUCCESS AND next frame is PENDING/FAILED
                   const nextIsPending = !nextFrame || nextFrame.status === 'pending' || nextFrame.status === 'failed';
                   const canRegenerate = isCompleted && nextIsPending;
-                  
+
                   const asset = liveAssets.find((a) => a.id === frame.asset_id);
                   const clipUrl = asset?.file_url;
 
@@ -486,7 +507,7 @@ const FrameResults = () => {
                           </span>
                         </div>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <button 
+                          <button
                             title="Edit Prompt"
                             onClick={() => {
                               setEditingPromptId(frame.id);
@@ -498,7 +519,7 @@ const FrameResults = () => {
                             onMouseLeave={(e) => !isThisGenerating && (e.currentTarget.style.color = '#737580')}>
                             <Icon name="edit" style={{ fontSize: '18px' }} />
                           </button>
-                          <button 
+                          <button
                             title="Copy Prompt"
                             onClick={() => navigator.clipboard.writeText(frame.ai_video_prompt)}
                             style={{ background: 'transparent', border: 'none', color: '#737580', cursor: 'pointer', transition: 'color 0.3s', padding: '4px' }}
@@ -512,26 +533,26 @@ const FrameResults = () => {
                       <div className="p-4 sm:p-6 flex-grow flex flex-col">
                         {editingPromptId === frame.id ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-                            <textarea 
-                              value={editedPromptValue} 
-                              onChange={(e) => setEditedPromptValue(e.target.value)} 
+                            <textarea
+                              value={editedPromptValue}
+                              onChange={(e) => setEditedPromptValue(e.target.value)}
                               disabled={savingPromptId === frame.id}
-                              style={{ width: '100%', minHeight: '120px', background: 'rgba(0,0,0,0.3)', color: '#fff', border: '1px solid #00E5FF', borderRadius: '4px', padding: '12px', fontSize: '14px', lineHeight: 1.6, resize: 'vertical' }} 
+                              style={{ width: '100%', minHeight: '120px', background: 'rgba(0,0,0,0.3)', color: '#fff', border: '1px solid #00E5FF', borderRadius: '4px', padding: '12px', fontSize: '14px', lineHeight: 1.6, resize: 'vertical' }}
                             />
                             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                               <button onClick={() => setEditingPromptId(null)} disabled={savingPromptId === frame.id} style={{ background: 'transparent', color: '#aaaab7', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>Cancel</button>
                               <button onClick={async () => {
-                                  try {
-                                    setSavingPromptId(frame.id);
-                                    await apiService.updateFramePrompt(projectId, frame.id, editedPromptValue);
-                                    const projData = await apiService.getVideoProject(projectId);
-                                    setProject(projData.project);
-                                    setEditingPromptId(null);
-                                  } catch (err) {
-                                    console.error('Failed to save prompt', err);
-                                  } finally {
-                                    setSavingPromptId(null);
-                                  }
+                                try {
+                                  setSavingPromptId(frame.id);
+                                  await apiService.updateFramePrompt(projectId, frame.id, editedPromptValue);
+                                  const projData = await apiService.getVideoProject(projectId);
+                                  setProject(projData.project);
+                                  setEditingPromptId(null);
+                                } catch (err) {
+                                  console.error('Failed to save prompt', err);
+                                } finally {
+                                  setSavingPromptId(null);
+                                }
                               }} disabled={savingPromptId === frame.id} style={{ background: '#00E5FF', color: '#000', border: 'none', borderRadius: '4px', padding: '6px 16px', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>
                                 {savingPromptId === frame.id ? 'Saving...' : 'Save'}
                               </button>
@@ -543,15 +564,15 @@ const FrameResults = () => {
                           </p>
                         )}
 
-                        <div 
+                        <div
                           className="relative"
                           style={{
-                               aspectRatio: '16/9', borderRadius: '8px', overflow: 'hidden', marginBottom: '24px', position: 'relative',
-                               background: '#000', border: isCompleted ? '1px solid rgba(0,229,255,0.2)' : '2px dashed rgba(115,117,128,0.3)',
-                               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
+                            aspectRatio: '16/9', borderRadius: '8px', overflow: 'hidden', marginBottom: '24px', position: 'relative',
+                            background: '#000', border: isCompleted ? '1px solid rgba(0,229,255,0.2)' : '2px dashed rgba(115,117,128,0.3)',
+                            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
                           }}
                         >
-                        {isCompleted && clipUrl ? (
+                          {isCompleted && clipUrl ? (
                             <video
                               src={clipUrl}
                               autoPlay loop muted playsInline
@@ -567,12 +588,12 @@ const FrameResults = () => {
                             </div>
                           )}
 
-                          
+
                           {/* Progress Badge */}
                           {isThisGenerating && (
                             <div style={{ position: 'absolute', bottom: '12px', left: '12px', padding: '4px 12px', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', borderRadius: '4px', border: '1px solid rgba(0,229,255,0.2)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                               <span className="pulse-dot" style={{ width: '6px', height: '6px', background: '#00E5FF', borderRadius: '50%', boxShadow: '0 0 10px #00E5FF', animation: 'pulse 1s infinite' }}></span>
-                               <span style={{ fontSize: '10px', color: '#00E5FF', fontFamily: "'Manrope', sans-serif", fontWeight: 700, textTransform: 'uppercase' }}>Generating</span>
+                              <span className="pulse-dot" style={{ width: '6px', height: '6px', background: '#00E5FF', borderRadius: '50%', boxShadow: '0 0 10px #00E5FF', animation: 'pulse 1s infinite' }}></span>
+                              <span style={{ fontSize: '10px', color: '#00E5FF', fontFamily: "'Manrope', sans-serif", fontWeight: 700, textTransform: 'uppercase' }}>Generating</span>
                             </div>
                           )}
                         </div>
@@ -610,7 +631,7 @@ const FrameResults = () => {
             {allCompleted && !finalVideoUrl && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '64px', marginBottom: '80px', position: 'relative' }}>
                 <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '300px', height: '100px', background: 'rgba(0,229,255,0.1)', filter: 'blur(60px)', pointerEvents: 'none' }}></div>
-                
+
                 <button
                   onClick={handleCompileVideo}
                   disabled={combining}
@@ -632,14 +653,14 @@ const FrameResults = () => {
             {allCompleted && finalVideoUrl && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '64px', marginBottom: '80px', position: 'relative' }}>
                 <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '300px', height: '100px', background: 'rgba(0,255,136,0.1)', filter: 'blur(60px)', pointerEvents: 'none' }}></div>
-                
+
                 <button
-                  onClick={() => navigate('/final-video', { 
-                    state: { 
-                      videoUrl: finalVideoUrl, 
+                  onClick={() => navigate('/final-video', {
+                    state: {
+                      videoUrl: finalVideoUrl,
                       projectTitle: project?.project_name || 'Generated Video',
                       projectId: projectId
-                    } 
+                    }
                   })}
                   style={{
                     width: '100%', maxWidth: '900px', padding: '24px', borderRadius: '16px', border: 'none',
@@ -670,10 +691,10 @@ const FrameResults = () => {
             display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '32px',
             boxShadow: '0 0 50px rgba(0,229,255,0.1)', position: 'relative'
           }}>
-             <div className="absolute inset-0 border-t-2 border-primary rounded-full animate-spin" style={{ borderTopColor: '#00E5FF' }}></div>
-             <Icon name="movie" style={{ fontSize: '40px', color: '#00E5FF' }} />
+            <div className="absolute inset-0 border-t-2 border-primary rounded-full animate-spin" style={{ borderTopColor: '#00E5FF' }}></div>
+            <Icon name="movie" style={{ fontSize: '40px', color: '#00E5FF' }} />
           </div>
-          
+
           <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '28px', fontWeight: 900, color: '#f0f0fd', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 16px 0' }}>
             Uploading Final Video
           </h2>

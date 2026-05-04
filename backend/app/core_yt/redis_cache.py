@@ -33,7 +33,12 @@ class RedisCache:
 
                 if settings.REDIS_URL:
                     # Initialize from URL (e.g., Render)
-                    self.client = redis.Redis.from_url(settings.REDIS_URL, **common_params)
+                    # Render Redis uses TLS (rediss://), we skip cert validation for the managed service
+                    self.client = redis.Redis.from_url(
+                        settings.REDIS_URL, 
+                        ssl_cert_reqs=None,
+                        **common_params
+                    )
                     logger.info("Redis initialized via REDIS_URL")
                 else:
                     # Fallback to host/port (e.g., local or Redis Cloud)

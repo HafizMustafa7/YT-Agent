@@ -146,6 +146,16 @@ async def get_video_project(
         if project.get("user_id") != current_user["id"]:
             raise HTTPException(status_code=403, detail="Not authorized to access this project")
 
+        # Only sync status when the project is still in a transitional state.
+        # This avoids 2-3 extra Supabase queries on every poll for completed/failed projects.
+        current_status = project.get("status", "queued")
+        from app.services.project_status_sync import sync_project_status_if_needed
+        new_status = sync_project_status_if_needed(project_id, current_status)
+        if new_status:
+            # Status was updated in DB — patch the in-memory object so we return
+            # the corrected value without a second full round-trip to Supabase.
+            project["status"] = new_status
+
         # Calculate progress for frontend
         frames = project.get("frames") or []
         total = len(frames)

@@ -14,6 +14,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 2_call_implementation_plan.md
+manual_*.py
 # Node / frontend
 node_modules/
 frontend/node_modules/

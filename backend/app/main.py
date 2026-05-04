@@ -33,6 +33,9 @@ async def lifespan(app: FastAPI):
     set_google_http_client(client)
     logger.info("Shared HTTP client initialised.")
 
+    # Ensure temp video directory exists
+    video_service.ensure_temp_dir()
+
     # ---------------------------------------------------------------------------
     # Startup Recovery: reset frames stuck in 'generating' from a previous crash.
     # If the server was killed mid-generation, background tasks die but the DB

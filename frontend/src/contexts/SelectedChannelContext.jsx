@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
 import apiService from "../features/yt-agent/services/apiService";
 import { supabase } from "../supabaseClient";
 
@@ -154,18 +154,22 @@ export function SelectedChannelProvider({ children }) {
     window.addEventListener('creditsConsumed', handleCreditsConsumed);
     return () => window.removeEventListener('creditsConsumed', handleCreditsConsumed);
   }, [refreshCredits]);
+  // Memoize the context value so consumers only re-render when actual data changes.
+  // Without this, the Provider creates a new object reference on every render,
+  // causing every useSelectedChannel() consumer to re-render unnecessarily,
+  // which can trigger their useEffect hooks and start fetch loops.
+  const contextValue = useMemo(() => ({
+    channels,
+    selectedChannelId,
+    setSelectedChannelId,
+    refreshChannels,
+    credits,
+    refreshCredits,
+    loading,
+  }), [channels, selectedChannelId, setSelectedChannelId, refreshChannels, credits, refreshCredits, loading]);
+
   return (
-    <SelectedChannelContext.Provider
-      value={{
-        channels,
-        selectedChannelId,
-        setSelectedChannelId,
-        refreshChannels,
-        credits,
-        refreshCredits,
-        loading,
-      }}
-    >
+    <SelectedChannelContext.Provider value={contextValue}>
       {children}
     </SelectedChannelContext.Provider>
   );

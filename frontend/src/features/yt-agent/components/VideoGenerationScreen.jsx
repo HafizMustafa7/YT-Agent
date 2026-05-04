@@ -44,31 +44,46 @@ const VideoGenerationScreen = ({ projectId, onViewFinalVideo }) => {
     fetchProject();
   }, [fetchProject]);
 
-  // Auto-poll while generating or combining — adaptive interval
+  // Adaptive Polling
+  // IMPORTANT: `project` is intentionally NOT in the dependency array — see FrameResults.jsx.
+  // Having `project` here caused each fetchProject() call to tear down and re-register the
+  // setTimeout chain, creating overlapping zombie timers that fired increasingly fast.
+  const projectRef = React.useRef(project);
+  useEffect(() => { projectRef.current = project; }, [project]);
+
   useEffect(() => {
-    if (!projectId || !project) return;
-    const status = project?.status;
-    const isActive = status === 'generating' || status === 'queued' || status === 'clips_ready';
-    // Also poll if ANY frame is still generating (handles single-frame retries)
-    const hasActiveFrames = (project?.frames || []).some((f) => f.status === 'generating');
-    if (!isActive && !hasActiveFrames && !generatingAll && !generatingFrameId && !combining) {
-      pollCountRef.current = 0;  // Reset when idle
+    if (!projectId) return;
+
+    const shouldPoll = () => {
+      const p = projectRef.current;
+      if (!p) return false;
+      const status = p?.status;
+      const isActive = status === 'generating' || status === 'queued' || status === 'clips_ready';
+      const hasActiveFrames = (p?.frames || []).some((f) => f.status === 'generating');
+      return isActive || hasActiveFrames || generatingAll || generatingFrameId || combining;
+    };
+
+    if (!shouldPoll()) {
+      pollCountRef.current = 0;
       return;
     }
 
-    const tick = () => {
+    let timeoutId;
+    const poll = () => {
+      if (!shouldPoll()) {
+        pollCountRef.current = 0;
+        return;
+      }
       pollCountRef.current += 1;
       fetchProject();
+      timeoutId = setTimeout(poll, getPollInterval());
     };
 
-    // Use recursive setTimeout so each tick recalculates the delay
-    let timeoutId = setTimeout(function poll() {
-      tick();
-      timeoutId = setTimeout(poll, getPollInterval());
-    }, getPollInterval());
-
+    timeoutId = setTimeout(poll, getPollInterval());
     return () => clearTimeout(timeoutId);
-  }, [projectId, project, fetchProject, generatingAll, generatingFrameId, combining]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, fetchProject, generatingAll, generatingFrameId, combining]);
+  // `project` deliberately omitted — see comment above.
 
   const handleGenerateAll = async () => {
     setGeneratingAll(true);

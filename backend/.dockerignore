@@ -8,3 +8,6 @@ venv/
 .git/
 .gitignore
 temp_video_cache/
+.pytest_cache/
+*.cleanup.py
+manual_*.py
